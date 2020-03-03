@@ -1,82 +1,60 @@
 # from MTarget import NullTarget, NoTarget, PlayerTarget
 
 # from enum import Enum
+from typing import Optional
+from .MEx import MPlayerID
+
+TOWN_ROLES = [
+  'TOWN',
+  'COP',
+  'DOCTOR',
+  'CELEB',
+  'MILLER',
+  'MILKY',
+  'MASON',
+]
+
+MAFIA_ROLES = [
+  'MAFIA',
+  'GODFATHER',
+  'STRIPPER',
+  'GOON',
+]
+
+ROGUE_ROLES = [
+  'IDIOT',
+  'GUARD',
+  'AGENT',
+]
+
+ALL_ROLES = TOWN_ROLES + MAFIA_ROLES + ROGUE_ROLES
+
+
+TARGETING_ROLES = [
+  'COP',
+  'DOCTOR',
+  'MILKY',
+  'STRIPPER',
+]
+
+CHARGE_ROLES = [
+  'GUARD',
+  'AGENT',
+]
 
 class MPlayer:
-  def __init__(self, id, role):
+  def __init__(
+    self, id : MPlayerID, role : str, 
+    vote : Optional[MPlayerID]=None, target: Optional[MPlayerID]=None):
+
     self.id = id
-    self.vote = None
-    self.role = role
-    self.target = None
+    self.vote : Optional[MPlayerID] = vote
+    self.role : str = role
+    self.target : Optional[MPlayerID] = target
 
-# class MPlayer:
-#   def __init__(self, id):
-#     self.id = id;
-#     self.vote = NullTarget()
+  def __str__(self):
+    return "[{id},{role}:{vote}:{target}]".format(**self.__dict__)
     
-#     if isinstance(self, TargetPlayer):
-#       self.target = NullTarget
-#     if isinstance(self, ChargePlayer):
-#       self.charge = None # Must be set after initialization
-    
-#   def __str__(self):
-#     return self.__name__
-    
-# class TargetPlayer:
-#   pass
-    
-# class ChargePlayer:
-#   pass
-    
-# class MPlayerTown(MPlayer):
-#   pass
-  
-# class MPlayerMafia(MPlayer):
-#   pass
+  def __repr__(self):
+    return "[{id},{role}:{vote}:{target}]".format(**self.__dict__)
 
-# class MPlayerRogue(MPlayer):
-#   pass
-    
-# class TOWN(MPlayerTown):
-#   pass
-  
-# class COP(MPlayerTown, TargetPlayer):
-#   pass
-  
-# class DOCTOR(MPlayerTown, TargetPlayer):
-#   pass
-  
-# class CELEB(MPlayerTown):
-#   def __init__(self, id):
-#     super().__init__(id)
-#     self.revealed = False
-  
-# class MILLER(MPlayerTown):
-#   pass
-
-# class MILKY(MPlayerTown, TargetPlayer):
-#   pass
-  
-# class MASON(MPlayerTown):
-#   pass
-  
-# class MAFIA(MPlayerMafia):
-#   pass
- 
-# class GODFATHER(MPlayerMafia):
-#   pass
-  
-# class STRIPPER(MPlayerMafia, TargetPlayer):
-#   pass
-  
-# class GOON(MPlayerMafia):
-#   pass
-  
-# class IDIOT(MPlayerRogue):
-#   pass
-  
-# class GUARD(MPlayerRogue, ChargePlayer):
-#   pass
-
-# class AGENT(MPlayerRogue, ChargePlayer):
-#   pass
