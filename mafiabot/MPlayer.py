@@ -23,29 +23,30 @@ MAFIA_ROLES = [
 
 ROGUE_ROLES = [
   'IDIOT',
+  'SURVIVOR',
   'GUARD',
   'AGENT',
 ]
 
 ALL_ROLES = TOWN_ROLES + MAFIA_ROLES + ROGUE_ROLES
 
-
-TARGETING_ROLES = [
+TARGETING_ROLES = {
   'COP',
   'DOCTOR',
   'MILKY',
   'STRIPPER',
-]
+}
 
-CHARGE_ROLES = [
+CONTRACT_ROLES = {
+  'IDIOT',
+  'SURVIVOR',
   'GUARD',
   'AGENT',
-]
+}
 
 class MPlayer:
   def __init__(
-    self, id : MPlayerID, role : str, 
-    vote : Optional[MPlayerID]=None, target: Optional[MPlayerID]=None):
+    self, id : MPlayerID, role : str, vote : Optional[MPlayerID]=None, target: Optional[MPlayerID]=None):
 
     self.id = id
     self.vote : Optional[MPlayerID] = vote

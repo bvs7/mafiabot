@@ -30,6 +30,12 @@ class MEventType(Enum):
   START = auto()
   TOWN_WIN = auto()
   MAFIA_WIN = auto()
+  AGENT_REFOCUS = auto()
+  GUARD_REFOCUS = auto()
+  SURVIVOR_DIE = auto()
+  IDIOT_DIE = auto()
+  CHARGE_DIE = auto()
+  CONTRACT_RESULT = auto()
 
 class MEvent:
   
@@ -52,16 +58,16 @@ class MEventC:
     return MEvent(MEventType.VOTE, {'voter':voter, 'votee':votee})
 
   @staticmethod
-  def mtarget(target : Optional[MPlayerID]):
-    return MEvent(MEventType.MTARGET, {'target':target})
+  def mtarget(actor : MPlayerID, target : Optional[MPlayerID]):
+    return MEvent(MEventType.MTARGET, {'actor':actor, 'target':target})
 
   @staticmethod
-  def target(player : MPlayerID, target : Optional[MPlayerID]):
-    return MEvent(MEventType.TARGET, {'player':player, 'target':target})
+  def target(actor : MPlayerID, target : Optional[MPlayerID]):
+    return MEvent(MEventType.TARGET, {'actor':actor, 'target':target})
 
   @staticmethod
-  def reveal( player : MPlayerID):
-    return MEvent(MEventType.REVEAL, {'player':player})
+  def reveal(actor : MPlayerID):
+    return MEvent(MEventType.REVEAL, {'actor':actor})
 
   @staticmethod
   def timer():
@@ -69,20 +75,20 @@ class MEventC:
 
   # Static constructors for internal Events #
   @staticmethod
-  def elect(elector : MPlayerID, electee : MPlayerID):
-    return MEvent(MEventType.ELECT, {'elector':elector, 'electee':electee})
+  def elect(actor : MPlayerID, target : MPlayerID):
+    return MEvent(MEventType.ELECT, {'actor':actor, 'target':target})
 
   @staticmethod
-  def kill(target : MPlayerID, success : bool):
-    return MEvent(MEventType.KILL, {'target':target, 'success':success})
+  def kill(actor : MPlayerID, target : MPlayerID, success : bool):
+    return MEvent(MEventType.KILL, {'actor':actor, 'target':target, 'success':success})
 
   @staticmethod
   def strip(actor : MPlayerID, target : MPlayerID, useful : bool):
     return MEvent(MEventType.STRIP, {'actor':actor, 'target':target, 'useful':useful})
 
   @staticmethod
-  def save(actor : MPlayerID, target : MPlayerID, blocked : bool, successful : bool):
-    return MEvent(MEventType.SAVE, {'actor':actor, 'target':target, 'blocked':blocked, 'successful':successful})
+  def save(actor : MPlayerID, target : MPlayerID, blocked : bool, useful : bool):
+    return MEvent(MEventType.SAVE, {'actor':actor, 'target':target, 'blocked':blocked, 'useful':useful})
 
   @staticmethod
   def milk(actor : MPlayerID, target : MPlayerID, blocked : bool, sniped : bool):
@@ -111,3 +117,11 @@ class MEventC:
   @staticmethod
   def mafia_win():
     return MEvent(MEventType.MAFIA_WIN)
+
+  @staticmethod
+  def charge_die(player : MPlayerID, charge : MPlayerID, role : str, aggressor : MPlayerID):
+    return MEvent(MEventType.CHARGE_DIE, {'player':player, 'charge':charge, 'role':role, 'aggressor':aggressor})
+
+  @staticmethod
+  def contract_result(player : MPlayerID, charge : MPlayerID, role : str, success : bool):
+    return MEvent(MEventType.CONTRACT_RESULT, {'player':player, 'charge':charge, 'role':role, 'success':success})
