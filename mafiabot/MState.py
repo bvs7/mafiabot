@@ -1,17 +1,20 @@
-from typing import Dict , List, Optional, Callable, Tuple
+from typing import Dict , List, Optional, Callable, Tuple, OrderedDict
 import json
+import collections
 
 from .MPlayer import *
 from .MEvent import MEvent, MEventType, MEventC
 from .MEx import MPlayerID, NOTARGET
 from .MResp import MResp, MRespType
+from .MRules import MRules
 
 # Phases
 INIT = 'Init'
 DAY = "Day"
 NIGHT = "Night"
+DUSK = "Dusk"
 
-def createPlayers(playerids : List[MPlayerID]) -> Dict[MPlayerID, MPlayer]:
+def createPlayers(playerids : List[MPlayerID]) -> OrderedDict[MPlayerID, MPlayer]:
   ## Gen roles using the number of players (and rules?)
   # Then randomly assign a role to each player and create player object
   # TODO: encapsulate
@@ -19,17 +22,23 @@ def createPlayers(playerids : List[MPlayerID]) -> Dict[MPlayerID, MPlayer]:
   num_players = len(playerids)
 
   DEFAULT_ROLE_LIST = [
+    #0      1       2
     "TOWN", "TOWN", "MAFIA",
+    #3     4         5        6
     "COP", "DOCTOR", "CELEB", "MILLER",
+    #7           8           9
     "GODFATHER", "STRIPPER", "MILKY",
+    #10      11          12      13
     "IDIOT", "SURVIVOR", "TOWN", "TOWN",
+    #14     15       16
     "GOON", "MASON", "MASON",
-    "GUARD", "AGENT",
+    #17      18       #19
+    "GUARD", "AGENT", "TOWN"
   ]
 
   default_roles = DEFAULT_ROLE_LIST[:num_players]
 
-  players = {}
+  players = collections.OrderedDict()
   for playerid, role in zip(playerids, default_roles):
     players[playerid] = MPlayer(playerid, role)
 
@@ -49,15 +58,22 @@ class MState:
   @staticmethod
   def fromPlayers(
     players : List[MPlayerID], 
-    rolegen : Callable[[List[MPlayerID]], Dict[MPlayerID, MPlayer]] = createPlayers,
-    mresp:MResp = MResp()
-    ):
-    mstate = MState()
+    rolegen : Callable[[List[MPlayerID]], OrderedDict[MPlayerID, MPlayer]] = createPlayers,
+    mresp:MResp = MResp(),
+    mrules:MRules = MRules()):
 
+    mstate = MState()
     mstate.mresp : Callable[..., None] = mresp.resp # handle to responding object
+    mstate.mrules = mrules
+    mstate.id = 0
 
     mstate.day = 0
     mstate.phase = INIT # Init|Day|Night
+
+    mstate.venger = None
+    mstate.venger_killer = None
+    mstate.venges = [] # for use with idiot_vengeance rules
+    mstate.stunned = False
 
     mstate.players : Dict[MPlayerID, MPlayer] = rolegen(players)
     mstate.contracts : Dict[MPlayerID,Tuple[MPlayerID, str]] = {}
@@ -72,9 +88,12 @@ class MState:
 
     return mstate
 
+  # TODO: shore up player/json game gen
   @staticmethod
   def fromJSON(json_str : str,
-    mresp:MResp = MResp()):
+    mresp:MResp = MResp(),
+    mrules:MRules = MRules()):
+
     mstate = MState()
 
     json_dict = json.loads(json_str)
@@ -89,6 +108,7 @@ class MState:
       mstate.players[p.id] = p
 
     mstate.mresp : Callable[..., None] = mresp.resp
+    mstate.mrules = mrules
     return mstate
 
   def vote(self, voter : MPlayerID, votee : Optional[MPlayerID]):
@@ -104,6 +124,10 @@ class MState:
     self.handleEvent(MEventC.mtarget(killer, target))
 
   def target(self, player : MPlayerID, target : Optional[MPlayerID]):
+    if self.phase == DUSK:
+      assert(player in self.players and player == self.venger)
+      self.handleEvent(MEventC.target(player,target))
+      return
     assert(player in self.players and self.players[player].role in TARGETING_ROLES)
     assert(target == None or target == NOTARGET or target in self.players)
     assert(self.phase == NIGHT)
@@ -126,8 +150,9 @@ class MState:
     next_event : Optional[MEvent] = None
 
     if event.type == MEventType.VOTE:
+      former_votee = self.players[event.voter].vote
       self.players[event.voter].vote = event.votee  
-      next_event = self.checkVotes(event)
+      next_event = self.checkVotes(event, former_votee)
 
     elif event.type == MEventType.MTARGET:
       self.mresp(MRespType.MTARGET, **event.data)
@@ -136,9 +161,28 @@ class MState:
       next_event = self.checkNightTargets()
 
     elif event.type == MEventType.TARGET:
-      self.mresp(MRespType.TARGET, **event.data)
-      self.players[event.actor].target = event.target
-      next_event = self.checkNightTargets()
+      if not self.phase == DUSK:
+        actor = event.actor
+        if (self.players[actor].role == "MILKY" and
+          event.target == actor and 
+          self.mrules['no_milk_self'] == "ON"):
+          # TODO: put this in validity checking in Handler
+          self.mresp(MRespType.NO_MILK_SELF, **event.data)
+          return
+        self.mresp(MRespType.TARGET, **event.data)
+        self.players[event.actor].target = event.target
+        next_event = self.checkNightTargets()
+      else:
+        assert(event.actor == self.venger)
+        assert(event.target != NOTARGET and event.target in self.venges)
+        self.mresp(MRespType.TARGET, **event.data)
+        self.mresp(MRespType.IDIOT_KILL, **event.data)
+        self.eliminate(event.target, self.venger)
+        self.eliminate(self.venger, self.venger_killer)
+        ne = self.checkWin()
+        if not ne == None:
+          self.handleEvent(ne)
+        self.handleEvent(MEventC.night())
 
     elif event.type == MEventType.REVEAL:
       
@@ -156,15 +200,43 @@ class MState:
     elif event.type == MEventType.START:
       self.mresp(MRespType.START, players = self.players)
 
+      start_night = self.mrules['start_night']
       self.day = 1
       self.phase = DAY
-      self.state = "Play"
+
+      if start_night=='ON' or (start_night=='EVEN' and len(self.players)%2==0):
+        self.handleEvent(MEventC.night())
 
     elif event.type == MEventType.ELECT:
-      self.mresp(MRespType.ELECT, **event.data)
-      if event.target != None and event.target != NOTARGET:
-        self.eliminate(event.target, event.actor)
-        next_event = self.checkWin()
+      if event.target != None:
+        if event.target != NOTARGET:
+          self.mresp(MRespType.ELECT, **event.data)
+          idiot_vengeance = self.mrules['idiot_vengeance']
+          if self.players[event.target].role == "IDIOT" and not idiot_vengeance == "OFF":
+            self.venger = event.target
+            self.venges = [p.id for p in self.players.values() if (p.vote == event.target and p.id != self.venger)]
+            self.venger_killer = event.actor
+            if idiot_vengeance == "KILL":
+              # Go to "Dusk" phase? Send idiot list 
+              self.handleEvent(MEventC.dusk(event.target, self.venges))
+              return
+            elif idiot_vengeance == "WIN":
+              raise IdiotWinException(event.target)
+            elif idiot_vengeance == "DAY":
+              self.eliminate(event.target, event.actor)
+              self.mresp(MRespType.ELECT_IDIOT, **event.data)
+              self.mresp(MRespType.DAY, players=self.players)
+              return
+            elif idiot_vengeance == "STUN":
+              # set a flag. At start of night, if that flag is set
+              # Tell targeters/mafia that they can't do anything that night
+              self.stunned = True
+            else:
+              raise NotImplementedError("Unknown idiot_vengeance rule {}".format(idiot_vengeance))
+          self.eliminate(event.target, event.actor)
+          next_event = self.checkWin()
+        else:
+          self.mresp(MRespType.ELECT_NOKILL, **event.data)
       if next_event == None:
         next_event = MEventC.night()
 
@@ -185,15 +257,22 @@ class MState:
       self.mresp(MRespType.INVESTIGATE, **(event.data))
 
     elif event.type == MEventType.DAY:
+      self.mresp(MRespType.DAY_PREAMBLE, **event.data)
       self.toDay()
       self.resetPlayers()
-      self.mresp(MRespType.DAY, **event.data)
+      self.mresp(MRespType.DAY, players=self.players, **event.data)
       #Start of DAY logging?
 
     elif event.type == MEventType.NIGHT:
       self.mresp(MRespType.NIGHT, **event.data)
+      self.mresp(MRespType.NIGHT_OPTIONS, players=self.players, dest="ALL", stunned=self.stunned, venges=self.venges)
       self.resetPlayers()
       self.phase = NIGHT
+
+    elif event.type == MEventType.DUSK:
+      self.mresp(MRespType.DUSK, **event.data)
+      self.mresp(MRespType.DUSK_OPTIONS, **event.data)
+      self.phase = DUSK
 
     elif event.type == MEventType.TOWN_WIN:
       # logging
@@ -214,7 +293,9 @@ class MState:
       if event.player == event.charge:
         self.mresp(MRespType.SURVIVOR_IDIOT_DIE, **event.data)
       else:
-        if event.charge == event.aggressor or event.player == event.aggressor:
+        if (event.charge == event.aggressor or 
+            event.player == event.aggressor or 
+            not event.aggressor in self.players):
           # Target killed by self or player, become SURVIVOR/IDIOT
           new_charge = event.player
           new_role = 'IDIOT' if needed_alive else 'SURVIVOR'
@@ -246,27 +327,34 @@ class MState:
     # TODO: update save data
     return
 
-  def checkVotes(self, vote_event : MEvent) -> Optional[MEvent]:
+  def checkVotes(self, vote_event : MEvent, former_votee : Optional[MPlayerID]) -> Optional[MEvent]:
     assert(vote_event.type == MEventType.VOTE)
-    p : Optional[MPlayerID, None] = vote_event.votee
+    votee : Optional[MPlayerID, None] = vote_event.votee
     players : Dict[MPlayerID, MPlayer] = self.players
 
-    if p == None:
-      self.mresp(MRespType.VOTE_RETRACT, **(vote_event.data))
-      return
-    num_voters = len([v for v in players if players[v].vote == p])
+    num_voters = len([v for v in players if players[v].vote == votee])
+    num_f_voters = len([v for v in players if players[v].vote == former_votee])
     num_players = len(players)
-    thresh = int(len(players)/2) + 1
+    thresh = int(num_players/2) + 1
     no_kill_thresh = num_players - thresh + 1
+    
+    vote_event.data['thresh'] = thresh
+    vote_event.data['no_kill_thresh'] = no_kill_thresh
+    vote_event.data['votes'] = num_voters
+    vote_event.data['former_votes'] = num_f_voters
+    vote_event.data['former_votee'] = former_votee
 
-    if p == NOTARGET:
-      vote_event.data['remain'] = no_kill_thresh-num_voters
-      self.mresp(MRespType.VOTE_NOKILL, **(vote_event.data))
+    if votee == None:
+      # Vote retraction, if former votee wasn't None, say something
+      if not former_votee == None:
+        self.mresp(MRespType.VOTE_RETRACT, **(vote_event.data))
+      return
+
+    self.mresp(MRespType.VOTE, **(vote_event.data))
+    if votee == NOTARGET:
       if num_voters >= no_kill_thresh:
         return MEventC.elect(vote_event.voter, vote_event.votee) # Add last words timer
     else: # Vote for Player
-      vote_event.data['remain'] = thresh-num_voters
-      self.mresp(MRespType.VOTE_PLAYER, **(vote_event.data))
       if num_voters >= thresh:
         return MEventC.elect(vote_event.voter, vote_event.votee) # Add last words timer
     return None
@@ -282,7 +370,7 @@ class MState:
     return MEventC.day()
 
 
-  def checkWin(self) -> Optional[MEvent]:
+  def checkWin(self) -> Optional[MEvent]: # TODO: make this just handle the win event
     players : Dict[MPlayerID, MPlayer] = self.players
     num_players = len(players)
     num_mafia = len([m for m in players.values() if m.role in MAFIA_ROLES])
@@ -299,6 +387,7 @@ class MState:
     #  Cannot refocus. Become IDIOT!
     # for AGENT: win? (IDIOT case covered?)
     #  Cannot refocus. Become SURVIVOR!
+    self.mresp(MRespType.DEATH, player=target, role=self.players[target].role)
     del(self.players[target])
     self.checkCharges(target, actor) 
 
@@ -325,7 +414,8 @@ class MState:
       if not stripper.target == NOTARGET:
         blocked_ids.append(stripper.target)
         useful = self.players[stripper.target].role in TARGETING_ROLES
-        self.handleEvent(MEventC.strip(stripper_id, stripper.target, useful)) # Even will check for success and log
+        target_role = self.players[stripper.target].role
+        self.handleEvent(MEventC.strip(stripper_id, stripper.target, target_role, useful)) # Even will check for success and log
 
     # try mafia kill (doctor can save)
     if self.mafia_target == None:
@@ -339,18 +429,19 @@ class MState:
         if doctor.target == None:
           doctor.target = NOTARGET
         if not doctor.target == NOTARGET:
-          successful = doctor.target == self.mafia_target
+          useful = doctor.target == self.mafia_target
           blocked = doctor_id in blocked_ids
-          if successful:
+          if useful:
             if blocked:
               pass
             else:
               target_saved = True
-          self.handleEvent(MEventC.save(doctor_id, doctor.target, blocked, successful))
+          self.handleEvent(MEventC.save(doctor_id, doctor.target, blocked, useful))
       # Now kill proceeds
-      if not target_saved:
-        to_kill = self.mafia_target
-      self.handleEvent(MEventC.kill(self.mafia_targeter, self.mafia_target, not target_saved))
+    if not target_saved:
+      to_kill = self.mafia_target # Careful, if NOTARGET could accidentally coincide with others
+    self.handleEvent(MEventC.kill(
+      self.mafia_targeter, self.mafia_target, not target_saved))
 
     # milky gives milk
     for milky_id in [p for p in self.players if self.players[p].role == "MILKY"]:
@@ -360,7 +451,8 @@ class MState:
       if not milky.target == NOTARGET:
         blocked = milky_id in blocked_ids
         sniped = milky.target == to_kill and not target_saved
-        self.handleEvent(MEventC.milk(milky_id, milky.target, blocked, sniped))
+        if not sniped:
+          self.handleEvent(MEventC.milk(milky_id, milky.target, blocked, sniped))
     
     # Cop investigates
     for cop_id in [p for p in self.players if self.players[p].role == "COP"]:
@@ -370,11 +462,19 @@ class MState:
       if not cop.target == NOTARGET:
         blocked = cop_id in blocked_ids
         sniped = cop.target == to_kill and not target_saved
-        self.handleEvent(MEventC.investigate(cop_id, cop.target, blocked, sniped))
+        if not sniped:
+          self.handleEvent(MEventC.investigate(
+            cop_id, cop.target, self.players[cop.target].role, blocked, sniped))
     
     # Finally switch to day
     self.day += 1
     self.phase = DAY
+
+    # Reset for idiot_vengeance == STUN
+    self.venger = None
+    self.venges = []
+    self.venger_killer = None
+    self.stunned = False
 
   def resetPlayers(self):
     self.mafia_target = None
@@ -399,4 +499,7 @@ class TownWinException(EndGameException):
   pass
 
 class MafiaWinException(EndGameException):
+  pass
+
+class IdiotWinException(EndGameException):
   pass

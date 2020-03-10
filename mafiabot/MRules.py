@@ -20,7 +20,7 @@ ROLE_NOTES ={
 
 class MRoles:
 
-  def __init__(self, noteSet : Union[str,Set[str]] = ALL_ROLES):
+  def __init__(self, noteSet : Union[str,Set[str]] = 'MEDIUM'):
     self.roles = self.noteRoles(noteSet)
 
   def __iter__(self): # For ordering roles
@@ -83,7 +83,8 @@ RULE_BOOK ={
     "OFF" : "When a character dies, nothing is revealed",
   },
   "know_if_saved" : {
-    "ON" : "The success of a doctor's save is publicly revealed",
+    "SAVED" : "Upon a successful save, the saved character is revealed",
+    "SECRET" : "Upon a successful save, the fact that a save was successful is revealed, but no other information",
     "OFF" : "The success of a doctor's save is NOT publicly revealed",
   },
   "know_if_saved_doc" : {
@@ -110,11 +111,11 @@ RULE_BOOK ={
     "WIN" : "When an AGENT's charge is killed, the AGENT immediately wins, effectively dying",
     "OFF" : "When an AGENT's charge is killed, nothing else happens",
   },
-  "idiot_vengence" :{
-    "ON" : "When an IDIOT is elected, they must select one character that voted for them to also die",
+  "idiot_vengeance" :{
+    "KILL" : "When an IDIOT is elected, they must select one character that voted for them to also die",
     "WIN" : "When an IDIOT is elected, they immediately win and everyone else loses",
     "DAY" : "When an IDIOT is elected, the Day phase continues, allowing for a second election",
-    "STUN" : "When an IDIOT is elected, all characters that voted for them are stripped",
+    "STUN" : "When an IDIOT is elected, all characters that voted for them cannot act during the night.",
     "OFF" : "When an IDIOT is elected, nothing else happens",
   },
   "know_if_stripped" :{
@@ -132,7 +133,6 @@ RULE_BOOK ={
     "TEAM" : "A COP learns the alignment of the character they investigate (Town, Mafia, Rogue) (GODFATHER -> Town, MILLER -> Mafia)",
     "MAFIA" :"A COP learns whether their target is Mafia aligned or Not Mafia aligned"
   },
-  "roleSet": "A set of the roles to be used in rolegen",
 }
 
 class MRules:
@@ -140,13 +140,13 @@ class MRules:
   default_rules = {
     "known_roles":"TEAM",
     "reveal_on_death":"TEAM",
-    "know_if_saved":"OFF",
+    "know_if_saved":"SAVED",
     "know_if_saved_doc":"ON",
     "know_if_saved_self":"ON",
     "start_night":"EVEN",
     "charge_refocus_guard":"ON",
     "charge_refocus_agent":"ON",
-    "idiot_vengence":"ON",
+    "idiot_vengeance":"ON",
     "know_if_stripped":"USEFUL",
     "no_milk_self":"ON",
     "cop_strength":"MAFIA",

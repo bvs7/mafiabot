@@ -2,26 +2,34 @@ from typing import Dict, Callable, Any, NewType
 from enum import Enum, auto
 
 from .MPlayer import ALL_ROLES, TOWN_ROLES, MAFIA_ROLES, ROGUE_ROLES
+from .MEx import NOTARGET
 
 # Resp must implement all of these Response types?
 class MRespType(Enum):
   VOTE_RETRACT = auto()
-  VOTE_NOKILL = auto()
-  VOTE_PLAYER = auto()
+  VOTE = auto()
   MTARGET = auto()
   TARGET = auto()
   REVEAL = auto()
   TIMER_DAY = auto()
   TIMER_NIGHT = auto()
   ELECT = auto()
+  ELECT_NOKILL = auto()
+  ELECT_IDIOT = auto()
   KILL = auto()
+  DEATH = auto()
   STRIP = auto()
   SAVE = auto()
   MILK = auto()
+  NO_MILK_SELF = auto()
   INVESTIGATE = auto()
   DAY_PREAMBLE = auto()
   DAY = auto()
   NIGHT = auto()
+  NIGHT_OPTIONS = auto()
+  DUSK = auto()
+  DUSK_OPTIONS = auto()
+  IDIOT_KILL = auto()
   START = auto()
   TOWN_WIN = auto()
   MAFIA_WIN = auto()
@@ -31,25 +39,37 @@ class MRespType(Enum):
   CONTRACT_WIN = auto()
   CONTRACT_LOSE = auto()
 
+  # External MRespTypes (from Handler)
+  UNKNOWN_REQ = auto()
+  VOTE_ERROR = auto()
+  MAIN_STATUS = auto()
+
 
 default_resp_lib = {
-  MRespType.VOTE_RETRACT: "[{voter}] Retracted Vote",
-  MRespType.VOTE_NOKILL: "Vote nokill: [{voter}], {remain} more for peace.",
-  MRespType.VOTE_PLAYER: "Vote: [{voter}] -> [{votee}], {remain} more to elect.",
-  MRespType.MTARGET:    "Mafia Target: [{target}]",
-  MRespType.TARGET:     "Target: [{actor}] -> [{target}]",
+  MRespType.VOTE_RETRACT: "[{voter}] retracted vote for [{former_votee}]",
+  MRespType.VOTE:       "[{voter}] votes for [{votee}]",
+  MRespType.MTARGET:    "[{actor}] prepares to kill [{target}]",
+  MRespType.TARGET:     "You have targeted [{target}]",
   MRespType.REVEAL:     "Reveal: [{actor}]",
   MRespType.TIMER_DAY:  "Timer: nokill",
   MRespType.TIMER_NIGHT:"Timer: some slept through the night",
-  MRespType.ELECT:      "Elect: [{target}]",
-  MRespType.KILL:       "Kill: [{target}], success: {success}",
-  MRespType.STRIP:      "Strip: [{actor}] -> [{target}], useful: {useful}",
-  MRespType.SAVE:       "Save: [{actor}] -> [{target}], blocked: {blocked}, useful: {useful}",
-  MRespType.MILK:       "Milk: [{actor}] -> [{target}], blocked: {blocked}, sniped: {sniped}",
-  MRespType.INVESTIGATE:"Investigate: [{actor}] -> [{target}], blocked: {blocked}, sniped: {sniped}",
-  MRespType.DAY_PREAMBLE:"",
-  MRespType.DAY:        "",
-  MRespType.NIGHT:      "Night",
+  MRespType.ELECT:      "[{target}] has been elected to be killed",
+  MRespType.ELECT_NOKILL:"You have elected not to kill anyone",
+  MRespType.ELECT_IDIOT: "... They were an IDIOT...",
+  MRespType.KILL:       "[{target}] was killed by the mafia!",
+  MRespType.DEATH:      "[{player}] was {role}",
+  MRespType.STRIP:      "You were distracted...",
+  MRespType.SAVE:       "[{target}] was saved after being attacked by the mafia!",
+  MRespType.MILK:       "[{target}] received milk in the night.",
+  MRespType.NO_MILK_SELF: "Ewww, please don't milk yourself in front of me",
+  MRespType.INVESTIGATE:"[{target}] is {role}",
+  MRespType.DAY_PREAMBLE:"Day dawns",
+  MRespType.DAY:        "Pick someone to elect.",
+  MRespType.NIGHT:      "Night falls",
+  MRespType.NIGHT_OPTIONS:"Pick someone to {act}:\n",
+  MRespType.DUSK:       "Oops! [{idiot}] was IDIOT. The sky darkens as their reddening eyes observe the crowd...",
+  MRespType.DUSK_OPTIONS: "Pick someone who voted for you to kill:\n",
+  MRespType.IDIOT_KILL: "[{actor}] kills [{target}] before the crowd can subdue them",
   MRespType.START:      "Start Game:",
   MRespType.TOWN_WIN:   "Town Wins",
   MRespType.MAFIA_WIN:  "Mafia Wins",
@@ -58,6 +78,10 @@ default_resp_lib = {
   MRespType.SURVIVOR_IDIOT_DIE: "{role} [{player}] died, killed by [{aggressor}]",
   MRespType.CONTRACT_WIN:"{role} [{player}] won! Charge: [{charge}]",
   MRespType.CONTRACT_LOSE:"{role} [{player}] lost! Charge: [{charge}]",
+
+  MRespType.UNKNOWN_REQ: "Unknown request, '{req_type}' in {chat_type} chat",
+  MRespType.VOTE_ERROR: "Vote failed: {reason}",
+  MRespType.MAIN_STATUS: "",
 }
 
 class MResp:
@@ -70,6 +94,51 @@ class MResp:
     except Exception as e:
       print(e)
       raise(e)
+
+  @staticmethod
+  def dispVotes(players):
+    num_players = len(players)
+    thresh = int(num_players/2) + 1
+    no_kill_thresh = num_players - thresh + 1
+    msgs =[]
+    rev_vote_dict = {}
+    for p in players:
+      rev_vote_dict[p] = [voter for voter in players if players[voter].vote == p]
+    for p,voters in rev_vote_dict.items():
+      if len(voters) > 0:
+        msg = "[{p}] ({n}/{thresh}): ".format(p=p, n=len(voters), thresh=thresh)
+        for voter in voters:
+          msg += "\n  [{voter}]".format(voter=voter)
+        msgs.append(msg)
+    no_target_votes = [voter for voter in players if players[voter].vote == NOTARGET]
+    if len(no_target_votes) > 0:
+      msg = "[{p}] ({n}/{nk_thresh}): ".format(p=NOTARGET, n=len(no_target_votes), nk_thresh=no_kill_thresh)
+      for voter in no_target_votes:
+        msg += "\n  [{voter}]".format(voter=voter)
+      msgs.append(msg)
+    return "\n".join(msgs)
+
+  @staticmethod
+  def teamFromRole(role):
+    if role in TOWN_ROLES:
+      return "Town"
+    if role in MAFIA_ROLES:
+      return "Mafia"
+    if role in ROGUE_ROLES:
+      return "Rogue"
+
+  @staticmethod
+  def dispRole(role, level):
+    if level in ["ON","ROLE"]:
+      return role
+    elif level == "TEAM":
+      m = MResp.teamFromRole(role)
+      return m + " Aligned"
+    elif level == "MAFIA":
+      m = "Mafia" if MResp.teamFromRole(role)=="Mafia" else "Not Mafia"
+      return m + " Aligned"
+    else:
+      return "[REDACTED]"
 
   @staticmethod
   def makeRoleDict(roles):
@@ -85,7 +154,7 @@ class MResp:
     msgs = []
     for role in ALL_ROLES:
       if role in roleDict:
-        msgs.append("{role}: {amt}\n".format(role=role, amt=roleDict(role)))
+        msgs.append("{role}: {amt}".format(role=role, amt=roleDict[role]))
     return '\n'.join(msgs)
   
   @staticmethod

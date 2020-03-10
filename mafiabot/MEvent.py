@@ -6,7 +6,7 @@
 #  night is generated when votes are tallied or)
 
 # TODO: Want an optional import of interface to define player variables
-from typing import Dict, Any, NewType, Optional
+from typing import Dict, Any, NewType, Optional, List
 from enum import Enum, auto
 
 from .MEx import MPlayerID
@@ -27,6 +27,7 @@ class MEventType(Enum):
   INVESTIGATE = auto()
   DAY = auto()
   NIGHT = auto()
+  DUSK = auto()
   START = auto()
   TOWN_WIN = auto()
   MAFIA_WIN = auto()
@@ -83,8 +84,8 @@ class MEventC:
     return MEvent(MEventType.KILL, {'actor':actor, 'target':target, 'success':success})
 
   @staticmethod
-  def strip(actor : MPlayerID, target : MPlayerID, useful : bool):
-    return MEvent(MEventType.STRIP, {'actor':actor, 'target':target, 'useful':useful})
+  def strip(actor : MPlayerID, target : MPlayerID, role : str, useful : bool):
+    return MEvent(MEventType.STRIP, {'actor':actor, 'target':target, 'role':role, 'useful':useful})
 
   @staticmethod
   def save(actor : MPlayerID, target : MPlayerID, blocked : bool, useful : bool):
@@ -95,8 +96,8 @@ class MEventC:
     return MEvent(MEventType.MILK, {'actor':actor, 'target':target, 'blocked':blocked, 'sniped':sniped})
 
   @staticmethod
-  def investigate(actor : MPlayerID, target : MPlayerID, blocked : bool, sniped : bool):
-    return MEvent(MEventType.INVESTIGATE, {'actor':actor, 'target':target, 'blocked':blocked, 'sniped':sniped})
+  def investigate(actor : MPlayerID, target : MPlayerID, role : str, blocked : bool, sniped : bool):
+    return MEvent(MEventType.INVESTIGATE, {'actor':actor, 'target':target, 'role':role, 'blocked':blocked, 'sniped':sniped})
 
   @staticmethod
   def day():
@@ -105,6 +106,10 @@ class MEventC:
   @staticmethod
   def night():
     return MEvent(MEventType.NIGHT)
+
+  @staticmethod
+  def dusk(idiot : MPlayerID, venges : List[MPlayerID]):
+    return MEvent(MEventType.DUSK, {'idiot':idiot, 'venges':venges})
 
   @staticmethod
   def start():
