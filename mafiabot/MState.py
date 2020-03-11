@@ -70,6 +70,9 @@ class MState:
     mstate.day = 0
     mstate.phase = INIT # Init|Day|Night
 
+    mstate.timer = None
+    mstate.timerers = set()
+
     mstate.venger = None
     mstate.venger_killer = None
     mstate.venges = [] # for use with idiot_vengeance rules
@@ -189,6 +192,8 @@ class MState:
       self.mresp(MRespType.REVEAL, **event.data)
 
     elif event.type == MEventType.TIMER:
+      self.timer = None
+      self.timerers = set()
       if self.phase == DAY:
         self.mresp(MRespType.TIMER_DAY, **event.data)
         next_event = MEventC.night()

@@ -2,6 +2,7 @@
 from .MResp import MRespType
 from .MState import *
 from .MRules import MRules
+from .MTimer import MTimer
 
 from typing import Union
 from enum import Enum, auto
@@ -60,9 +61,9 @@ class MHandler:
 
   def handle_MAIN_VOTE(self, mstate, **kwargs):
     try:
-      voter_id = kwargs['player_id']
+      voter_id = kwargs['voter_id']
       votee_id = kwargs['votee_id']
-      assert voter_id in mstate.players, "{voter_id} can't vote, they aren't playing/alive"
+      assert voter_id in mstate.players, "{voter_id} can't vote, they aren't playing"
       assert mstate.phase == DAY, "Must vote during {} phase".format(DAY)
       assert mstate.players[voter_id].vote != votee_id, "You are already voting for {target_id}"
 
@@ -76,16 +77,38 @@ class MHandler:
     mstate.resp(MRespType.MAIN_STATUS, mstate=mstate)
 
   def handle_HELP(self, mstate, **kwargs):
-    # do routing for lobby/dms, etc
-    mresp = mstate.mresp
-
-    # Get next word, route here
+    pass
+    
+    
 
   def handle_MAIN_LEAVE(self, mstate, **kwargs):
     pass
 
   def handle_MAIN_TIMER(self, mstate, **kwargs):
-    pass
+    try:
+      player_id = kwargs['player_id']
+      assert player_id in mstate.players, "{player_id} can't timer, they aren't playing"
+      assert not player_id in mstate.timerers, "{player_id} has already timered"
+      
+      # check timer status for mstate
+      n_timers = len(mstate.timerers)
+      n_players = len(mstate.players)
+
+      def timer_end():
+        mstate.timer()
+      
+      def reminder(n):
+        mstate.mresp(MRespType.TIMER_REMINDER, minutes=n)
+
+      if n_timers == 0:
+        # start timer
+        mstate.timer = MTimer(5*60*n_players, [timer_end])
+        mstate.timerers.append(player_id)
+        mstate.mresp(MRespType.START_TIMER, player_id=player_id, time=mstate.timer.getTime() )
+      else:
+        mstate.timer.addTime(-5*60)
+        mstate.timerers.append(player_id)
+        mstate.mresp(MRespType.ADD_TIMER, player_id=player_id, time=mstate.timer.getTime())
 
   def handle_MAIN_UNTIMER(self, mstate, **kwargs):
     pass
