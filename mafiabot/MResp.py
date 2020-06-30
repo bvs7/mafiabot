@@ -43,6 +43,22 @@ class MRespType(Enum):
   UNKNOWN_REQ = auto()
   VOTE_ERROR = auto()
   MAIN_STATUS = auto()
+  MAFIA_STATUS = auto()
+  DM_STATUS = auto()
+  TIMER_ERROR = auto()
+  UNTIMER_ERROR = auto()
+  TIMER_REMINDER = auto()
+  START_TIMER = auto()
+  ADD_TIME = auto()
+  CANCEL_TIMER = auto()
+  REMOVE_TIME = auto()
+  MTARGET_ERROR = auto()
+  MOPTIONS_ERROR = auto()
+  TARGET_ERROR = auto()
+  OPTIONS_ERROR = auto()
+  REVEAL_ERROR = auto()
+
+  # Lobby Resps
 
 
 default_resp_lib = {
@@ -80,8 +96,22 @@ default_resp_lib = {
   MRespType.CONTRACT_LOSE:"{role} [{player}] lost! Charge: [{charge}]",
 
   MRespType.UNKNOWN_REQ: "Unknown request, '{req_type}' in {chat_type} chat",
-  MRespType.VOTE_ERROR: "Vote failed: {reason}",
+  MRespType.VOTE_ERROR: "/vote failed: {reason}",
   MRespType.MAIN_STATUS: "",
+  MRespType.MAFIA_STATUS : "",
+  MRespType.DM_STATUS : "",
+  MRespType.TIMER_ERROR : "/timer failed: {reason}",
+  MRespType.UNTIMER_ERROR : "/untimer failed: {reason}",
+  MRespType.TIMER_REMINDER : "{minutes} minutes remaining.",
+  MRespType.START_TIMER : "[{player_id}] started timer.",
+  MRespType.ADD_TIME : "[{player_id}] added time to timer.",
+  MRespType.CANCEL_TIMER : "[{player_id}] canceled timer.",
+  MRespType.REMOVE_TIME : "[{player_id}] removed time from timer.",
+  MRespType.MTARGET_ERROR: "/target failed: {reason}",
+  MRespType.MOPTIONS_ERROR: "/options failed: {reason}",
+  MRespType.TARGET_ERROR: "/target failed: {reason}",
+  MRespType.OPTIONS_ERROR: "/options failed: {reason}",
+  MRespType.REVEAL_ERROR: "/reveal failed: {reason}",
 }
 
 class MResp:
@@ -178,6 +208,29 @@ class MResp:
       return "Mafia Aligned: {}\nTotal: {}".format(Mafia, Town+Mafia+Rogue)
     else:
       raise ValueError(str(known_roles) + " wasn't TEAM or MAFIA")
+
+  @staticmethod
+  def dispStatus(mstate, known_roles, reveal_on_death):
+    msg = "Game #{game_id}, {phase} {day}".format(game_id=mstate.id, phase=mstate.phase, day=mstate.day)
+    if mstate.phase == "Day":
+      msg += ":\n" + MResp.dispVotes(mstate.players)
+    elif mstate.phase == "Dusk":
+      msg += ":\n[{}] is seeking revenge against :\n  [".format(
+        mstate.venger) + "]\n  [".join(mstate.venges) + "]"
+    players = mstate.players
+    msg += '\n'
+    roleDict = MResp.makeRoleDict([p.role for p in players.values()])
+    if known_roles == "ROLE" and reveal_on_death == "ROLE":
+      msg += MResp.dispRoleFromDict(roleDict)
+    elif known_roles in ['ROLE','TEAM'] and reveal_on_death in ['ROLE','TEAM']:
+      msg += MResp.dispTeamFromDict(roleDict, "TEAM")
+    elif known_roles in ['ROLE','TEAM', 'MAIFA'] and reveal_on_death in ['ROLE','TEAM','MAFIA']:
+      msg += MResp.dispTeamFromDict(roleDict, 'MAFIA')
+    elif known_roles == 'OFF' or reveal_on_death == 'OFF':
+      msg += "Players: {}".format(len(players))
+    else:
+      NotImplementedError("known_roles or reveal_on_death unknown value: {} | {}".format(known_roles, reveal_on_death))
+    return msg
 
 class TestMResp(MResp):
   

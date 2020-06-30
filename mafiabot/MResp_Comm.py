@@ -1,6 +1,6 @@
 from .MResp import MRespType, MResp, default_resp_lib
 from .MRules import MRules
-from .MPlayer import TARGETING_ROLES
+from .MPlayer import TARGETING_ROLES, MAFIA_ROLES
 from .MEx import NOTARGET
 
 PUBLIC = [
@@ -28,6 +28,13 @@ PUBLIC = [
   MRespType.UNKNOWN_REQ,
   MRespType.VOTE_ERROR,
   MRespType.MAIN_STATUS,
+  MRespType.TIMER_ERROR,
+  MRespType.TIMER_REMINDER,
+  MRespType.START_TIMER,
+  MRespType.ADD_TIME,
+  MRespType.UNTIMER_ERROR,
+  MRespType.CANCEL_TIMER,
+  MRespType.REMOVE_TIME,
 ]
 
 PRIVATE_MAFIA = [
@@ -35,6 +42,9 @@ PRIVATE_MAFIA = [
   MRespType.NIGHT,
   MRespType.NIGHT_OPTIONS,
   MRespType.UNKNOWN_REQ,
+  MRespType.MAFIA_STATUS,
+  MRespType.MTARGET_ERROR,
+  MRespType.MOPTIONS_ERROR,
 ]
 
 PRIVATE = [
@@ -52,6 +62,10 @@ PRIVATE = [
   MRespType.CHARGE_REFOCUS_SELF,
   MRespType.SURVIVOR_IDIOT_DIE,
   MRespType.UNKNOWN_REQ,
+  MRespType.DM_STATUS,
+  MRespType.TARGET_ERROR,
+  MRespType.OPTIONS_ERROR,
+  MRespType.REVEAL_ERROR,
 ]
 
 ACT_LOOKUP ={
@@ -90,6 +104,7 @@ class MResp_Comm(MResp):
     self.mafia = mafia_chat
     self.mrules = mrules
     # Assert that all RespTypes are implemented
+    print(",".join([rt.name for rt in MRespType if not rt in PUBLIC+PRIVATE+PRIVATE_MAFIA]))
     assert( all([rt in PUBLIC + PRIVATE_MAFIA + PRIVATE for rt in MRespType]) )
 
   def resp(self, typ : MRespType, **kwargs) -> None:
@@ -183,29 +198,27 @@ class MResp_Comm(MResp):
 
     elif typ == MRespType.MAIN_STATUS:
       mstate = kwargs['mstate']
-      msg = "Game #{game_id}, {phase} {day}".format(game_id=mstate.id, phase=mstate.phase, day=mstate.day)
-      if mstate.phase == "Day":
-        msg += ":\n" + self.dispVotes(mstate.players)
-      elif mstate.phase == "Dusk":
-        msg += ":\n[{}] is seeking revenge against :\n  [".format(
-          mstate.venger) + "]\n  [".join(mstate.venges) + "]"
       known_roles = self.mrules['known_roles']
       reveal_on_death = self.mrules['reveal_on_death']
-      players = mstate.players
-      msg += '\n'
-      roleDict = self.makeRoleDict([p.role for p in players.values()])
-      if known_roles == "ROLE" and reveal_on_death == "ROLE":
-        msg += self.dispRoleFromDict(roleDict)
-      elif known_roles in ['ROLE','TEAM'] and reveal_on_death in ['ROLE','TEAM']:
-        msg += self.dispTeamFromDict(roleDict, "TEAM")
-      elif known_roles in ['ROLE','TEAM', 'MAIFA'] and reveal_on_death in ['ROLE','TEAM','MAFIA']:
-        msg += self.dispTeamFromDict(roleDict, 'MAFIA')
-      elif known_roles == 'OFF' or reveal_on_death == 'OFF':
-        msg += "Players: {}".format(len(players))
-      else:
-        NotImplementedError("known_roles or reveal_on_death unknown value: {} | {}".format(known_roles, reveal_on_death))
-
+      msg = self.dispStatus(mstate,known_roles,reveal_on_death)
       self.main.cast(msg, notarget="NOKILL")
+
+    elif typ in [MRespType.START_TIMER, MRespType.ADD_TIME, 
+                 MRespType.REMOVE_TIME, MRespType.CANCEL_TIMER]:
+      secs = int(kwargs['time'])
+      mins = secs // 60
+      secs %= 60
+      hrs = mins // 60
+      mins %= 60
+
+      if hrs > 0:
+        time = "{hrs}:{mins}:{secs}".format(**locals())
+      else:
+        time = "{mins}:{secs}".format(**locals())
+
+      msg += " ({time} remaining)".format(time=time)
+
+      self.main.cast(msg.format(**kwargs))
 
     else:
       self.main.cast(msg.format(**kwargs))
@@ -225,9 +238,25 @@ class MResp_Comm(MResp):
         msg = "You have decided not to act tonight"
       self.mafia.cast(msg.format(**kwargs))
 
+    elif typ == MRespType.MAFIA_STATUS:
+      mstate = kwargs['mstate']
+      known_roles = self.mrules['known_roles']
+      reveal_on_death = self.mrules['reveal_on_death']
+      msg = self.dispStatus(mstate,known_roles,reveal_on_death)
+      mafias = ["  [{}]|{}".format(p.id,p.role) for p in mstate.players.values() if p.role in MAFIA_ROLES]
+      msg += "\nYour team:\n" + "\n".join(mafias)
+      self.mafia.cast(msg, notarget="NOKILL")
+
 
   def privateResponse(self, typ, **kwargs):
     msg = default_resp_lib[typ]
+    try:
+      recipient = kwargs['player_id']
+    except Exception:
+      recipient = None
+      print("Exception in private response, no player_id")
+      return
+
     if typ == MRespType.NIGHT_OPTIONS:
       dest = kwargs['dest']
       players = kwargs['players']
@@ -304,6 +333,9 @@ class MResp_Comm(MResp):
       ps = self.listMenu(kwargs['venges'])
       msg += "\n".join(ps)
       self.main.send(msg, kwargs['idiot'])
+
+    else:
+      self.main.send(msg, recipient)
     
 
 

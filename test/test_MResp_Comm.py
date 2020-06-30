@@ -4,7 +4,7 @@ import inspect
 from contextlib import redirect_stdout
 
 sys.path.append("C:\\Users\\Omniscient\\Documents\\Personal\\MafiaBot")
-from mafiabot import MState, MResp_Comm, TestMComm, EndGameException, MRules, MRespType
+from mafiabot import MState, MResp_Comm, TestMComm, EndGameException, MRules, MRespType, Discord_Comm
 
 class TestMResp_Comm(unittest.TestCase):
 

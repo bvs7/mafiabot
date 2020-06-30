@@ -1,61 +1,56 @@
 import time
 import threading
+from typing import List, Tuple, Callable
 
 class MTimer:
 
-  def __init__(self, value, alarm, reminder=None):
+  def __init__(self, value, alarms : List[Tuple[Callable[[],None],int]] = [], reminders : List[Tuple[Callable[[],None],int]] = [] ):
     self.active = True
 
     self.end_time = time.time() + value
+    self.reminders = reminders
     
     self.cv = threading.Condition()
-    full_time_thread = threading.Thread(name="Timer"+str(id), target=self.wait, args=(alarm,))
-    full_time_thread.start()
+    for (alarm, t) in alarms:
+      full_time_thread = threading.Thread(name="Timer"+str(id), target=self.wait, args=(alarm, t))
+      full_time_thread.start()
 
-    r = 5
-    while value - r*60 > 0:
-      reminder_thread = threading.Thread(target=self.wait_reminder, args=(reminder,))
+    for (reminder, t) in reminders:
+      reminder_thread = threading.Thread(target=self.wait_reminder, args=(reminder, t))
       reminder_thread.start()
-      r += 5
 
-  def getRemindTime(self):
-    toWait = self.end_time - time.time()
-    minWait = toWait // 60
-    nextMin = minWait - (minWait % 5)
-    nextReminder = toWait - (nextMin * 60)
-    return (nextReminder, nextMin)
+  def createReminders(self, reminders):
+    for (reminder, t) in reminders:
+      if self.end_time - time.time() > t:
+        reminder_thread = threading.Thread(target=self.wait_reminder, args=(reminder, t))
+        reminder_thread.start()
 
-  def wait_reminder(self, reminder):
-    # wait until next 5 min increment
+  def wait_reminder(self, reminder, t):
     with self.cv:
-      (nextReminder, nextMin) = self.getRemindTime()
-      while self.active:
-        timeout = self.cv.wait(nextReminder)
-        if timeout:
-          break
-        else:
-          (nextReminder, nextMin) = self.getRemindTime()
-      if self.active and reminder != None: # If notified and unnecessary, don't trigger!
-        reminder(nextMin)
+      if self.active:
+        toWait = self.end_time - time.time() - t
+        timeout = not self.cv.wait(toWait)
+        if timeout and self.active:
+          reminder(t)
+
     return
 
-  def wait(self, alarm):
+  def wait(self, alarm, t):
     with self.cv:
-      toWait = self.end_time - time.time()
+      toWait = self.end_time - time.time() - t
       while self.active and toWait > 0:
         self.cv.wait(toWait)
-        toWait = self.end_time - time.time()
-      if self.active and alarm != None: # If notified and unnecessary, don't trigger!
-        alarm()
+        toWait = self.end_time - time.time() - t
+      if self.active:
+        alarm(t)
     return
 
   def addTime(self, value):
     with self.cv:
       self.end_time += value
       self.cv.notify_all()
-      # add additional reminders?
-      # The ones that need to be added are those within the added window
-
+      self.createReminders(self.reminders)
+      time.sleep(.01)
 
   def getTime(self):
     with self.cv:

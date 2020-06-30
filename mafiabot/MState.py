@@ -1,4 +1,4 @@
-from typing import Dict , List, Optional, Callable, Tuple, OrderedDict
+from typing import Dict , List, Optional, Callable, Tuple, OrderedDict, Set
 import json
 import collections
 
@@ -70,8 +70,8 @@ class MState:
     mstate.day = 0
     mstate.phase = INIT # Init|Day|Night
 
-    mstate.timer = None
-    mstate.timerers = set()
+    mstate.timer_obj = None
+    mstate.timerers : Set[MPlayerID] = set()
 
     mstate.venger = None
     mstate.venger_killer = None
@@ -192,7 +192,7 @@ class MState:
       self.mresp(MRespType.REVEAL, **event.data)
 
     elif event.type == MEventType.TIMER:
-      self.timer = None
+      self.timer_obj = None
       self.timerers = set()
       if self.phase == DAY:
         self.mresp(MRespType.TIMER_DAY, **event.data)
@@ -229,7 +229,7 @@ class MState:
               raise IdiotWinException(event.target)
             elif idiot_vengeance == "DAY":
               self.eliminate(event.target, event.actor)
-              self.mresp(MRespType.ELECT_IDIOT, **event.data)
+              self.mresp(l.ELECT_IDIOT, **event.data)
               self.mresp(MRespType.DAY, players=self.players)
               return
             elif idiot_vengeance == "STUN":
@@ -260,6 +260,9 @@ class MState:
       self.mresp(MRespType.MILK, **event.data)
     elif event.type == MEventType.INVESTIGATE:
       self.mresp(MRespType.INVESTIGATE, **(event.data))
+
+    elif event.type == MEventType.NIGHT_END:
+
 
     elif event.type == MEventType.DAY:
       self.mresp(MRespType.DAY_PREAMBLE, **event.data)
