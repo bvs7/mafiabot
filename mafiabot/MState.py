@@ -1,513 +1,694 @@
-from typing import Dict , List, Optional, Callable, Tuple, OrderedDict, Set
-import json
-import collections
+from enum import Enum, auto
+from typing import List, Union, Optional, Dict, Callable
+from threading import Lock, Thread
 
-from .MPlayer import *
-from .MEvent import MEvent, MEventType, MEventC
-from .MEx import MPlayerID, NOTARGET
-from .MResp import MResp, MRespType
-from .MRules import MRules
+from .MInfo import *
+from .MPlayer import MPlayer, MPlayerID, NOTARGET
 
-# Phases
-INIT = 'Init'
-DAY = "Day"
-NIGHT = "Night"
-DUSK = "Dusk"
+# TODO: Put this somewhere better?
+ACT_LOOKUP ={
+  "MAFIA":"kill",
+  "STRIPPER":"strip",
+  "DOCTOR":"save",
+  "COP":"investigate",
+  "MILKY":"milk",
+}
 
-def createPlayers(playerids : List[MPlayerID]) -> OrderedDict[MPlayerID, MPlayer]:
-  ## Gen roles using the number of players (and rules?)
-  # Then randomly assign a role to each player and create player object
-  # TODO: encapsulate
+class MPhase(Enum):
+  INIT = auto()
+  DAWN = auto()
+  DAY = auto()
+  NIGHT = auto()
+  DUSK = auto()
 
-  num_players = len(playerids)
+class EType(Enum):
+  VOTE = auto()
+  MTARGET = auto()
+  TARGET = auto()
+  REVEAL = auto()
+  TIMER = auto()
 
-  DEFAULT_ROLE_LIST = [
-    #0      1       2
-    "TOWN", "TOWN", "MAFIA",
-    #3     4         5        6
-    "COP", "DOCTOR", "CELEB", "MILLER",
-    #7           8           9
-    "GODFATHER", "STRIPPER", "MILKY",
-    #10      11          12      13
-    "IDIOT", "SURVIVOR", "TOWN", "TOWN",
-    #14     15       16
-    "GOON", "MASON", "MASON",
-    #17      18       #19
-    "GUARD", "AGENT", "TOWN"
-  ]
+  START = auto()
+  ELECT = auto()
+  KILL = auto()
+  VENGEANCE = auto()
+  ELIMINATE = auto()
+  CHARGE_DIE = auto()
+  DUSK = auto()
+  REFOCUS = auto()
+  WIN = auto()
+  CONTRACT_RESULT = auto()
+  END = auto()
+  NIGHT = auto()
+  DAWN = auto()
+  STRIP = auto()
+  SAVE = auto()
+  MILK = auto()
+  INVESTIGATE = auto()
+  DAY = auto()
 
-  default_roles = DEFAULT_ROLE_LIST[:num_players]
+class MEvent:
+  
+  def __init__(self, typ : EType, **kwargs):
+    self.type = typ
+    for arg,value in kwargs.items():
+      setattr(self, arg, value)
 
-  players = collections.OrderedDict()
-  for playerid, role in zip(playerids, default_roles):
-    players[playerid] = MPlayer(playerid, role)
+  #TODO external event constructors
 
-  for player in players.values():
-    if player.role in CONTRACT_ROLES:
-      if player.role in ['IDIOT', 'SURVIVOR']:
-        player.target = player.id
-      else:
-        player.target = playerids[0]
+class EventHandler:
 
-  return players
-
-
-class MState:
-  """State and handlers for Mafia game"""
-
-  @staticmethod
-  def fromPlayers(
-    players : List[MPlayerID], 
-    rolegen : Callable[[List[MPlayerID]], OrderedDict[MPlayerID, MPlayer]] = createPlayers,
-    mresp:MResp = MResp(),
-    mrules:MRules = MRules()):
-
-    mstate = MState()
-    mstate.mresp : Callable[..., None] = mresp.resp # handle to responding object
-    mstate.mrules = mrules
-    mstate.id = 0
-
-    mstate.day = 0
-    mstate.phase = INIT # Init|Day|Night
-
-    mstate.timer_obj = None
-    mstate.timerers : Set[MPlayerID] = set()
-
-    mstate.venger = None
-    mstate.venger_killer = None
-    mstate.venges = [] # for use with idiot_vengeance rules
-    mstate.stunned = False
-
-    mstate.players : Dict[MPlayerID, MPlayer] = rolegen(players)
-    mstate.contracts : Dict[MPlayerID,Tuple[MPlayerID, str]] = {}
-    for p in mstate.players.values():
-      if p.role in CONTRACT_ROLES:
-        mstate.contracts[p.id] = (p.target, p.role)
-
-    mstate.mafia_targeter : Optional[MPlayerID] = None
-    mstate.mafia_target : Optional[MPlayerID] = None
-
-    mstate.handleEvent(MEventC.start())
-
-    return mstate
-
-  # TODO: shore up player/json game gen
-  @staticmethod
-  def fromJSON(json_str : str,
-    mresp:MResp = MResp(),
-    mrules:MRules = MRules()):
-
-    mstate = MState()
-
-    json_dict = json.loads(json_str)
-
-    players = [MPlayer(**p) for p in json_dict['players']]
-    del(json_dict['players'])
-
-    mstate.__dict__ = json_dict
-
-    mstate.players : Dict[MPlayerID, MPlayer] = {}
-    for p in players:
-      mstate.players[p.id] = p
-
-    mstate.mresp : Callable[..., None] = mresp.resp
-    mstate.mrules = mrules
-    return mstate
-
-  def vote(self, voter : MPlayerID, votee : Optional[MPlayerID]):
-    assert(voter in self.players)
-    assert(votee == None or votee == NOTARGET or votee in self.players)
-    assert(self.phase == DAY)
-    self.handleEvent(MEventC.vote(voter, votee))
-
-  def mtarget(self, killer : MPlayerID, target : Optional[MPlayerID]):
-    assert(killer in self.players and self.players[killer].role in MAFIA_ROLES)
-    assert(target == None or target == NOTARGET or target in self.players)
-    assert(self.phase == NIGHT)
-    self.handleEvent(MEventC.mtarget(killer, target))
-
-  def target(self, player : MPlayerID, target : Optional[MPlayerID]):
-    if self.phase == DUSK:
-      assert(player in self.players and player == self.venger)
-      self.handleEvent(MEventC.target(player,target))
-      return
-    assert(player in self.players and self.players[player].role in TARGETING_ROLES)
-    assert(target == None or target == NOTARGET or target in self.players)
-    assert(self.phase == NIGHT)
-    self.handleEvent(MEventC.target(player, target))
-
-  def reveal(self, player : MPlayerID):
-    assert(player in self.players and self.players[player].role == 'CELEB')
-    assert(self.phase == DAY)
-    self.handleEvent(MEventC.reveal(player))
-
-  def timer(self):
-    # Assertions in the future?
-    self.handleEvent(MEventC.timer())
-
-  ## Methods after this should be hidden?
+  def unhandled(self, event):
+    pass
 
   def handleEvent(self, event : MEvent):
-    # TODO: Do logging in the switch below (Except Day, handle that later?)
+    handler = getattr(self, event.type.name, default=self.unhandled)
+    handler(event)
 
-    next_event : Optional[MEvent] = None
+class ChatDisplayEventHandler(EventHandler):
+  """ Handler for displaying event info """
 
-    if event.type == MEventType.VOTE:
-      former_votee = self.players[event.voter].vote
-      self.players[event.voter].vote = event.votee  
-      next_event = self.checkVotes(event, former_votee)
+  def create_resp_lib(self):
+    self.resp_lib = {
+      "VOTE_RETRACT": "[{voter}] retracted vote for [{former_votee}]",
+      "VOTE":       "[{voter}] votes for [{votee}]",
+      "MTARGET":    "[{actor}] prepares to kill [{target}]",
+      "TARGET":     "You have targeted [{target}]",
+      "REVEAL":     "Reveal: [{actor}]",
+      "TIMER_DAY":  "Timer: nokill",
+      "TIMER_NIGHT":"Timer: some slept through the night",
+      "ELECT":      "[{target}] has been elected to be killed",
+      "ELECT_NOKILL":"You have elected not to kill anyone",
+      "ELECT_IDIOT": "... They were an IDIOT...",
+      "KILL":       "[{target}] was killed by the mafia!",
+      "KILL_FAIL_QUIET":  "It seems nobody died last night...",
+      "VENGEANCE":  "[{actor}] takes [{target}] with them",
+      "ELIMINATE" : "[{target}] was {role}",
+      "ELIMINATE_ANON":"[{target}] has died",
+      "CHARGE_DIE": "[{target}] has died",
+      "CHARGE_KILLED": ", at the hands of [{aggressor}]",
+      "DEATH":      "[{player}] was {role}",
+      "STRIP":      "You were distracted...",
+      "SAVE":       "[{target}] was saved after being attacked by the mafia!",
+      "MILK":       "[{target}] received milk in the night.",
+      "NO_MILK_SELF": "Ewww, please don't milk yourself in front of me",
+      "INVESTIGATE":"[{target}] is {role}",
+      "DAWN":"Day dawns",
+      "DAY":        "Pick someone to elect.",
+      "NIGHT":      "Night falls",
+      "NIGHT_OPTIONS":"Pick someone to {act}:\n",
+      "DUSK":       "The sky darkens as their reddening eyes observe the crowd...",
+      "DUSK_OPTIONS": "Pick someone who voted for you to kill:\n",
+      "IDIOT_KILL": "[{actor}] kills [{target}] before the crowd can subdue them",
+      "START":      "Start Game:",
+      "WIN":   "[{winning_team}] Wins!",
+      "REFOCUS": "Refocus {role} [{actor}] -> {new_role}, [{target}] -> [{aggressor}]",
+      "REFOCUS_SELF": "Refocus {role} [{actor}] -> {new_role}, [{target}] -> self",
+      "SURVIVOR_IDIOT_DIE": "{role} [{player}] died, killed by [{aggressor}]",
+      "CONTRACT_WIN":"{role} [{player}] won! Charge: [{charge}]",
+      "CONTRACT_LOSE":"{role} [{player}] lost! Charge: [{charge}]",
+      "CONTRACT_RESULT":"{role} [{contractor}] {result}! Charge: [{charge}]",
 
-    elif event.type == MEventType.MTARGET:
-      self.mresp(MRespType.MTARGET, **event.data)
-      self.mafia_target = event.target
-      self.mafia_targeter = event.actor
-      next_event = self.checkNightTargets()
+      "UNKNOWN_REQ": "Unknown request, '{req_type}' in {chat_type} chat",
+      "VOTE_ERROR": "/vote failed: {reason}",
+      "MAIN_STATUS": "",
+      "MAFIA_STATUS": "",
+      "DM_STATUS": "",
+      "TIMER_ERROR": "/timer failed: {reason}",
+      "UNTIMER_ERROR": "/untimer failed: {reason}",
+      "TIMER_REMINDER": "{minutes} minutes remaining.",
+      "START_TIMER": "[{player_id}] started timer.",
+      "ADD_TIME": "[{player_id}] added time to timer.",
+      "CANCEL_TIMER": "[{player_id}] canceled timer.",
+      "REMOVE_TIME": "[{player_id}] removed time from timer.",
+      "MTARGET_ERROR": "/target failed: {reason}",
+      "MOPTIONS_ERROR": "/options failed: {reason}",
+      "TARGET_ERROR": "/target failed: {reason}",
+      "OPTIONS_ERROR": "/options failed: {reason}",
+      "REVEAL_ERROR": "/reveal failed: {reason}",
+    }
 
-    elif event.type == MEventType.TARGET:
-      if not self.phase == DUSK:
-        actor = event.actor
-        if (self.players[actor].role == "MILKY" and
-          event.target == actor and 
-          self.mrules['no_milk_self'] == "ON"):
-          # TODO: put this in validity checking in Handler
-          self.mresp(MRespType.NO_MILK_SELF, **event.data)
-          return
-        self.mresp(MRespType.TARGET, **event.data)
-        self.players[event.actor].target = event.target
-        next_event = self.checkNightTargets()
-      else:
-        assert(event.actor == self.venger)
-        assert(event.target != NOTARGET and event.target in self.venges)
-        self.mresp(MRespType.TARGET, **event.data)
-        self.mresp(MRespType.IDIOT_KILL, **event.data)
-        self.eliminate(event.target, self.venger)
-        self.eliminate(self.venger, self.venger_killer)
-        ne = self.checkWin()
-        if not ne == None:
-          self.handleEvent(ne)
-        self.handleEvent(MEventC.night())
+  def __init__(self, mstate, cast_main, cast_mafia, send_dm, ids = {}):
+    self.mstate = mstate
+    self.cast_main = cast_main
+    self.cast_mafia= cast_mafia
+    self.send_dm   = send_dm
+    self.create_resp_lib()
+    self.ids = ids # id to name dict
 
-    elif event.type == MEventType.REVEAL:
-      
-      self.mresp(MRespType.REVEAL, **event.data)
+  def comm_format(self, msg, event, notarget="None"):
+    msg = msg.format(**(event.__dict__))
+    for i,name in self.ids.items():
+      msg = msg.replace("[{}]".format(i), name)
+    msg.replace("[{}]".format(NOTARGET), notarget)
+    return msg
 
-    elif event.type == MEventType.TIMER:
-      self.timer_obj = None
-      self.timerers = set()
-      if self.phase == DAY:
-        self.mresp(MRespType.TIMER_DAY, **event.data)
-        next_event = MEventC.night()
-      if self.phase == NIGHT:
-        self.mresp(MRespType.TIMER_NIGHT, **event.data)
-        next_event = MEventC.day()
-
-    # End of external events
-    elif event.type == MEventType.START:
-      self.mresp(MRespType.START, players = self.players)
-
-      start_night = self.mrules['start_night']
-      self.day = 1
-      self.phase = DAY
-
-      if start_night=='ON' or (start_night=='EVEN' and len(self.players)%2==0):
-        self.handleEvent(MEventC.night())
-
-    elif event.type == MEventType.ELECT:
-      if event.target != None:
-        if event.target != NOTARGET:
-          self.mresp(MRespType.ELECT, **event.data)
-          idiot_vengeance = self.mrules['idiot_vengeance']
-          if self.players[event.target].role == "IDIOT" and not idiot_vengeance == "OFF":
-            self.venger = event.target
-            self.venges = [p.id for p in self.players.values() if (p.vote == event.target and p.id != self.venger)]
-            self.venger_killer = event.actor
-            if idiot_vengeance == "KILL":
-              # Go to "Dusk" phase? Send idiot list 
-              self.handleEvent(MEventC.dusk(event.target, self.venges))
-              return
-            elif idiot_vengeance == "WIN":
-              raise IdiotWinException(event.target)
-            elif idiot_vengeance == "DAY":
-              self.eliminate(event.target, event.actor)
-              self.mresp(l.ELECT_IDIOT, **event.data)
-              self.mresp(MRespType.DAY, players=self.players)
-              return
-            elif idiot_vengeance == "STUN":
-              # set a flag. At start of night, if that flag is set
-              # Tell targeters/mafia that they can't do anything that night
-              self.stunned = True
-            else:
-              raise NotImplementedError("Unknown idiot_vengeance rule {}".format(idiot_vengeance))
-          self.eliminate(event.target, event.actor)
-          next_event = self.checkWin()
-        else:
-          self.mresp(MRespType.ELECT_NOKILL, **event.data)
-      if next_event == None:
-        next_event = MEventC.night()
-
-    elif event.type == MEventType.KILL:
-      self.mresp(MRespType.KILL, **(event.data))
-      if event.success:
-        if not event.target == NOTARGET: # Target should never be NOTARGET anyway
-          self.eliminate(event.target, event.actor)
-          next_event = self.checkWin()
-
-    elif event.type == MEventType.STRIP:
-      self.mresp(MRespType.STRIP, **event.data)
-    elif event.type == MEventType.SAVE:
-      self.mresp(MRespType.SAVE, **event.data)
-    elif event.type == MEventType.MILK:
-      self.mresp(MRespType.MILK, **event.data)
-    elif event.type == MEventType.INVESTIGATE:
-      self.mresp(MRespType.INVESTIGATE, **(event.data))
-
-    elif event.type == MEventType.NIGHT_END:
-
-
-    elif event.type == MEventType.DAY:
-      self.mresp(MRespType.DAY_PREAMBLE, **event.data)
-      self.toDay()
-      self.resetPlayers()
-      self.mresp(MRespType.DAY, players=self.players, **event.data)
-      #Start of DAY logging?
-
-    elif event.type == MEventType.NIGHT:
-      self.mresp(MRespType.NIGHT, **event.data)
-      self.mresp(MRespType.NIGHT_OPTIONS, players=self.players, dest="ALL", stunned=self.stunned, venges=self.venges)
-      self.resetPlayers()
-      self.phase = NIGHT
-
-    elif event.type == MEventType.DUSK:
-      self.mresp(MRespType.DUSK, **event.data)
-      self.mresp(MRespType.DUSK_OPTIONS, **event.data)
-      self.phase = DUSK
-
-    elif event.type == MEventType.TOWN_WIN:
-      # logging
-      self.mresp(MRespType.TOWN_WIN, **event.data)
-      self.checkContractWins()
-      raise TownWinException()
-
-    elif event.type == MEventType.MAFIA_WIN:
-      # logging
-      self.mresp(MRespType.MAFIA_WIN, **event.data)
-      self.checkContractWins()
-      raise MafiaWinException()
-
-    elif event.type == MEventType.CHARGE_DIE:
-      # logging
-      needed_alive = event.role in ['GUARD', 'SURVIVOR']
-
-      if event.player == event.charge:
-        self.mresp(MRespType.SURVIVOR_IDIOT_DIE, **event.data)
-      else:
-        if (event.charge == event.aggressor or 
-            event.player == event.aggressor or 
-            not event.aggressor in self.players):
-          # Target killed by self or player, become SURVIVOR/IDIOT
-          new_charge = event.player
-          new_role = 'IDIOT' if needed_alive else 'SURVIVOR'
-          event.data['new_role'] = new_role
-          self.mresp(MRespType.CHARGE_REFOCUS_SELF, **event.data)
-        else: # otherwise, aggressor MUST be alive
-          new_charge = event.aggressor
-          new_role = 'AGENT' if needed_alive else 'GUARD'
-          event.data['new_role'] = new_role
-          self.mresp(MRespType.CHARGE_REFOCUS, **event.data)
-        player = self.players[event.player]
-        player.role = new_role
-        player.target = new_charge
-        self.contracts[event.player] = (new_charge, new_role)
-
-    elif event.type == MEventType.CONTRACT_RESULT:
-      if event.success:
-        self.mresp(MRespType.CONTRACT_WIN, **event.data)
-      else:
-        self.mresp(MRespType.CONTRACT_LOSE, **event.data)
-
-
+  @staticmethod
+  def dispVoteThresh(event, former = False):
+    former_str = "former_" if former else ""
+    votee = former_str + "votee"
+    if event.votee == NOTARGET:
+      thresh = "{no_kill_thresh}"
+      goal = 'for peace'
     else:
-      raise NotImplementedError((event.type.name)+ ": " + str(event.data))
+      thresh = "{thresh}"
+      goal = 'to elect [{votee}]'.format(votee="{"+votee+"}")
+    return "{votes}/{thresh} ".format(votes="{"+former_str+"votes}", thresh=thresh) + goal
 
-    if next_event != None:
-      return self.handleEvent(next_event)
+  @staticmethod
+  def listMenu(players):
+    ps = []
+    c = 'A'
+    for player in players:
+      ps.append("{}: [{}]".format(c,player))
+      c = chr(ord(c)+1)
+    ps.append("{}: [NOTARGET]".format(c))
+    return ps
 
-    # TODO: update save data
+  @staticmethod
+  def teamFromRole(role):
+    if role in TOWN_ROLES:
+      return "Town"
+    if role in MAFIA_ROLES:
+      return "Mafia"
+    if role in ROGUE_ROLES:
+      return "Rogue"
+
+  @staticmethod
+  def dispRole(role, level="ON"):
+    if level in ["ON","ROLE"]:
+      return role
+    elif level == "TEAM":
+      m = ChatDisplayEventHandler.teamFromRole(role)
+      return m + " Aligned"
+    elif level == "MAFIA":
+      m = "Mafia" if ChatDisplayEventHandler.teamFromRole(role)=="Mafia" else "Not Mafia"
+      return m + " Aligned"
+    else:
+      return "[REDACTED]"
+
+  def VOTE(self, event : MEvent):
+    # TODO: double check when event info is made?
+    msg = self.resp_lib["VOTE"]
+    if event.votee == None:
+      msg = self.resp_lib["VOTE_RETRACT"]
+    else:
+      msg += ", {}".format(self.dispVoteThresh(event, former = False))
+    if event['former_votee'] != None:
+      msg +=", ({})".format(self.dispVoteThresh(event, former = True))
+    self.cast_main(self.comm_format(msg, event, notarget="NOKILL"))
+
+  def TARGET(self, event : MEvent):
+    if event.mafia:
+      msg = self.resp_lib["MTARGET"]
+    else:
+      msg = self.resp_lib["TARGET"]
+      dest = event.actor
+
+    if event.target == NOTARGET:
+      msg = "You have decided not to act tonight"
+    
+    if event.mafia:
+      self.cast_mafia(self.comm_format(msg, event))
+    else:
+      self.send_dm(self.comm_format(msg, event), dest)
+
+  def REVEAL(self, event : MEvent):
+    celeb_id = event.actor
+    celeb = self.mstate.players[celeb_id]
+    if self.mstate.celeb_stripped(celeb_id):
+      msg = self.resp_lib["STRIP"]
+      self.send_dm(msg, event.actor)
+    else:
+      msg = self.resp_lib["REVEAL"]
+      self.cast_main(self.comm_format(msg, event))
+
+  def TIMER(self, event : MEvent):
+    if self.mstate.phase == MPhase.DAY:
+      msg = self.resp_lib["TIMER_DAY"]
+    elif self.mstate.phase == MPhase.NIGHT:
+      msg = self.resp_lib["TIMER_NIGHT"]
+    self.cast_main(msg)
+
+  def START(self, event : MEvent):
+    msg = "TODO: Start message"
+    self.cast_main(msg)
+
+  def ELECT(self, event : MEvent):
+    msg = self.resp_lib["ELECT"]
+    if self.mstate.players[event.target].role == "IDIOT":
+      msg += self.resp_lib["ELECT_IDIOT"]
+
+    self.cast_main(self.comm_format(msg, event, "Nobody"))
+
+  def KILL(self, event : MEvent):
+    if event.success:
+      msg = self.resp_lib["KILL"]
+      self.cast_main(self.comm_format(msg, event, "Nobody"))
+
+  def VENGEANCE(self, event : MEvent):
+    msg = self.resp_lib["VENGEANCE"]
+    self.cast_main(self.comm_format(msg, event))
+
+  def ELIMINATE(self, event : MEvent):
+    msg = self.resp_lib["ELIMINATE"]
+    event.role = self.dispRole(self.mstate.players[event.target].role)
+    self.cast_main(self.comm_format(msg, event))
+
+  def CHARGE_DIE(self, event : MEvent):
+    msg = self.resp_lib["CHARGE_DIE"]
+    msg += self.resp_lib["CHARGE_KILLED"]
+
+    self.send_dm(self.comm_format(msg, event), event.actor)
+
+  def DUSK(self, event : MEvent):
+    msg = self.resp_lib["DUSK"]
+    self.cast_main(self.comm_format(msg, event))
+    options = self.resp_lib["DUSK_OPTIONS"]
+    options += self.listMenu(self.mstate.vengeance.venges)
+    self.send_dm(options, event.actor)
+
+  def REFOCUS(self, event : MEvent):
+    if event.actor == event.aggressor:
+      msg = self.resp_lib["REFOCUS_SELF"]
+      if event.role == "GUARD":
+        event.new_role = "IDIOT"
+      elif event.role == "AGENT":
+        event.new_role = "SURVIVOR"
+    else:
+      msg = self.resp_lib["REFOCUS"]
+      if event.role == "GUARD":
+        event.new_role = "AGENT"
+      elif event.role == "AGENT":
+        event.new_role = "GUARD"
+    
+    self.send_dm(self.comm_format(msg, event), event.actor)
+
+  def WIN(self, event : MEvent):
+    msg = self.resp_lib["WIN"]
+    self.cast_main(self.comm_format(msg, event))
+
+  def CONTRACT_RESULT(self, event : MEvent):
+    msg = self.resp_lib["CONTRACT_RESULT"]
+    event.result = "Won" if event.success else "Lost"
+    self.cast_main(self.comm_format(msg, event))
+
+  def END(self, event : MEvent):
+    # TODO: reveals?
+    pass
+
+  def NIGHT(self, event : MEvent):
+    msg = self.resp_lib["NIGHT"]
+    self.cast_main(msg)
+    targeting_players = [p for p in self.mstate.players.values() if p.role in TARGETING_ROLES]
+    for player in targeting_players:
+      msg = self.resp_lib["NIGHT_OPTIONS"].format(act = ACT_LOOKUP[player.role])
+      msg += self.listMenu(self.mstate.players)
+      self.send_dm(self.comm_format(msg, event))
+
+  def DAWN(self, event : MEvent):
+    msg = self.resp_lib["DAWN"]
+    self.cast_main(msg)
+
+  def STRIP(self, event : MEvent):
+    pass
+
+  def SAVE(self, event : MEvent):
+    if event.stripped:
+      msg = self.resp_lib["STRIP"]
+      self.send_dm(msg, event.actor)
+    # TODO doc_self stuff?
+
+  def MILK(self, event : MEvent):
+    if event.stripped:
+      msg = self.resp_lib["STRIP"]
+      self.send_dm(msg, event.actor)
+    elif event.success and event.target in self.mstate.players:
+      msg = self.resp_lib["MILK"]
+      self.cast_main(self.comm_format(msg, event))
+
+  def INVESTIGATE(self, event : MEvent):
+    if event.stripped:
+      msg = self.resp_lib["STRIP"]
+      self.send_dm(msg, event.actor)
+    elif event.success and event.target in self.mstate.players:
+      msg = self.resp_lib["INVESTIGATE"]
+      event.role = self.mstate.players[event.target].role
+      self.send_dm(self.comm_format(msg, event), event.actor)
+
+  def DAY(self, event : MEvent):
+    msg = self.resp_lib["DAY"]
+    self.cast_main(msg)
+
+class UpdateStateEventHandler(EventHandler):
+  """ Handler for updating the game state """
+
+  def __init__(self, mstate):
+    self.mstate = mstate
+
+  def VOTE(self, event : MEvent):
+    
+    players = self.mstate.players
+    voter = players[event.voter]
+    # assertions?
+    if event.votee in players or event.votee in (NOTARGET, None):
+      voter.vote = event.votee
+
+    event.num_voters = len([v for v in players if players[v].vote == event.votee])
+    event.num_f_voters = len([v for v in players if players[v].vote == event.former_votee])
+    event.num_players = len(players)
+    event.thresh = int(event.num_players/2) + 1
+    event.no_kill_thresh = event.num_players - event.thresh + 1
+
+  def TARGET(self, event : MEvent):
+    # TODO: assertions?
+
+      if event.mafia:
+        self.mstate.mafia_target = event.target
+        self.mstate.mafia_targeter = event.actor
+      else:
+        actor = self.mstate.players[event.actor]
+        actor.target = event.target
+
+  def REVEAL(self, event : MEvent):
+    pass
+
+  def TIMER(self, event : MEvent):
+    pass
+
+  def START(self, event : MEvent):
+    # TODO: start!
+    pass
+
+  def ELECT(self, event : MEvent):
+    player = self.mstate.players[event.target]
+    if player.role == "IDIOT":
+      contract = self.mstate.contracts[event.target]
+      contract['success'] = True
+
+  def KILL(self, event : MEvent):
+    self.mstate.mafia_target = None
+    self.mstate.mafia_targeter = None
+
+  def VENGEANCE(self, event : MEvent):
+    pass
+
+  def ELIMINATE(self, event : MEvent):
+    if event.target in self.mstate.players:
+      del self.mstate.players[event.target]
+
+  def CHARGE_DIE(self, event : MEvent):
+    contract = self.mstate.contracts[event.actor]
+    if contract['role'] == "AGENT":
+      contract['success'] = True
+    elif contract['role'] in ["GUARD", "SURVIVOR"]:
+      contract['success'] = False
+
+  def DUSK(self, event : MEvent):
+    pass
+
+  def REFOCUS(self, event : MEvent):
+    actor = event.actor
+    charge = event.target
+    aggressor = event.aggressor
+    role = event.role
+
+    needed_alive = role in ['GUARD', 'SURVIVOR']
+
+    if charge == aggressor or actor == aggressor or not aggressor in self.players:
+      new_charge = actor
+      new_role = "IDIOT" if needed_alive else "SURVIVOR"
+    else:
+      new_charge = aggressor
+      new_role = "AGENT" if needed_alive else "GUARD"
+    player = self.mstate.players[actor]
+    player.role = new_role
+    player.target = new_charge
+    # Update contract!
+    contract = self.mstate.contracts[event.actor]
+    contract['role'] = player.role
+    contract['target'] = player.target
+    contract['success'] = player.role in ["SURVIVOR", "GUARD"]
+  
+
+class NextEventHandler(EventHandler):
+  """ Handler for moving the state machine based on state """
+
+  def __init__(self, mstate):
+    self.mstate = mstate
+    self.push = mstate.pushEvent
+
+  def VOTE(self, event : MEvent):
+    assert(event.type == EType.VOTE)
+    
+    if event.votee == None:
+      return
+
+    if ((event.votee == NOTARGET and event.num_voters >= event.no_kill_thresh) or
+      (event.votee != NOTARGET and event.num_voters >= event.thresh)):
+      self.push(MEvent(EType.ELECT, actor=event.voter, 
+        target=event.votee, nokill=event.votee==NOTARGET))
+      return
+
+  def TARGET(self, event : MEvent):
+    assert(event.type == EType.TARGET)
+
+    players = self.mstate.players
+
+    if self.mstate.phase == MPhase.DUSK:
+      if players[self.mstate.vengeance.idiot].target != None:
+        self.push(MEvent(EType.VENGEANCE, actor=event.actor, target=event.target))
+
+    if self.mstate.mafia_target == None:
+      return
+    if any([t.target == None for t in players.values() 
+      if t.role in TARGETING_ROLES]):
+      return
+    self.push(MEvent(EType.DAWN))
+
+  def REVEAL(self, event : MEvent):
     return
 
-  def checkVotes(self, vote_event : MEvent, former_votee : Optional[MPlayerID]) -> Optional[MEvent]:
-    assert(vote_event.type == MEventType.VOTE)
-    votee : Optional[MPlayerID, None] = vote_event.votee
-    players : Dict[MPlayerID, MPlayer] = self.players
+  def TIMER(self, event : MEvent):
+    if self.mstate.phase == MPhase.DAY or self.mstate.phase == MPhase.DUSK:
+      self.push(MEvent(EType.NIGHT))
+      return
+    if self.mstate.phase == MPhase.NIGHT:
+      self.push(MEvent(EType.DAWN))
 
-    num_voters = len([v for v in players if players[v].vote == votee])
-    num_f_voters = len([v for v in players if players[v].vote == former_votee])
+  def START(self, event : MEvent):
+    if self.mstate.phase == MPhase.DAY:
+      self.push(MEvent(EType.DAY))
+      return
+    if self.mstate.phase == MPhase.NIGHT:
+      self.push(MEvent(EType.NIGHT))
+
+  def ELECT(self, event : MEvent):
+    if (self.mstate.mrules.idiot_vengeance and 
+      event.target != NOTARGET and
+      self.mstate.players[event.target].role == "IDIOT"):
+        self.push(MEvent(EType.DUSK, idiot=event.target, 
+          actor=event.actor, target=event.target))
+        return
+    event_list = []
+    if event.target != NOTARGET:
+      event_list.append(MEvent(EType.ELIMINATE, actor=event.actor, 
+        target=event.target))
+    event_list.append(MEvent(EType.NIGHT))
+    self.push(event_list)
+
+  def KILL(self, event : MEvent):
+    if not event.saved and event.target != NOTARGET:
+      self.push(MEvent(EType.ELIMINATE, actor=event.actor, target=event.target))
+  
+  def VENGEANCE(self, event : MEvent):
+    event_list = []
+    if event.target != NOTARGET and event.target != None:
+      event_list.append(MEvent(EType.ELIMINATE, actor=event.actor, target=event.target))
+    event_list.append(MEvent(EType.ELIMINATE, actor=self.mstate.vengeance.final_vote,
+      target=self.mstate.vengeance.idiot))
+    self.push(event_list)
+
+  def ELIMINATE(self, event : MEvent):
+    event_list = []
+    players = self.mstate.players
+    contracts = [(p,p.target) for p in players if players[p].role in CONTRACT_ROLES]
+    for p,charge in contracts:
+      if charge == event.target:
+        event_list.append(MEvent(EType.CHARGE_DIE, 
+          actor=p, target=charge, aggressor=event.actor))
     num_players = len(players)
-    thresh = int(num_players/2) + 1
-    no_kill_thresh = num_players - thresh + 1
-    
-    vote_event.data['thresh'] = thresh
-    vote_event.data['no_kill_thresh'] = no_kill_thresh
-    vote_event.data['votes'] = num_voters
-    vote_event.data['former_votes'] = num_f_voters
-    vote_event.data['former_votee'] = former_votee
-
-    if votee == None:
-      # Vote retraction, if former votee wasn't None, say something
-      if not former_votee == None:
-        self.mresp(MRespType.VOTE_RETRACT, **(vote_event.data))
-      return
-
-    self.mresp(MRespType.VOTE, **(vote_event.data))
-    if votee == NOTARGET:
-      if num_voters >= no_kill_thresh:
-        return MEventC.elect(vote_event.voter, vote_event.votee) # Add last words timer
-    else: # Vote for Player
-      if num_voters >= thresh:
-        return MEventC.elect(vote_event.voter, vote_event.votee) # Add last words timer
-    return None
-
-  def checkNightTargets(self) -> Optional[MEvent]:
-    players : Dict[MPlayerID, MPlayer] = self.players
-    mtarget : Optional[MPlayerID] = self.mafia_target
-    if mtarget == None:
-      return
-    if any([t.target == None for t in players.values() if t.role in TARGETING_ROLES]):
-      return
-    ## All targets have been selected, do to day stuff?
-    return MEventC.day()
-
-
-  def checkWin(self) -> Optional[MEvent]: # TODO: make this just handle the win event
-    players : Dict[MPlayerID, MPlayer] = self.players
-    num_players = len(players)
-    num_mafia = len([m for m in players.values() if m.role in MAFIA_ROLES])
-    
+    num_mafia = len([p for p in players if players[p].role in MAFIA_ROLES])
     if num_mafia == 0:
-      return MEventC.town_win()
-    elif num_mafia >= num_players/2:
-      return MEventC.mafia_win()
-    return None
+      event_list.append(MEvent(EType.WIN, winning_team="Town"))
+    elif num_mafia >= num_players / 2:
+      event_list.append(MEvent(EType.WIN, winning_team="Mafia"))
 
-  def eliminate(self, target : MPlayerID, actor : MPlayerID):
-    # if target IS actor, special case for AGENTs and GUARDs
-    # for GUARD: lose? (SURVIVOR case covered?)
-    #  Cannot refocus. Become IDIOT!
-    # for AGENT: win? (IDIOT case covered?)
-    #  Cannot refocus. Become SURVIVOR!
-    self.mresp(MRespType.DEATH, player=target, role=self.players[target].role)
-    del(self.players[target])
-    self.checkCharges(target, actor) 
+    self.push(event_list)
 
-  def checkCharges(self, killed : MPlayerID, aggressor : MPlayerID):
-    for (p_id, (p_charge, p_role)) in self.contracts.items():
-      if p_charge == killed: # This is the case we are worried about
-        self.handleEvent(MEventC.charge_die(p_id, p_charge, p_role, aggressor))
+  def CHARGE_DIE(self, event : MEvent):
+    role = self.mstate.players[event.actor].role
+    if role in ['GUARD','AGENT']:
+      self.push(MEvent(EType.REFOCUS, actor=event.actor,
+        target=event.target, aggressor=event.aggressor, role=role))
 
-  def checkContractWins(self):
-    for (p_id, (p_charge, p_role)) in self.contracts.items():
-      needed_alive = p_role in ['GUARD', 'SURVIVOR']
-      charge_alive = p_charge in self.players
-      success = needed_alive == charge_alive
-      self.handleEvent(MEventC.contract_result(p_id, p_charge, p_role, success))
+  def DUSK(self, event : MEvent):
+    pass
 
-  def toDay(self) -> None:
-    # check stripper blocks
-    blocked_ids = []
-    to_kill : Optional[MPlayerID] = None
-    for stripper_id in [p for p in self.players if self.players[p].role == "STRIPPER"]:
-      stripper = self.players[stripper_id]
-      if stripper.target == None:
-        stripper.target = NOTARGET
-      if not stripper.target == NOTARGET:
-        blocked_ids.append(stripper.target)
-        useful = self.players[stripper.target].role in TARGETING_ROLES
-        target_role = self.players[stripper.target].role
-        self.handleEvent(MEventC.strip(stripper_id, stripper.target, target_role, useful)) # Even will check for success and log
+  def REFOCUS(self, event : MEvent):
+    pass
 
-    # try mafia kill (doctor can save)
-    if self.mafia_target == None:
-      self.mafia_target = NOTARGET
-    
-    target_saved = False
-    if not self.mafia_target == NOTARGET:
-      # target is real
-      for doctor_id in [p for p in self.players if self.players[p].role == "DOCTOR"]:
-        doctor = self.players[doctor_id]
-        if doctor.target == None:
-          doctor.target = NOTARGET
-        if not doctor.target == NOTARGET:
-          useful = doctor.target == self.mafia_target
-          blocked = doctor_id in blocked_ids
-          if useful:
-            if blocked:
-              pass
-            else:
-              target_saved = True
-          self.handleEvent(MEventC.save(doctor_id, doctor.target, blocked, useful))
-      # Now kill proceeds
-    if not target_saved:
-      to_kill = self.mafia_target # Careful, if NOTARGET could accidentally coincide with others
-    self.handleEvent(MEventC.kill(
-      self.mafia_targeter, self.mafia_target, not target_saved))
+  def WIN(self, event : MEvent):
+    # Check the state of contracts, decide winners/losers?
+    event_list = []
+    for contract in self.mstate.contracts:
+      event_list.append(MEvent(EType.CONTRACT_RESULT, **contract))
+    event_list.append(MEvent(EType.END, winning_team=event.winning_team))
 
-    # milky gives milk
-    for milky_id in [p for p in self.players if self.players[p].role == "MILKY"]:
-      milky = self.players[milky_id]
-      if milky.target == None:
-        milky.target = NOTARGET
-      if not milky.target == NOTARGET:
-        blocked = milky_id in blocked_ids
-        sniped = milky.target == to_kill and not target_saved
-        if not sniped:
-          self.handleEvent(MEventC.milk(milky_id, milky.target, blocked, sniped))
-    
-    # Cop investigates
-    for cop_id in [p for p in self.players if self.players[p].role == "COP"]:
-      cop = self.players[cop_id]
-      if cop.target == None:
-        cop.target = NOTARGET
-      if not cop.target == NOTARGET:
-        blocked = cop_id in blocked_ids
-        sniped = cop.target == to_kill and not target_saved
-        if not sniped:
-          self.handleEvent(MEventC.investigate(
-            cop_id, cop.target, self.players[cop.target].role, blocked, sniped))
-    
-    # Finally switch to day
-    self.day += 1
-    self.phase = DAY
+    self.push(event_list)
 
-    # Reset for idiot_vengeance == STUN
-    self.venger = None
-    self.venges = []
-    self.venger_killer = None
-    self.stunned = False
+  def CONTRACT_RESULT(self, event : MEvent):
+    pass
 
-  def resetPlayers(self):
-    self.mafia_target = None
-    self.mafia_targeter = None
-    for p in self.players.values():
-      p.vote = None
-      if not p.role in CONTRACT_ROLES:
-        p.target = None
+  def END(self, event : MEvent):
+    # TODO: implement end state stuff?
+    pass
 
-  def toJSON(self) -> str:
-    ## Creates a json string from the game
-    json_dict = self.__dict__
-    del(json_dict['mresp'])
-    json_dict['players'] = [p.__dict__ for p in self.players.values()]
+  def NIGHT(self, event : MEvent):
+    pass
 
-    return json.dumps(json_dict)
+  def DAWN(self, event : MEvent):
+    event_list = []
+    for strip in event.strips:
+      event_list.append(MEvent(EType.STRIP, **strip))
+    for save in event.saves:
+      event_list.append(MEvent(EType.SAVE, **save))
+    if not event.kill == None:
+      event_list.append(MEvent(EType.KILL, **event.kill))
+    for milk in event.milks:
+      event_list.append(MEvent(EType.MILK, **milk))
+    for investigate in event.investigates:
+      event_list.append(MEvent(EType.INVESTIGATE, **investigate))
+    event_list.append(MEvent(EType.DAY))
 
-class EndGameException(Exception):
-  pass
+    self.push(event_list)
 
-class TownWinException(EndGameException):
-  pass
+  def STRIP(self, event : MEvent):
+    pass
 
-class MafiaWinException(EndGameException):
-  pass
+  def SAVE(self, event : MEvent):
+    pass
 
-class IdiotWinException(EndGameException):
-  pass
+  def MILK(self, event : MEvent):
+    pass
+
+  def INVESTIGATE(self, event : MEvent):
+    pass
+
+  def DAY(self, event : MEvent):
+    pass
+
+
+class MState():
+
+  def __init__(self, 
+      cast_main : Callable[[str],None],
+      cast_mafia : Callable[[str],None],
+      send_dm : Callable[[str,MPlayerID],None],
+      ids : Dict[MPlayerID, str]
+    ):
+
+    self.event_handlers : List[EventHandler] = []
+    self.event_list : List[MEvent] = []
+    self.event_lock : Lock = Lock()
+
+    self.id : int = 0 ## TODO
+    self.day : int = 0
+    self.phase : MPhase = MPhase.INIT
+    self.timer_inst : Optional[int] = None # TODO: add timer
+
+    self.players : Dict[MPlayerID, MPlayer] = {}
+
+    self.mafia_target : Optional[MPlayerID] = None
+    self.mafia_targeter : Optional[MPlayerID] = None # TODO: combine into MMafTarget?
+
+    self.stripped = []
+
+    self.contracts = {} #Dicts? player_id -> role, target, success
+
+    self.vengeance = None # venges, final_vote, idiot.
+
+    self.active = True
+
+    self.initEventHanders(cast_main, cast_mafia, send_dm, ids)
+
+    thread = Thread(target=self.popLoop, name="MState thread")
+
+    thread.start()
+
+  def initEventHanders(self,
+      cast_main : Callable[[str],None],
+      cast_mafia : Callable[[str],None],
+      send_dm : Callable[[str,MPlayerID],None],
+      ids : Dict[MPlayerID, str]
+    ):
+    self.event_handlers = [
+      ChatDisplayEventHandler(self, cast_main, cast_mafia, send_dm),
+      UpdateStateEventHandler(self),
+      NextEventHandler(self)
+    ]
+
+  def pushEvent(self, event : Union[MEvent, List[MEvent]]):
+    if type(event) == MEvent:
+      event = [event]
+    with self.event_lock:
+      self.event_list = event + self.event_list
+
+  def popLoop(self):
+    while self.active:
+      event = None
+      with self.event_lock:
+        if len(self.event_list) > 0:
+          event = event.pop(0)
+      if event != None:
+        for event_handler in self.event_handlers:
+          event_handler.handleEvent(event)
+
+  def vote(self, voter : MPlayerID, votee : Optional[MPlayerID]):
+    event = MEvent(EType.VOTE, voter=voter, votee=votee)
+
+    players = self.players
+    voter_p = players[voter]
+
+    event.f_votee = voter_p.vote
+    voter_p.vote = votee
+
+    event.num_voters = len([v for v in players if players[v].vote == votee])
+    event.num_f_voters = len([v for v in players if players[v].vote == event.f_votee])
+    event.num_players = len(players)
+    event.thresh = int(event.num_players/2) + 1
+    event.no_kill_thresh = event.num_players - event.thresh + 1
+
+    self.pushEvent(event)
+
+  def target(self, actor : MPlayerID, target : Optional[MPlayerID]):
+    target_event = MEvent(EType.TARGET, actor=actor, target=target, mafia=False)
+    self.pushEvent(target_event)
+
+  def mtarget(self, actor : MPlayerID, target : Optional[MPlayerID]):
+    target_event = MEvent(EType.TARGET, actor=actor, target=target, mafia=True)
+    self.pushEvent(target_event)
+
+  def reveal(self, actor : MPlayerID):
+    reveal_event = MEvent(EType.REVEAL, actor=actor)
+    self.pushEvent(reveal_event)
+
+  def timer(self):
+    timer_event = MEvent(EType.TIMER)
+    self.pushEvent(timer_event)
+
+  
+  ### Status checking functions:
+
+  def celeb_stripped(self, celeb_id):
+    return celeb_id in self.stripped

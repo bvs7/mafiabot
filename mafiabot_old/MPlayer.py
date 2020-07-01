@@ -1,11 +1,8 @@
 # from MTarget import NullTarget, NoTarget, PlayerTarget
 
 # from enum import Enum
-from typing import Optional, NewType
-
-MPlayerID = NewType('MPlayerID', str)
-
-NOTARGET : MPlayerID = "NOTARGET"
+from typing import Optional
+from .MEx import MPlayerID
 
 TOWN_ROLES = [
   'TOWN',

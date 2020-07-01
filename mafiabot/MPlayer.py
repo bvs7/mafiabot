@@ -1,8 +1,11 @@
 # from MTarget import NullTarget, NoTarget, PlayerTarget
 
 # from enum import Enum
-from typing import Optional
-from .MEx import MPlayerID
+from typing import Optional, NewType
+
+MPlayerID = NewType('MPlayerID', str)
+
+NOTARGET : MPlayerID = "NOTARGET"
 
 TOWN_ROLES = [
   'TOWN',
@@ -45,8 +48,12 @@ CONTRACT_ROLES = {
 }
 
 class MPlayer:
-  def __init__(
-    self, id : MPlayerID, role : str, vote : Optional[MPlayerID]=None, target: Optional[MPlayerID]=None):
+  def __init__(self, 
+      id : MPlayerID, 
+      role : str, 
+      vote : Optional[MPlayerID]=None, 
+      target: Optional[MPlayerID]=None
+    ):
 
     self.id = id
     self.vote : Optional[MPlayerID] = vote
