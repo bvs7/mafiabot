@@ -9,6 +9,7 @@
 
 # VSCode settings
 
+.vs/*
 .vscode/*
 
 # Test outputs
@@ -16,3 +17,4 @@
 
 # Build
 build/*
+
