@@ -1,3 +1,2 @@
-pip uninstall mafiabot -y
-python setup.py sdist bdist_wheel
-pip install .
+pip3
+pip3 install --upgrade .

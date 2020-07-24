@@ -12,6 +12,8 @@ try:
   tokenfile.close()
 
   client = groupy.Client.from_token(token)
+except Exception:
+  print("Failed to import groupy")
 
 CAST_DELAY = .5
 
