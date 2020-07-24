@@ -1,58 +1,7 @@
-
 from typing import Set, Union
 import copy
 
-from .MPlayer import TOWN_ROLES, MAFIA_ROLES, ROGUE_ROLES, ALL_ROLES
-
-ROLE_NOTES ={
-  "TOWNS" : set(TOWN_ROLES),
-  "MAFIAS" : set(MAFIA_ROLES),
-  "ROGUES" : set(ROGUE_ROLES),
-  "SIMPLE" : {"TOWN", "COP", "DOCTOR", "MAFIA"},
-  "MEDIUM" : {"TOWN", "COP", "DOCTOR", "CELEB", 
-              "MAFIA", "GODFATHER", "STRIPPER", 
-              "IDIOT"},
-  "DONE "  : {"TOWN", "COP", "DOCTOR", "CELEB", "MILKY",
-              "MAFIA", "GODFATHER", "STRIPPER", "GOON",
-              "IDIOT", "SURVIVOR", "GUARD", "AGENT"},
-  "ALL" : set(ALL_ROLES),
-}
-
-class MRoles:
-
-  def __init__(self, noteSet : Union[str,Set[str]] = 'MEDIUM'):
-    self.roles = self.noteRoles(noteSet)
-
-  def __iter__(self): # For ordering roles
-    return iter([r for r in ALL_ROLES if r in self.roles])
-
-  def noteRoles(self, noteSet : Union[str,Set[str]]) -> Set[str]:
-    if type(noteSet) == str:
-      noteSet = {noteSet}
-    roleSet = set()
-    removeSet = set()
-    nrset = roleSet
-    for note in noteSet:
-      if note[0] == "-":
-        nrset = removeSet
-        note = note[1:]
-      else:
-        nrset = roleSet
-
-      if note in ROLE_NOTES:
-        nrset.update(ROLE_NOTES[note])
-      elif note in ALL_ROLES:
-        nrset.add(note)
-
-    roleSet.difference_update(removeSet)
-    return roleSet
-
-  def addRole(self, noteSet : Union[str,Set[str]]):
-    self.roles.update(self.noteRoles(noteSet))
-
-  def removeRole(self, noteSet : Union[str,Set[str]]):
-    self.roles.difference_update(self.noteRoles(noteSet))
-
+from .MInfo import *
 
 RULE_LIST = [
   "known_roles",
@@ -62,7 +11,7 @@ RULE_LIST = [
   "know_if_saved_doc",
   "know_if_saved_self",
   "cop_strength",
-  "idiot_vengence",
+  "idiot_vengeance",
   "charge_refocus_guard",
   "charge_refocus_agent",
   "know_if_stripped",
@@ -140,21 +89,20 @@ class MRules:
   default_rules = {
     "known_roles":"TEAM",
     "reveal_on_death":"TEAM",
-    "know_if_saved":"SAVED",
+    "know_if_saved":"SECRET",
     "know_if_saved_doc":"ON",
     "know_if_saved_self":"ON",
     "start_night":"EVEN",
     "charge_refocus_guard":"ON",
     "charge_refocus_agent":"ON",
-    "idiot_vengeance":"ON",
+    "idiot_vengeance":"KILL",
     "know_if_stripped":"USEFUL",
     "no_milk_self":"ON",
     "cop_strength":"MAFIA",
   }
 
-  def __init__(self, noteSet : Union[str,Set[str]] = 'MEDIUM'):
+  def __init__(self):
     self.rules = self.default_rules.copy()
-    self.roles = MRoles(noteSet)
 
 
   def __getitem__(self, item):
@@ -187,11 +135,11 @@ class MRules:
       msg += expl
       msg += '\n'
 
-    msg += "\nroleSet:  " + ", ".join(self.roles)
     return msg
 
   @staticmethod
   def explRule(rule):
+    """ return a string explaining the possible settings for rule """
     msgs = []
     sett_col_len = max([len(s)+1 for s in RULE_BOOK[rule]])
     for sett in RULE_BOOK[rule]:

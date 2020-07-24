@@ -14,7 +14,7 @@ class MState():
       cast_main : Callable[[str],None],
       cast_mafia : Callable[[str],None],
       send_dm : Callable[[str,MPlayerID],None],
-      rules : MRules,
+      rules,
     ):
     self.cast_main = cast_main
     self.cast_mafia= cast_mafia
@@ -31,8 +31,6 @@ class MState():
     self.timer_inst : Optional[int] = None # TODO: add timer
 
     self.players : Dict[MPlayerID, MPlayer] = {}
-    self.player_order = []
-    self.start_roles = []
 
     self.mafia_target : Optional[MPlayerID] = None
     self.mafia_targeter : Optional[MPlayerID] = None # TODO: combine into MMafTarget?
@@ -85,7 +83,6 @@ class MState():
     event.next(self.pushEvent)
 
   def start(self, ids, roles, contracts={}):
-    self.start_roles = roles
     event = START(ids, roles, contracts)
     self.pushEvent(event)
 
@@ -122,90 +119,3 @@ class MState():
     
   def checkRevealed(self, p_id):
     return p_id in self.revealed
-
-  def phaseDateStatus(self):
-    return "Game {}: {} {}\n".format(self.id, self.phase.name, self.day)
-
-  def timerStatus(self):
-    if self.timer_inst != None:
-      return "{}\n".format(self.timer_inst.getTime())
-    else:
-      return ""
-
-  def voteStatus(self):
-    msg = ""
-    voteDict = {}
-    for player in self.players.values():
-      if not player.vote == None:
-        if not player.vote in voteDict:
-          voteDict[player.vote] = 0
-        voteDict[player.vote] += 1
-    num_players = len(self.players)
-    thresh = int(num_players/2)+1
-    no_kill_thresh = num_players - thresh + 1
-    for player_id in self.player_order:
-      if player_id in voteDict:
-        msg += "  [{}]: {}/{}".format(player_id, voteDict[player_id], thresh)
-    if "NOTARGET" in voteDict:
-      msg += "  [{}]: {}/{}".format("NOTARGET", voteDict["NOTARGET"], no_kill_thresh)
-    return msg
-
-  def roleStatus(self):
-    know_role = self.rules[known_roles]
-    rev_death = self.rules[reveal_on_death]
-    roleDict = makeRoleDict([p.role for p in self.players.values()])
-    msg = ""
-
-    if know_role == "OFF" or rev_death == "OFF":
-      pass
-    elif know_role == "MAFIA" or rev_death == "MAFIA":
-      msg += dispKnownRoles(roleDict, "MAFIA")
-    elif know_role == "TEAM" or know_role == "TEAM":
-      msg += dispKnownRoles(roleDict, "TEAM")
-    elif know_role == "ROLE" and rev_death == "ROLE":
-      msg += dispKnownRoles(roleDict, "ROLE")
-    return msg
-
-  def nightOptions(self):
-    msg = ""
-    msg = default_resp_lib["NIGHT_OPTIONS"]
-    msg += "\n".join(listMenu(self.player_order))
-    return msg
-
-  # General status of mstate
-  def main_status(self):
-    msg = ""
-    msg += self.phaseDateStatus()
-    msg += self.timerStatus()
-    if self.phase == MPhase.DAY:
-      msg += self.voteStatus()
-
-    msg += self.roleStatus()
-    return msg
-
-  def mafia_status(self):
-    msg = ""
-    msg += self.phaseDateStatus()
-    msg += self.timerStatus()
-    if self.phase == MPhase.DAY:
-      msg += self.voteStatus()
-    elif self.phase == MPhase.NIGHT:
-      msg += "Current target: [{}]\n".format(self.mafia_target)
-      msg += self.nightOptions()
-    msg += self.roleStatus()
-    return msg
-
-  def dm_status(self, player_id):
-    msg = ""
-    msg += self.phaseDateStatus()
-    msg += self.timerStatus()
-    if self.phase == MPhase.DAY:
-      if player_id in self.players:
-        msg += "Current vote: [{}]\n".format(self.players[player_id].vote)
-      msg += self.voteStatus()
-    elif self.phase == MPhase.NIGHT:
-      if player_id in self.players and self.players[player_id].role in TARGETING_ROLES:
-        msg += "Current target: [{}]\n".format(self.players[player_id].target)
-      msg += self.nightOptions()
-    msg += self.roleStatus()
-    return msg
