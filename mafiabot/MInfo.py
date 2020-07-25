@@ -11,6 +11,14 @@ know_if_stripped = "know_if_stripped"
 no_milk_self = "no_milk_self"
 cop_strength = "cop_strength"
 
+VOTE_CMD = "vote"
+TARGET_CMD = "target"
+REVEAL_CMD = "reveal"
+TIMER_CMD = "timer"
+UNTIMER_CMD = "untimer"
+HELP_CMD = "help"
+STATUS_CMD = "status"
+
 default_resp_lib = {
   "VOTE_RETRACT": "[{voter}] retracted vote for [{f_votee}]",
   "VOTE":       "[{voter}] votes for [{votee}]",
