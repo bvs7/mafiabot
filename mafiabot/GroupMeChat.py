@@ -1,21 +1,22 @@
 
-from typing import Tuple, Dictionary
+from typing import Tuple, Dict
 import time
 
 from .MChat import MChat, MDM, CastError
 
-GROUPY_KEYFILE = "../../.groupy.key"
+GROUPME_KEYFILE = "../../.groupme.key"
+MODERATOR = "43040067"
 
 try:
   import groupy
   from groupy.api.messages import Messages, DirectMessages
-  tokenfile = open(GROUPY_KEYFILE, 'r')
+  tokenfile = open(GROUPME_KEYFILE, 'r')
   token = tokenfile.read().strip()
   tokenfile.close()
 
   client = groupy.Client.from_token(token)
-except Exception:
-  print("Failed to import groupy")
+except Exception as e:
+  print("Failed to import groupy: " + str(e))
 
 CAST_DELAY = .5
 
@@ -30,18 +31,28 @@ class GroupMeChat(MChat):
       self.names[member.user_id] = member.nickname
       # self.names[member.user_id] = member.name
 
+
+  def remove(self, user_id):
+    if user_id == MODERATOR:
+      return
+    for member in self.group.members:
+      if member.user_id == user_id:
+        member.remove()
+
   def refill(self, users):
     """Remove all members except those that will be added, then add"""
-    for member in self.group.members:
-      if not member.user_id in users:
-        self.group.memberships.remove(member.user_id)
+    self.group = self.group.update()
+    member_ids = [mem.user_id for mem in self.group.members]
+    for member_id in member_ids:
+      if not member_id in users:
+        self.remove(member_id)
       else:
-        del users[member.user_id]
+        del users[member_id]
     self.add(users)
 
-"""Each given user must be a dictionary containing a nickname and 
-either an email, phone number, or user_id. """
-  def add(self, users : Dictionary[str,str]):
+  def add(self, users : Dict[str,str]):
+    if len(users) == 0:
+      return
     user_submission = []
     for user_id, name in users.items():
       user_submission.append({'user_id':user_id,'nickname':name})
@@ -52,7 +63,7 @@ either an email, phone number, or user_id. """
 
   def cast(self, msg):
     try:
-      m_id = self.m.create(msg).id
+      m_id = self.group.post(msg).id
       time.sleep(CAST_DELAY)
     except Exception as e:
       raise CastError(e)
