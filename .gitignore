@@ -15,6 +15,5 @@
 # Test outputs
 *.out
 
-# Build
+.vs/*
 build/*
-
