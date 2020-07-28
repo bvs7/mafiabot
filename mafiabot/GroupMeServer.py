@@ -16,8 +16,7 @@ class GroupMeServer:
 
     app.run(host="0.0.0.0",port=1121)
 
-  @staticmethod
-  def chat():
+  def chat(self):
     data = json.loads(request.data.decode('utf-8'))
     print("Chat:")
     print(data)
@@ -29,8 +28,7 @@ class GroupMeServer:
       self.handle_chat(group_id, sender_id, command, text, data)
     return "ok"
 
-  @staticmethod
-  def dm():
+  def dm(self):
     data = json.loads(request.data.decode('utf-8'))
     print("DM:")
     print(data)
@@ -38,7 +36,7 @@ class GroupMeServer:
     if text[0:len(ACCESS_KW)] == ACCESS_KW:
       sender_id = data['sender_id']
       command = text.split()[0][0:]
-      self.handle_chat(sender_id, command, text, data)
+      self.handle_dm(sender_id, command, text, data)
     return "ok"
 
 if __name__ == '__main__':

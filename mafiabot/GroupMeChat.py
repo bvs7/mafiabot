@@ -91,7 +91,7 @@ class GroupMeChat(MChat):
 # Have all DMs in one object?
 class GroupMeDM(MDM):
 
-  def __init__(self, client):
+  def __init__(self):
     self.client = client
     self.dms = {}
 

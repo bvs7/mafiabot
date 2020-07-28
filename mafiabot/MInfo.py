@@ -20,6 +20,40 @@ TIMER_CMD = "timer"
 UNTIMER_CMD = "untimer"
 HELP_CMD = "help"
 STATUS_CMD = "status"
+START_CMD = "start"
+IN_CMD = "in"
+OUT_CMD = "out"
+RULE_CMD = "rule"
+
+GAME_MAIN_COMMANDS = [
+  VOTE_CMD,
+  STATUS_CMD,
+  HELP_CMD,
+  TIMER_CMD,
+  UNTIMER_CMD,
+]
+
+GAME_MAFIA_COMMANDS = [
+  TARGET_CMD,
+  STATUS_CMD,
+  HELP_CMD,
+]
+
+GAME_DM_COMMANDS = [
+  TARGET_CMD,
+  REVEAL_CMD,
+  STATUS_CMD,
+  HELP_CMD,
+]
+
+LOBBY_COMMANDS = [
+  START_CMD,
+  IN_CMD,
+  OUT_CMD,
+  RULE_CMD,
+  STATUS_CMD,
+  HELP_CMD,
+]
 
 default_resp_lib = {
   "VOTE_RETRACT": "[{voter}] retracted vote for [{f_votee}]",
@@ -196,3 +230,14 @@ def dispKnownRoles(roleDict, known_roles):
     return dispTeamFromDict(roleDict, known_roles)
   elif known_roles == "OFF":
     return "Players: {}".format(len(roleDict))
+
+def getLobbies(MChatType):
+  lobbies = []
+  lobbies.append(MChatType('30021302'))
+  return lobbies
+
+def getGames(MChatType):
+  return []
+
+def getDMs(MDMType):
+  return MDMType()
