@@ -1,5 +1,7 @@
-
+#!/usr/bin/python3
 from flask import Flask, request
+import json
+
 
 class GroupMeServer:
 
@@ -8,11 +10,12 @@ class GroupMeServer:
 
     app.add_url_rule('/', 'index', self.index, methods=['POST'])
 
-    app.run()
+    app.run(host="0.0.0.0",port=1121)
 
   @staticmethod
   def index():
-    print(request.form)
+    data = json.loads(request.data.decode('utf-8'))
+    print(data)
     return "ok"
 
 
@@ -24,4 +27,3 @@ if __name__ == '__main__':
 
   while True:
     pass
-  
