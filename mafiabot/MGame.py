@@ -2,11 +2,6 @@ from .MInfo import *
 from .MState import MState
 from .MEvent import MPhase
 
-# TODO: main_id()
-# TODO: mafia_id()
-# TODO: started()
-# TODO: ended()
-# TODO: active()
 
 # TODO: generalize cast/send!
 
@@ -38,19 +33,19 @@ class MGame:
     if command == VOTE_CMD:
       words = text.split()
       voter = sender_id
-      votee = data[votee] # Calculated by Server!
-      # if len(words) >= 3:
-      #   # TODO: Generalize language
-      #   if words[1].lower() == "me":
-      #     votee = sender_id
-      #   elif words[1].lower() == "none":
-      #     votee = None
-      #   elif words[1].lower() == "nokill":
-      #     votee = "NOTARGET"
-      #   elif 'attachments' in data:
-      #     mentions = [a for a in data['attachments'] if a['type'] == 'mentions']
-      #     if len(mentions) > 0 and 'user_ids' in mentions[0] and len(mentions[0]['user_ids']) >= 1:
-      #       votee = mentions[0]['user_ids'][0]
+      votee = data[votee]
+      if len(words) >= 3:
+        # TODO: Generalize language
+        if words[1].lower() == "me":
+          votee = sender_id
+        elif words[1].lower() == "none":
+          votee = None
+        elif words[1].lower() == "nokill":
+          votee = "NOTARGET"
+        elif 'attachments' in data:
+          mentions = [a for a in data['attachments'] if a['type'] == 'mentions']
+          if len(mentions) > 0 and 'user_ids' in mentions[0] and len(mentions[0]['user_ids']) >= 1:
+            votee = mentions[0]['user_ids'][0]
       self.handle_vote(voter,votee)
     elif command == STATUS_CMD:
       self.handle_main_status()

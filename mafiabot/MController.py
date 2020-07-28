@@ -18,9 +18,8 @@ class MController:
     self.MChatType = MChatType
     self.MServerType = MServerType
 
-    self.lobbyChat = getLobbyChats(MChatType)
-    self.gameChats = getGameChats(MChatType)
-    self.games : List[MGame] = []
+    self.lobbies = getLobbies(MChatType)
+    self.games = getGames(MChatType)
     self.dms = getDMs(MDMType)
 
     self.rules = MRules()
@@ -30,7 +29,7 @@ class MController:
     self.ins = []
 
     server = MServerType()
-    serverThread = treading.Thread(target=server.serve_forever)
+    serverThread = treading.Thread(target=server.serve, args= (self.handle_chat, self.handle_dm)))
     serverThread.start()
     
   # callback for Server
@@ -46,28 +45,9 @@ class MController:
     if command in LOBBY_COMMANDS:
       self.handle_lobby(self, sender_id, command, text, data)
 
-  def handle_lobby(self, sender_id, command, text, data):
-    if command == IN_CMD:
-      if not sender_id in self.ins:
-        self.ins.append(sender_id)
-      msg = "In List:\n"
-      msg += "\n".join(["[{}]".format(i) for i in self.ins)
-      self.lobbyChat.cast(msg)
-    if command == OUT_CMD:
-      self.ins.remove(sender_id)
-      msg = "Removed [{}]".format(sender_id)
-      self.lobbyChat.cast(msg)
-    if command == START_CMD:
-      game = MGame(self.gameChats[0], self.gameChats[1], self.dms, self.rules)
-      self.games.append(game)
-      users = []
-      for i in self.ins:
-        user = {'nickname' : "Tesing", 'user_id' : i}
-        users.append(user)
-      game.main.add(users)
-      game.handle_start(self.ins)
+    # TODO: leave, help?
 
-  def handle_chat(self, sender_id, command, text, data):
+  def handle_dm(self, sender_id, command, text, data):
     # check for this player's game?
     if command in GAME_DM_COMMANDS:
       if sender_id in self.activeGame:
@@ -75,10 +55,3 @@ class MController:
         if not game == None:
           self.handle_game_dm(game, sender_id, command, text, data)
     # TODO:
-
-
-if __name__ == '__main__':
-  ctrl = MController(GroupMeChat, GroupMeDM, GroupMeServer)
-
-  while True:
-    pass

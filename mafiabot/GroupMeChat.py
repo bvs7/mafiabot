@@ -41,7 +41,7 @@ class GroupMeChat(MChat):
 
   def refill(self, users):
     """Remove all members except those that will be added, then add"""
-    self.group = self.group.update()
+    self.group.refresh_from_server()
     member_ids = [mem.user_id for mem in self.group.members]
     for member_id in member_ids:
       if not member_id in users:
@@ -79,6 +79,14 @@ class GroupMeChat(MChat):
     except groupy.exceptions.GroupyError:
       return False
     return True
+
+  def getAcks(self, message_id):
+    self.group = group.refresh_from_server()
+    msg_id = str(int(message_id)-1) # Subtract 1 so that our message shows up
+    for msg in self.group.messages.list_after(msg_id):
+      if msg.id == message_id:
+        return msg.favorited_by
+    return []
 
 # Have all DMs in one object?
 class GroupMeDM(MDM):
