@@ -28,9 +28,7 @@ class MController:
 
     self.ins = []
 
-    server = MServerType()
-    serverThread = treading.Thread(target=server.serve, args= (self.handle_chat, self.handle_dm)))
-    serverThread.start()
+    server = MServerType(self.handle_chat, self.handle_dm)
     
   # callback for Server
   def handle_chat(self,  group_id, sender_id, command, text, data):
@@ -43,7 +41,9 @@ class MController:
         if group_id == game.mafia_id():
           game.handle_mafia(sender_id, command, text, data)
     if command in LOBBY_COMMANDS:
-      self.handle_lobby(self, sender_id, command, text, data)
+      for lobby in self.lobbies:
+        if lobby.chat.group_id == group_id:
+          lobby.handle(sender_id, command, text, data)
 
     # TODO: leave, help?
 

@@ -11,6 +11,8 @@ know_if_stripped = "know_if_stripped"
 no_milk_self = "no_milk_self"
 cop_strength = "cop_strength"
 
+ACCESS_KW = "/"
+
 VOTE_CMD = "vote"
 TARGET_CMD = "target"
 REVEAL_CMD = "reveal"

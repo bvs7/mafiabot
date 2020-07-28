@@ -2,9 +2,13 @@
 from flask import Flask, request
 import json
 
+from mafiabot import ACCESS_KW, VOTE_CMD
+
 class GroupMeServer:
 
-  def __init__(self):
+  def __init__(self, handle_chat, handle_dm):
+    self.handle_chat = handle_chat
+    self.handle_dm = handle_dm
     app = Flask('mafiabot')
 
     app.add_url_rule('/', 'chat', self.chat, methods=['POST'])
@@ -17,6 +21,12 @@ class GroupMeServer:
     data = json.loads(request.data.decode('utf-8'))
     print("Chat:")
     print(data)
+    text = data['text']
+    if text[0:len(ACCESS_KW)] == ACCESS_KW:
+      group_id = data['group_id']
+      sender_id = data['sender_id']
+      command = text.split()[0][0:]
+      self.handle_chat(group_id, sender_id, command, text, data)
     return "ok"
 
   @staticmethod
@@ -24,6 +34,11 @@ class GroupMeServer:
     data = json.loads(request.data.decode('utf-8'))
     print("DM:")
     print(data)
+    text = data['text']
+    if text[0:len(ACCESS_KW)] == ACCESS_KW:
+      sender_id = data['sender_id']
+      command = text.split()[0][0:]
+      self.handle_chat(sender_id, command, text, data)
     return "ok"
 
 if __name__ == '__main__':
