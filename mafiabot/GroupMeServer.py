@@ -2,7 +2,6 @@
 from flask import Flask, request
 import json
 
-
 class GroupMeServer:
 
   def __init__(self):
@@ -18,11 +17,14 @@ class GroupMeServer:
     data = json.loads(request.data.decode('utf-8'))
     print("Chat:")
     print(data)
+    return "ok"
 
+  @staticmethod
   def dm():
     data = json.loads(request.data.decode('utf-8'))
     print("DM:")
     print(data)
+    return "ok"
 
 if __name__ == '__main__':
   server = GroupMeServer()
