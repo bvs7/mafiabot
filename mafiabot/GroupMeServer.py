@@ -24,7 +24,7 @@ class GroupMeServer:
     if text[0:len(ACCESS_KW)] == ACCESS_KW:
       group_id = data['group_id']
       sender_id = data['sender_id']
-      command = text.split()[0][0:]
+      command = text.split()[0][len(ACCESS_KW):]
       self.handle_chat(group_id, sender_id, command, text, data)
     return "ok"
 
@@ -35,7 +35,7 @@ class GroupMeServer:
     text = data['text']
     if text[0:len(ACCESS_KW)] == ACCESS_KW:
       sender_id = data['sender_id']
-      command = text.split()[0][0:]
+      command = text.split()[0][len(ACCESS_KW):]
       self.handle_dm(sender_id, command, text, data)
     return "ok"
 

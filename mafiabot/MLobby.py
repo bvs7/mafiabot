@@ -6,7 +6,7 @@ class MLobby:
 
   def __init__(self, group_id, MChatType):
 
-    self.chat = MChatType(group_id)
+    self.lobbyChat = MChatType(group_id)
 
     self.in_list = []
     self.rules = MRules()
@@ -15,14 +15,14 @@ class MLobby:
 
   def handle(self, sender_id, command, text, data):
     if command == IN_CMD:
-      if not sender_id in self.ins:
-        self.ins.append(sender_id)
+      if not sender_id in self.in_list:
+        self.in_list.append(sender_id)
       msg = "In List:\n" # TODO: generalize text
-      msg += "\n".join(["[{}]".format(i) for i in self.ins)
+      msg += "\n".join(["[{}]".format(i) for i in self.in_list])
       self.lobbyChat.cast(msg)
     if command == OUT_CMD:
-      if sender_id in self.ins:
-        self.ins.remove(sender_id)
+      if sender_id in self.in_list:
+        self.in_list.remove(sender_id)
         msg = "Removed [{}]".format(sender_id) # TODO: generalize text
       else:
         msg = "You weren't IN"
@@ -33,4 +33,10 @@ class MLobby:
       users = {}
       for user_id in self.in_list():
         users[user_id] = self.chat.names[user_id]
-      game.handle_start(self.ins)
+      game.handle_start(self.in_list)
+    if command == HELP_CMD:
+      msg = "Help Test"
+      self.lobbyChat.cast(msg)
+
+  def group_id(self):
+    return self.lobbyChat.id

@@ -29,6 +29,12 @@ class MGame:
   def active(self):
     return self.started and not self.ended
 
+  def main_id(self):
+    self.mainChat.id
+
+  def mafia_id(self):
+    self.mafiaChat.id
+
   def handle_main(self, sender_id, command, text, data):
     if command == VOTE_CMD:
       words = text.split()
@@ -85,7 +91,7 @@ class MGame:
     for id, role in zip(ids,roles):
       if role in MAFIA_ROLES:
         mafia_users[id] = users[id]
-    
+
     self.mainChat = mainChat
     self.mafiaChat = mafiaChat
 

@@ -6,6 +6,12 @@ from MInfo import *
 from .MGame import MGame
 from .MRules import MRules
 from .GroupMeChat import GroupMeChat, GroupMeDM
+from .MLobby import MLobby
+
+def getLobbies(MChatType):
+  lobbies = []
+  lobbies.append(MLobby('30021302', MChatType))
+  return lobbies
 
 # TODO: multiple lobbies!, lobby instances
 # TODO: getLobbyChats, getGameChats
@@ -42,7 +48,7 @@ class MController:
           game.handle_mafia(sender_id, command, text, data)
     if command in LOBBY_COMMANDS:
       for lobby in self.lobbies:
-        if lobby.chat.group_id == group_id:
+        if lobby.group_id() == group_id:
           lobby.handle(sender_id, command, text, data)
 
     # TODO: leave, help?

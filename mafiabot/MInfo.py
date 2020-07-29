@@ -231,10 +231,6 @@ def dispKnownRoles(roleDict, known_roles):
   elif known_roles == "OFF":
     return "Players: {}".format(len(roleDict))
 
-def getLobbies(MChatType):
-  lobbies = []
-  lobbies.append(MChatType('30021302'))
-  return lobbies
 
 def getGames(MChatType):
   return []
