@@ -31,16 +31,19 @@ class MLobby:
         msg = "You weren't IN"
       self.lobbyChat.cast(msg)
     if command == START_CMD:
-      game = MGame(self.gameChats[0], self.gameChats[1], self.dms, self.rules)
+      main = self.MChatType.new("MAIN CHAT")
+      mafia = self.MChatType.new("MAFIA CHAT")
+      game = MGame(self.rules)
       self.games.append(game)
       users = {}
-      for user_id in self.in_list():
+      for user_id in self.in_list:
         users[user_id] = self.lobbyChat.names[user_id]
-      main = MChatType.new("MAIN CHAT")
-      mafia = MChatType.new("MAFIA CHAT")
       game.handle_start(main, mafia, self.dms, users)
       for user in users:
-        self.ctrl.active_games[user] = game.id
+        self.ctrl.activeGame[user] = game
+      print("Appending game:")
+      print(game.state)
+      self.ctrl.games.append(game)
     if command == HELP_CMD:
       msg = "Help Test"
       self.lobbyChat.cast(msg)

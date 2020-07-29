@@ -45,13 +45,18 @@ class MController:
     
   # callback for Server
   def handle_chat(self,  group_id, sender_id, command, text, data):
+    print("")
+    print("Command: {}".format(command))
     if command in GAME_MAIN_COMMANDS:
+      print("Main Command check")
       for game in self.games:
+        print("Check game: {} {} {}".format(game.active(), group_id, game.main_id()))
         if game.active() and group_id == game.main_id():
+          print("Active")
           game.handle_main(sender_id, command, text, data)
     if command in GAME_MAFIA_COMMANDS:
       for game in self.games:
-        if group_id == game.mafia_id():
+        if game.active() and group_id == game.mafia_id():
           game.handle_mafia(sender_id, command, text, data)
     if command in LOBBY_COMMANDS:
       for lobby in self.lobbies:
@@ -66,5 +71,5 @@ class MController:
       if sender_id in self.activeGame:
         game = self.activeGame[sender_id]
         if not game == None:
-          self.handle_game_dm(game, sender_id, command, text, data)
+          game.handle_dm(sender_id, command, text, data)
     # TODO:
