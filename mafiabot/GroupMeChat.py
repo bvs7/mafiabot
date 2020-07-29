@@ -34,6 +34,9 @@ class GroupMeChat(MChat):
   @staticmethod
   def new(name):
     g = client.groups.create(name)
+    time.sleep(.5)
+    bot = g.create_bot("Mafia Bot", callback_url = "http://70.180.16.29:1121/", dm_notification=False)
+    bot.post("Hello, hopefully I am working")
     return GroupMeChat(g.id)
 
   def remove(self, user_id):
@@ -101,9 +104,9 @@ class GroupMeDM(MDM):
 
   def send(self, msg, user_id):
     if not user_id in self.dms:
-      self.dms[user_id] = DirectMessages(self.client, user_id)
+      self.dms[user_id] = DirectMessages(self.client.session, user_id)
     try:
-      m_id = self.dm.create(msg).id
+      m_id = self.dms[user_id].create(msg).id
       time.sleep(CAST_DELAY)
     except Exception as e:
       raise CastError(e)

@@ -1,8 +1,8 @@
+import time
+
 from .MInfo import *
 from .MState import MState
 from .MEvent import MPhase
-
-
 
 # TODO: generalize cast/send!
 
@@ -22,7 +22,7 @@ def getTarget(text):
 class MGame:
 
   def __init__(self, rules):
-    self.id = 
+    self.id = 1
     self.rules = rules
     self.started = False
     self.ended = False
@@ -31,16 +31,16 @@ class MGame:
     return self.started and not self.ended
 
   def main_id(self):
-    self.mainChat.id
+    return self.mainChat.id
 
   def mafia_id(self):
-    self.mafiaChat.id
+    return self.mafiaChat.id
 
   def handle_main(self, sender_id, command, text, data):
     if command == VOTE_CMD:
       words = text.split()
       voter = sender_id
-      votee = data[votee]
+      votee = None
       if len(words) >= 3:
         # TODO: Generalize language
         if words[1].lower() == "me":
@@ -116,17 +116,21 @@ class MGame:
         msg = msg.replace("[{}]".format(id),name)
       self.send_dm(msg, user_id)
 
-    self.state = MState(main_cast, mafia_cast, send_dm, rules)
+    self.state = MState(main_cast, mafia_cast, send_dm, self.rules)
+    print("\n\n")
+    print(self.state.main_status())
+    print("\n\n")
+    time.sleep(.5)
     self.started = True
     self.state.start(ids,roles)
 
   def handle_vote(self,player_id,target_id):
     if not player_id in self.state.players:
-      self.main.cast(default_resp_lib["INVALID_VOTE_PLAYER"].format(player_id))
+      self.mainChat.cast(default_resp_lib["INVALID_VOTE_PLAYER"].format(player_id))
       return
 
     if not self.state.phase == MPhase.DAY:
-      self.main.cast(default_resp_lib["INVALID_VOTE_PHASE"])
+      self.mainChat.cast(default_resp_lib["INVALID_VOTE_PHASE"])
       return
 
     self.state.vote(player_id, target_id)
@@ -156,11 +160,11 @@ class MGame:
 
   def handle_mtarget(self, player_id, target_letter):
     if not (player_id in self.state.players and self.state.players[player_id].role in MAFIA_ROLES):
-      self.mafia.cast(default_resp_lib["INVALID_MTARGET_PLAYER"])
+      self.mafiaChat.cast(default_resp_lib["INVALID_MTARGET_PLAYER"])
       return
 
     if not self.state.phase == MPhase.NIGHT:
-      self.mafia.cast(default_resp_lib["INVALID_MTARGET_PHASE"])
+      self.mafiaChat.cast(default_resp_lib["INVALID_MTARGET_PHASE"])
       return
     
     try:
@@ -170,12 +174,12 @@ class MGame:
       else:
         target_id = self.state.player_order[target_number]
     except KeyError:
-      self.mafia.cast(default_resp_lib["INVALID_MTARGET"].format(target_letter=target_letter))
+      self.mafiaChat.cast(default_resp_lib["INVALID_MTARGET"].format(target_letter=target_letter))
       return
     
     role = self.state.players[player_id].role
     if role == "GOON" and target_id != "NOTARGET":
-      self.mafia.cast(default_resp_lib["INVALID_MTARGET_GOON"])
+      self.mafiaChat.cast(default_resp_lib["INVALID_MTARGET_GOON"])
       return
 
     self.state.mtarget(player_id, target_id)
@@ -192,27 +196,27 @@ class MGame:
     self.state.reveal(player_id)
 
   def handle_timer(self, player_id):
-    self.main.cast("Timer not implemented yet")
+    self.mainChat.cast("Timer not implemented yet")
   
   def handle_untimer(self, player_id):
-    self.main.cast("Timer not implemented yet")
+    self.mainChat.cast("Timer not implemented yet")
 
   def handle_main_help(self, text):
-    self.main.cast("Help not implemented yet")
+    self.mainChat.cast("Help not implemented yet")
 
   def handle_mafia_help(self, text):
-    self.mafia.cast("Help not implemented yet")
+    self.mafiaChat.cast("Help not implemented yet")
     
   def handle_dm_help(self, player_id, text):
     self.dms.send("Help not implemented yet",player_id)
 
   def handle_main_status(self):
     msg = self.state.main_status()
-    self.main.cast(msg)
+    self.mainChat.cast(msg)
 
   def handle_mafia_status(self):
     msg = self.state.mafia_status()
-    self.mafia.cast(msg)
+    self.mafiaChat.cast(msg)
 
   def handle_dm_status(self, player_id):
     msg = self.state.dm_status(player_id)
