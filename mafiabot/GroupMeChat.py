@@ -31,6 +31,10 @@ class GroupMeChat(MChat):
       self.names[member.user_id] = member.nickname
       # self.names[member.user_id] = member.name
 
+  @staticmethod
+  def new(name):
+    g = client.groups.create(name)
+    return GroupMeChat(g.id)
 
   def remove(self, user_id):
     if user_id == MODERATOR:
@@ -61,7 +65,7 @@ class GroupMeChat(MChat):
     except Exception as e:
       raise CastError(e)
 
-  def cast(self, msg):
+  def cast(self, msg:str):
     try:
       m_id = self.group.post(msg).id
       time.sleep(CAST_DELAY)

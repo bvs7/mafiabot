@@ -230,10 +230,3 @@ def dispKnownRoles(roleDict, known_roles):
     return dispTeamFromDict(roleDict, known_roles)
   elif known_roles == "OFF":
     return "Players: {}".format(len(roleDict))
-
-
-def getGames(MChatType):
-  return []
-
-def getDMs(MDMType):
-  return MDMType()

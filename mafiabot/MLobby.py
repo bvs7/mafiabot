@@ -1,12 +1,15 @@
 
 from MInfo import *
 from .MRules import MRules
+from .MGame import MGame
 
 class MLobby:
 
-  def __init__(self, group_id, MChatType):
-
+  def __init__(self, ctrl, group_id, MChatType, dms):
+    self.MChatType = MChatType
     self.lobbyChat = MChatType(group_id)
+    self.dms = dms
+    self.ctrl = ctrl
 
     self.in_list = []
     self.rules = MRules()
@@ -32,8 +35,12 @@ class MLobby:
       self.games.append(game)
       users = {}
       for user_id in self.in_list():
-        users[user_id] = self.chat.names[user_id]
-      game.handle_start(self.in_list)
+        users[user_id] = self.lobbyChat.names[user_id]
+      main = MChatType.new("MAIN CHAT")
+      mafia = MChatType.new("MAFIA CHAT")
+      game.handle_start(main, mafia, self.dms, users)
+      for user in users:
+        self.ctrl.active_games[user] = game.id
     if command == HELP_CMD:
       msg = "Help Test"
       self.lobbyChat.cast(msg)

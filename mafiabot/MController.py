@@ -8,10 +8,16 @@ from .MRules import MRules
 from .GroupMeChat import GroupMeChat, GroupMeDM
 from .MLobby import MLobby
 
-def getLobbies(MChatType):
+def getLobbies(ctrl, MChatType, dms):
   lobbies = []
-  lobbies.append(MLobby('30021302', MChatType))
+  lobbies.append(MLobby(ctrl, '30021302', MChatType, dms))
   return lobbies
+  
+def getGames(MChatType):
+  return []
+
+def getDMs(MDMType):
+  return MDMType()
 
 # TODO: multiple lobbies!, lobby instances
 # TODO: getLobbyChats, getGameChats
@@ -24,9 +30,10 @@ class MController:
     self.MChatType = MChatType
     self.MServerType = MServerType
 
-    self.lobbies = getLobbies(MChatType)
     self.games = getGames(MChatType)
     self.dms = getDMs(MDMType)
+    
+    self.lobbies = getLobbies(self, MChatType, self.dms)
 
     self.rules = MRules()
 

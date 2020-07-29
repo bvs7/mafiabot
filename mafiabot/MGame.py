@@ -2,6 +2,7 @@ from .MInfo import *
 from .MState import MState
 from .MEvent import MPhase
 
+base_id = 1
 
 # TODO: generalize cast/send!
 
@@ -21,7 +22,8 @@ def getTarget(text):
 class MGame:
 
   def __init__(self, rules):
-
+    self.id = base_id
+    base_id += 1
     self.rules = rules
     self.started = False
     self.ended = False
@@ -100,7 +102,22 @@ class MGame:
 
     self.dms = dms
 
-    self.state = MState(self.main.cast, self.mafia.cast, send_dm, rules)
+    def main_cast(msg:str):
+      for id,name in self.mainChat.names.items():
+        msg = msg.replace("[{}]".format(id),name)
+      self.mainChat.cast(msg)
+
+    def mafia_cast(msg:str):
+      for id,name in self.mainChat.names.items():
+        msg = msg.replace("[{}]".format(id),name)
+      self.mafiaChat.cast(msg)
+
+    def send_dm(msg:str,user_id):
+      for id,name in self.mainChat.names.items():
+        msg = msg.replace("[{}]".format(id),name)
+      self.send_dm(msg, user_id)
+
+    self.state = MState(main_cast, mafia_cast, send_dm, rules)
     self.started = True
     self.state.start(ids,roles)
 
