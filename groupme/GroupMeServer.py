@@ -2,9 +2,9 @@
 from flask import Flask, request
 import json
 
-from mafiabot import ACCESS_KW, VOTE_CMD
+from mafiabot import ACCESS_KW, MServer
 
-class GroupMeServer:
+class GroupMeServer(MServer):
 
   def __init__(self, handle_chat, handle_dm):
     self.handle_chat = handle_chat
@@ -38,9 +38,3 @@ class GroupMeServer:
       command = text.split()[0][len(ACCESS_KW):]
       self.handle_dm(sender_id, command, text, data)
     return "ok"
-
-if __name__ == '__main__':
-  server = GroupMeServer()
-
-  while True:
-    pass

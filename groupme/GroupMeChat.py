@@ -2,7 +2,7 @@
 from typing import Tuple, Dict
 import time
 
-from .MChat import MChat, MDM, CastError
+from mafiabot import MChat, MDM, CastError
 
 GROUPME_KEYFILE = "../../.groupme.key"
 MODERATOR = "43040067"
