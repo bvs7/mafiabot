@@ -40,7 +40,8 @@ class MLobby:
       mafia = MChatType.new("MAFIA CHAT")
       game.handle_start(main, mafia, self.dms, users)
       for user in users:
-        self.ctrl.active_games[user] = game.id
+        self.ctrl.activeGame[user] = game.id
+      self.ctrl.games.append(game)
     if command == HELP_CMD:
       msg = "Help Test"
       self.lobbyChat.cast(msg)

@@ -2,7 +2,7 @@ from .MInfo import *
 from .MState import MState
 from .MEvent import MPhase
 
-base_id = 1
+
 
 # TODO: generalize cast/send!
 
@@ -22,8 +22,7 @@ def getTarget(text):
 class MGame:
 
   def __init__(self, rules):
-    self.id = base_id
-    base_id += 1
+    self.id = 
     self.rules = rules
     self.started = False
     self.ended = False
