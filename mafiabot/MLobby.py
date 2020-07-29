@@ -40,9 +40,7 @@ class MLobby:
         users[user_id] = self.lobbyChat.names[user_id]
       game.handle_start(main, mafia, self.dms, users)
       for user in users:
-        self.ctrl.activeGame[user] = game
-      print("Appending game:")
-      print(game.state)
+        self.ctrl.activeGame[user] = game.id
       self.ctrl.games.append(game)
     if command == HELP_CMD:
       msg = "Help Test"
