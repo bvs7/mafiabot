@@ -41,7 +41,7 @@ class MGame:
       words = text.split()
       voter = sender_id
       votee = None
-      if len(words) >= 3:
+      if len(words) >= 2:
         # TODO: Generalize language
         if words[1].lower() == "me":
           votee = sender_id
@@ -83,10 +83,10 @@ class MGame:
     elif command == HELP_CMD:
       self.handle_dm_help(sender_id, text)
 
-  def handle_start(self, mainChat, mafiaChat, dms, users):
+  def handle_start(self, mainChat, mafiaChat, dms, end_callback, users):
     # TODO: rolegen
     ids = users.keys()
-    default_roles = ["TOWN","TOWN","MAFIA","TOWN","TOWN"]
+    default_roles = ["TOWN","TOWN","MAFIA","COP","DOCTOR"]
     roles = default_roles[:len(ids)]
     mafia_users = {}
     for id, role in zip(ids,roles):
@@ -102,25 +102,20 @@ class MGame:
     self.dms = dms
 
     def main_cast(msg:str):
-      for id,name in self.mainChat.names.items():
-        msg = msg.replace("[{}]".format(id),name)
-      self.mainChat.cast(msg)
+      self.mainChat.cast(self.mainChat.format(msg))
 
     def mafia_cast(msg:str):
-      for id,name in self.mainChat.names.items():
-        msg = msg.replace("[{}]".format(id),name)
-      self.mafiaChat.cast(msg)
+      self.mafiaChat.cast(self.mainChat.format(msg))
 
     def send_dm(msg:str,user_id):
-      for id,name in self.mainChat.names.items():
-        msg = msg.replace("[{}]".format(id),name)
-      self.send_dm(msg, user_id)
+      self.dms.send(self.mainChat.format(msg), user_id)
 
-    self.state = MState(main_cast, mafia_cast, send_dm, self.rules)
-    print("\n\n")
-    print(self.state.main_status())
-    print("\n\n")
-    time.sleep(.5)
+    def end_callback_(e):
+      self.ended = True
+      end_callback(e)
+
+    self.state = MState(main_cast, mafia_cast, send_dm, self.rules, end_callback_)
+    time.sleep(.1)
     self.started = True
     self.state.start(ids,roles)
 
@@ -150,10 +145,10 @@ class MGame:
         target_id = "NOTARGET"
       else:
         target_id = self.state.player_order[target_number]
-    except KeyError:
+    except IndexError:
       self.dms.send(default_resp_lib["INVALID_TARGET"].format(target_letter=target_letter),player_id)
       return
-    if self.state.players.role == "MILKY" and self.state.rules["no_milk_self"] == "ON":
+    if self.state.players[player_id].role == "MILKY" and self.state.rules["no_milk_self"] == "ON":
       self.dms.send(default_resp_lib["MILK_SELF"],player_id)
       return
     self.state.target(player_id, target_id)
@@ -173,7 +168,7 @@ class MGame:
         target_id = "NOTARGET"
       else:
         target_id = self.state.player_order[target_number]
-    except KeyError:
+    except IndexError:
       self.mafiaChat.cast(default_resp_lib["INVALID_MTARGET"].format(target_letter=target_letter))
       return
     
@@ -221,5 +216,10 @@ class MGame:
   def handle_dm_status(self, player_id):
     msg = self.state.dm_status(player_id)
     self.dms.send(msg,player_id)
+
+  def end(self):
+    if self.started:
+      self.mainChat.destroy()
+      self.mafiaChat.destroy()
 
 

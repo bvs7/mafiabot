@@ -1,5 +1,5 @@
 
-from MInfo import *
+from .MInfo import *
 from .MRules import MRules
 from .MGame import MGame
 
@@ -37,11 +37,19 @@ class MLobby:
       self.games.append(game)
       users = {}
       for user_id in self.in_list:
-        users[user_id] = self.lobbyChat.names[user_id]
-      game.handle_start(main, mafia, self.dms, users)
+        users[user_id] = self.lobbyChat.getName(user_id)
+
+      def end_callback(e):
+        self.ctrl.games.remove(game)
+        self.lobbyChat.cast("Game ended: {}".format(e))
+        game.end()
+
+      game.handle_start(main, mafia, self.dms, end_callback, users)
       for user in users:
-        self.ctrl.activeGame[user] = game.id
+        self.ctrl.activeGame[user] = game
       self.ctrl.games.append(game)
+      self.in_list = []
+
     if command == HELP_CMD:
       msg = "Help Test"
       self.lobbyChat.cast(msg)

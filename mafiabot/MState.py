@@ -15,12 +15,15 @@ class MState():
       cast_mafia : Callable[[str],None],
       send_dm : Callable[[str,MPlayerID],None],
       rules : MRules,
+      end_callback,
     ):
     self.cast_main = cast_main
     self.cast_mafia= cast_mafia
     self.send_dm   = send_dm
 
     self.rules = rules
+
+    self.end_callback = end_callback
 
     self.event_list : List[MEvent] = []
     self.event_lock : Lock = Lock()
@@ -77,6 +80,7 @@ class MState():
       except EndGameException as e:
         self.active = False
         print("Caught end of game: {}".format(e))
+        self.end_callback(e)
 
   def handleEvent(self, event):
     event.read(self)
@@ -145,9 +149,9 @@ class MState():
     no_kill_thresh = num_players - thresh + 1
     for player_id in self.player_order:
       if player_id in voteDict:
-        msg += "  [{}]: {}/{}".format(player_id, voteDict[player_id], thresh)
+        msg += "  [{}]: {}/{}\n".format(player_id, voteDict[player_id], thresh)
     if "NOTARGET" in voteDict:
-      msg += "  [{}]: {}/{}".format("NOTARGET", voteDict["NOTARGET"], no_kill_thresh)
+      msg += "  [{}]: {}/{}\n".format("NOTARGET", voteDict["NOTARGET"], no_kill_thresh)
     return msg
 
   def roleStatus(self):
@@ -169,7 +173,7 @@ class MState():
   def nightOptions(self):
     msg = ""
     msg = default_resp_lib["NIGHT_OPTIONS"]
-    msg += "\n".join(listMenu(self.player_order))
+    msg += "\n".join(listMenu(self.player_order)) + "\n"
     return msg
 
   # General status of mstate

@@ -31,6 +31,9 @@ class GroupMeChat(MChat):
       self.names[member.user_id] = member.nickname
       # self.names[member.user_id] = member.name
 
+  def destroy(self):
+    self.group.destroy()
+
   @staticmethod
   def new(name):
     g = client.groups.create(name)
@@ -38,6 +41,17 @@ class GroupMeChat(MChat):
     bot = g.create_bot("Mafia Bot", callback_url = "http://70.180.16.29:1121/", dm_notification=False)
     bot.post("Hello, hopefully I am working")
     return GroupMeChat(g.id)
+
+  def format(self, msg):
+    for id,name in self.names.items():
+      msg = msg.replace("[{}]".format(id),name)
+    return msg
+
+  def getName(self, user_id):
+    if user_id in self.names:
+      return self.names[user_id]
+    else:
+      return "(Couldn't get name)"
 
   def remove(self, user_id):
     if user_id == MODERATOR:

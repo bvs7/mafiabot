@@ -17,6 +17,7 @@ class GroupMeServer(MServer):
     app.run(host="0.0.0.0",port=1121)
 
   def chat(self):
+    print(request.data)
     data = json.loads(request.data.decode('utf-8'))
     print("Chat:")
     print(data)

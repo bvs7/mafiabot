@@ -52,24 +52,26 @@ class START(MEvent):
     self.start_night = mstate.rules[start_night]
 
   def msg(self, cast_main, cast_mafia, send_dm):
+    for i,role in zip(self.ids, self.roles):
+      send_dm(ROLE_EXPLAIN[role], i)
     roleDict = makeRoleDict(self.roles)
     msg = default_resp_lib["START"]
     msg += dispKnownRoles(roleDict, self.known_roles)
-
     cast_main(msg)
 
   def write(self, mstate):
     for i,role in zip(self.ids, self.roles):
       player = MPlayer(i,role)
       mstate.players[i] = player
-    mstate.player_order = mstate.players.keys()
+    mstate.player_order = list(mstate.players.keys())
     self.phase = MPhase.DAY
+    mstate.day = 0
     if (self.start_night == "ON" or 
       (self.start_night == "ODD" and len(self.ids) % 2 == 1) or
       (self.start_night == "EVEN" and len(self.ids) % 2 == 0)):
       self.phase = MPhase.NIGHT
+      mstate.day = 1
     mstate.phase = self.phase
-    mstate.day = 1
 
     mstate.contracts = self.contracts
 
@@ -569,7 +571,7 @@ class ELIMINATE(MEvent):
 
   def write(self, mstate):
     del mstate.players[self.target]
-    mstate.player_order = mstate.players.keys()
+    mstate.player_order = list(mstate.players.keys())
     
     self.relevant_contractors = []
     for (p,(role,charge,_)) in mstate.contracts.items():

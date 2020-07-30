@@ -2,10 +2,9 @@
 
 from typing import List
 
-from MInfo import *
+from .MInfo import *
 from .MGame import MGame
 from .MRules import MRules
-from .GroupMeChat import GroupMeChat, GroupMeDM
 from .MLobby import MLobby
 
 def getLobbies(ctrl, MChatType, dms):
@@ -45,14 +44,9 @@ class MController:
     
   # callback for Server
   def handle_chat(self,  group_id, sender_id, command, text, data):
-    print("")
-    print("Command: {}".format(command))
     if command in GAME_MAIN_COMMANDS:
-      print("Main Command check")
       for game in self.games:
-        print("Check game: {} {} {}".format(game.active(), group_id, game.main_id()))
         if game.active() and group_id == game.main_id():
-          print("Active")
           game.handle_main(sender_id, command, text, data)
     if command in GAME_MAFIA_COMMANDS:
       for game in self.games:
@@ -63,8 +57,6 @@ class MController:
         if lobby.group_id() == group_id:
           lobby.handle(sender_id, command, text, data)
 
-    # TODO: leave, help?
-
   def handle_dm(self, sender_id, command, text, data):
     # check for this player's game?
     if command in GAME_DM_COMMANDS:
@@ -72,4 +64,3 @@ class MController:
         game = self.activeGame[sender_id]
         if not game == None:
           game.handle_dm(sender_id, command, text, data)
-    # TODO:
