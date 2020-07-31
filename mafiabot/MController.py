@@ -44,6 +44,8 @@ class MController:
 
     self.activeGame = {} # Maps player id to their active game
 
+    self.rolegen_opine = {} # Maps player_id -> (roles,contracts)
+
     self.ins = []
 
     if not debug == None:
@@ -75,12 +77,27 @@ class MController:
           game.handle_dm(sender_id, command, text, data)
     # TEMPORARY
     if command == 'rolegen':
-      print("ROLEGEN:\n\n")
       try:
         n = int(text.split()[1])
         temp_ids = [str(i) for i in range(n)]
         ids,roles,contracts = randomRoleGen(temp_ids)
-        msg = "Roles: {}\nContracts: {}".format(roles,contracts)
+        msg = "Roles: {}\nContracts: {}\n(Respond /opine [1-5] to give opinion on this rolegen (5-best, 1-worst))".format(roles,contracts)
+        self.rolegen_opine[sender_id] = (roles,contracts)
+        self.dms.send(msg, sender_id)
+      except Exception as e:
+        msg = "Sorry, I had an error: {}".format(e)
+        self.dms.send(msg, sender_id)
+    elif command == 'opine'
+      try:
+        opinion = int(text.split()[1])
+        if not (opinion >= 1 and <=5):
+          raise IndexError("Opinion should be from 1 to 5")
+        if sender_id in self.rolegen_opine:
+          with open("../data/rolegen_opinions", 'a') as rof:
+            rof.write("{}\n{}\n{}".format(roles,contracts,opinion))
+          msg = "Opinion noted, thank you!"
+        else:
+          msg = "Nothing to opine upon"
         self.dms.send(msg, sender_id)
       except Exception as e:
         msg = "Sorry, I had an error: {}".format(e)
