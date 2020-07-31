@@ -75,10 +75,11 @@ class MController:
           game.handle_dm(sender_id, command, text, data)
     # TEMPORARY
     if command == 'rolegen':
+      print("ROLEGEN:\n\n")
       try:
         n = int(text.split()[1])
         temp_ids = [str(i) for i in range(n)]
-        ids,roles,contracts = randomRoleGen(ids)
+        ids,roles,contracts = randomRoleGen(temp_ids)
         msg = "Roles: {}\nContracts: {}".format(roles,contracts)
         self.dms.send(msg, sender_id)
       except Exception as e:
