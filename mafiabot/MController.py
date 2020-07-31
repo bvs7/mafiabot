@@ -19,13 +19,18 @@ def getDMs(MDMType):
   return MDMType()
 
 # TODO: multiple lobbies!, lobby instances
-# TODO: getLobbyChats, getGameChats
+# TODO: getLobbyChats, getGameChats. Flesh out
+
+# TODO: Proper RoleGen!
+# TODO: Rule edits and checking
+# TODO: Save state and refreshing games
+# TODO: Database Recording and stats
 
 class MController:
 
   # init
 
-  def __init__(self, MChatType, MDMType, MServerType):
+  def __init__(self, MChatType, MDMType, MServerType, debug=None):
     self.MChatType = MChatType
     self.MServerType = MServerType
 
@@ -39,6 +44,9 @@ class MController:
     self.activeGame = {} # Maps player id to their active game
 
     self.ins = []
+
+    if not debug == None:
+      debug(self)
 
     server = MServerType(self.handle_chat, self.handle_dm)
     

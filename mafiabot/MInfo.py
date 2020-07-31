@@ -104,11 +104,11 @@ default_resp_lib = {
 
   "INVALID_VOTE_PLAYER": "[{player_id}] cannot vote, not playing",
   "INVALID_VOTE_PHASE": "Can only vote during Day",
-  "INVALID_TARGET": "Invalid target: {target_letter}",
+  "INVALID_TARGET": "Invalid target: {text}",
   "INVALID_TARGET_PLAYER": "You cannot target if you are not playing or do not have a targeting role",
   "INVALID_TARGET_PHASE": "Can only target during Night",
   "MILK_SELF": "Ewwww please don't milk yourself...",
-  "INVALID_MTARGET": "Invalid target: {target_letter}",
+  "INVALID_MTARGET": "Invalid target: {text}",
   "INVALID_MTARGET_GOON": "A GOON can only choose no kill",
   "INVALID_MTARGET_PLAYER": "You cannot target if you are not playing or do not have a mafia role",
   "INVALID_MTARGET_PHASE": "Can only target during Night",
@@ -162,12 +162,12 @@ ROLE_EXPLAIN= {
                "mafia are and convince their fellow town members to kill them "
                "during the day!"),
     "COP"   : ("The COP is the one of the most offensive members of "
-               "the townspeople. During the night, they send a direct message to MODERATOR "
+               "the townspeople. During the Night, they send a direct message to MODERATOR "
                "with the letter of the person they want to investigate, and "
                "upon morning, MODERATOR will tell them whether that person is MAFIA or "
                "NOT MAFIA."),
     "DOCTOR": ("The DOCTOR's job is to save the townspeople from "
-               "the mafia scum. During the night, they send a direct message to MODERATOR"
+               "the mafia scum. During the Night, they send a direct message to MODERATOR"
                " with the letter of the person they want to save. If the mafia"
                " targets that person, they will have a near death experience, but "
                "survive."),
@@ -181,7 +181,7 @@ ROLE_EXPLAIN= {
     "MILKY"  : ("The MILKY gives out some milk to someone every night. Other than "
                 "that they are a normal townsperson. Don't milk yourself!"),
     "MAFIA" : ("The MAFIA is part of the mafia chat to talk "
-               "privately with their co-conspirators. During the day, they try not "
+               "privately with their co-conspirators. During the Day, they try not "
                "to get killed. During the Night, they choose somebody to kill!"),
     "GODFATHER" : ( "The GODFATHER is a leader of the mafia, up "
                "to no good! They use the mafia chat to conspire. If a cop "

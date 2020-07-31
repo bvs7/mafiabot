@@ -488,10 +488,8 @@ class ELECT(MEvent):
         (role,charge,_) = mstate.contracts[self.target]
         mstate.contracts[self.target] = (role,charge,True)
         self.venges = [p_id for p_id in mstate.players if (mstate.players[p_id].vote == self.target and p_id != self.target)]
-        mstate.vengeance = {
-          'venges': self.venges,
-          'final_vote': self.actor,
-          'idiot': self.target}
+        mstate.vengeance = {'venges':self.venges,
+          'final_vote':self.actor, 'idiot':self.target}
         if self.idiot_vengeance == "DAY":
           # Reset votes
           for player in mstate.players.values():
@@ -552,7 +550,7 @@ class VENGEANCE(MEvent):
     event_list = []
     if not self.target in (NOTARGET, None):
       event_list.append(ELIMINATE(self.actor, self.target))
-    event_list.append(ELIMINATE(self.vengeance["final_vote"], self.vengeance["idiot"]))
+    event_list.append(ELIMINATE(self.vengeance['final_vote'], self.vengeance['idiot']))
     push(event_list)
 
 class ELIMINATE(MEvent):

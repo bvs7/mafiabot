@@ -30,21 +30,20 @@ class MLobby:
       else:
         msg = "You weren't IN"
       self.lobbyChat.cast(msg)
-    if command == START_CMD:
-      main = self.MChatType.new("MAIN CHAT")
-      mafia = self.MChatType.new("MAFIA CHAT")
-      game = MGame(self.rules)
-      self.games.append(game)
+    if command == START_CMD: # TODO: Simplify start
+      
       users = {}
       for user_id in self.in_list:
         users[user_id] = self.lobbyChat.getName(user_id)
 
-      def end_callback(e):
+      def end_callback(game, e):
         self.ctrl.games.remove(game)
         self.lobbyChat.cast("Game ended: {}".format(e))
         game.end()
 
-      game.handle_start(main, mafia, self.dms, end_callback, users)
+      game = MGame(self.MChatType, self.dms, self.rules, end_callback, users)
+      self.games.append(game)
+      
       for user in users:
         self.ctrl.activeGame[user] = game
       self.ctrl.games.append(game)

@@ -1,5 +1,5 @@
 from enum import Enum, auto
-from typing import List, Union, Optional, Dict, Callable
+from typing import List, Union, Optional, Dict, Callable, Any
 from threading import Lock, Thread
 
 from .MInfo import *
@@ -7,8 +7,9 @@ from .MPlayer import MPlayer, MPlayerID, NOTARGET
 from .MEvent import MEvent, START, VOTE, TARGET, MTARGET, REVEAL, TIMER, END, MPhase, EndGameException
 from .MRules import MRules
 
+# Static rolegen
 
-class MState():
+class MState:
 
   def __init__(self, 
       cast_main : Callable[[str],None],
@@ -16,45 +17,46 @@ class MState():
       send_dm : Callable[[str,MPlayerID],None],
       rules : MRules,
       end_callback,
+      ids : List[MPlayerID],
+      roles : List[str],
+      contracts
     ):
+
     self.cast_main = cast_main
     self.cast_mafia= cast_mafia
     self.send_dm   = send_dm
-
     self.rules = rules
-
     self.end_callback = end_callback
 
-    self.event_list : List[MEvent] = []
-    self.event_lock : Lock = Lock()
-
+    # General Game State
     self.id : int = 0 ## TODO
     self.day : int = 0
     self.phase : MPhase = MPhase.INIT
-    self.timer_inst : Optional[int] = None # TODO: add timer
 
     self.players : Dict[MPlayerID, MPlayer] = {}
     self.player_order = []
-    self.start_roles = []
+    self.contracts = {} #Dicts? player_id -> (role, target, success)
 
     self.mafia_target : Optional[MPlayerID] = None
-    self.mafia_targeter : Optional[MPlayerID] = None # TODO: combine into MMafTarget?
-
+    self.mafia_targeter : Optional[MPlayerID] = None
     self.stripped = []
-
     self.stunned = []
-
     self.revealed = []
+    self.vengeance : Optional[Dict[str,Any]] = None
 
-    self.contracts = {} #Dicts? player_id -> role, target, success
+    self.start_roles = []
 
-    self.vengeance = None # {venges, final_vote, idiot}
+    self.timer_inst : Optional[int] = None # TODO: add timer
 
+    # Event_List
+    self.event_list : List[MEvent] = []
+    self.event_lock : Lock = Lock()
     self.active = True
-
     self.thread = Thread(target=self.popLoop, name="MState thread")
-
     self.thread.start()
+
+    # Start acts
+    self.start(ids,roles,contracts)
 
   def appendEvent(self, event : Union[MEvent, List[MEvent]]):
     if not type(event) == list:
@@ -88,7 +90,8 @@ class MState():
     event.write(self)
     event.next(self.pushEvent)
 
-  def start(self, ids, roles, contracts={}):
+  def start(self, ids : List[MPlayerID], roles : List[str], contracts):
+    
     self.start_roles = roles
     event = START(ids, roles, contracts)
     self.pushEvent(event)
