@@ -79,23 +79,30 @@ class MController:
     if command == 'rolegen':
       try:
         n = int(text.split()[1])
-        temp_ids = [str(i) for i in range(n)]
+        temp_ids = [i for i in range(n)]
         ids,roles,contracts = randomRoleGen(temp_ids)
-        msg = "Roles: {}\nContracts: {}\n(Respond /opine [1-5] to give opinion on this rolegen (5-best, 1-worst))".format(roles,contracts)
+        role_disp = dispRoleFromDict(makeRoleDict(roles))
+        contracts_disp = []
+        for p_id in contracts:
+          (role,charge,success) = contracts[p_id]
+          contracts_disp.append("{}->{}".format(role,roles[charge]))
+        msg = "Roles:\n{}\nContracts: {}\n(Respond /opine [1-5] to give opinion on this rolegen (5-best, 1-worst))".format(role_disp,contracts_disp)
         self.rolegen_opine[sender_id] = (roles,contracts)
         self.dms.send(msg, sender_id)
       except Exception as e:
         msg = "Sorry, I had an error: {}".format(e)
         self.dms.send(msg, sender_id)
-    elif command == 'opine'
+    elif command == 'opine':
       try:
         opinion = int(text.split()[1])
-        if not (opinion >= 1 and <=5):
+        if not (opinion >= 1 and opinion <= 5):
           raise IndexError("Opinion should be from 1 to 5")
         if sender_id in self.rolegen_opine:
+          roles, contracts = self.rolegen_opine[sender_id]
           with open("../data/rolegen_opinions", 'a') as rof:
             rof.write("{}\n{}\n{}".format(roles,contracts,opinion))
           msg = "Opinion noted, thank you!"
+          del self.rolegen_opine[sender_id]
         else:
           msg = "Nothing to opine upon"
         self.dms.send(msg, sender_id)

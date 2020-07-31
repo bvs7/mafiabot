@@ -5,7 +5,7 @@ import math
 import random
 
 def roleGen(ids):
-  return debugRoleGen(ids)
+  return randomRoleGen(ids)
 
 def debugRoleGen(ids):
   n = len(ids)
@@ -71,21 +71,21 @@ def show(d, s=5):
 default_town_roles = {
   'TOWN':(75,0),
   'COP':(10,-.6),
-  'DOCTOR':(10,-.7),
-  'CELEB':(10,-.6),
+  'DOCTOR':(12,-.7),
+  'CELEB':(6,-.6),
   'MILKY':(5,-.4),
-  'MILLER':(10,.2),
+  'MILLER':(5,.2),
 }
 
 default_mafia_roles = {
   'MAFIA':(75,0),
   'GODFATHER':(5,.2),
   'STRIPPER':(10,.7),
-  'GOON':(10,-.5),
+  'GOON':(15,-.5),
 }
 
 default_rogue_roles = {
-  'IDIOT':(25,.5),
+  'IDIOT':(40,.5),
   'SURVIVOR':(25,.3),
   'GUARD':(20,.1),
   'AGENT':(15,.3),
@@ -257,6 +257,5 @@ def randomRoleGen(ids, town_roles=default_town_roles,
       elif role in ('GUARD','AGENT'):
         target = random.choice([i for i in ids if i != id])
       contracts[id] = (role, target, success)
-  
+
   return ids, roles, contracts
-    

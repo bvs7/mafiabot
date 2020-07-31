@@ -1,0 +1,164 @@
+['MILKY', 'CELEB', 'TOWN', 'MAFIA', 'CELEB']
+{}
+1['MAFIA', 'TOWN', 'TOWN', 'TOWN', 'TOWN']
+{}
+2['GOON', 'COP', 'CELEB', 'MILLER', 'TOWN']
+{}
+2['TOWN', 'TOWN', 'STRIPPER', 'DOCTOR', 'DOCTOR']
+{}
+4['CELEB', 'MILLER', 'MAFIA', 'COP', 'MAFIA']
+{}
+2['COP', 'TOWN', 'CELEB', 'MAFIA', 'TOWN']
+{}
+2['COP', 'STRIPPER', 'TOWN', 'CELEB', 'TOWN']
+{}
+5['STRIPPER', 'TOWN', 'TOWN', 'COP', 'DOCTOR', 'MAFIA', 'TOWN', 'MAFIA', 'DOCTOR', 'CELEB', 'DOCTOR', 'MILLER']
+{}
+5['GODFATHER', 'MILKY', 'TOWN', 'MILKY', 'TOWN']
+{}
+4['TOWN', 'MAFIA', 'MAFIA', 'COP', 'CELEB']
+{}
+3['GOON', 'MILKY', 'TOWN', 'TOWN']
+{}
+1['TOWN', 'TOWN', 'TOWN', 'MAFIA', 'TOWN']
+{}
+2['MAFIA', 'TOWN', 'CELEB', 'MILLER']
+{}
+5['DOCTOR', 'MAFIA', 'COP', 'DOCTOR', 'MAFIA']
+{}
+5['GOON', 'TOWN', 'TOWN', 'TOWN', 'SURVIVOR']
+{'4': ('SURVIVOR', '4', True)}
+4['TOWN', 'GODFATHER', 'TOWN', 'DOCTOR', 'TOWN']
+{}
+4['TOWN', 'MAFIA', 'CELEB', 'TOWN', 'MILKY']
+{}
+3['TOWN', 'CELEB', 'MAFIA', 'DOCTOR', 'GOON']
+{}
+4['MAFIA', 'COP', 'TOWN', 'TOWN', 'TOWN']
+{}
+5['DOCTOR', 'TOWN', 'GODFATHER', 'TOWN', 'TOWN']
+{}
+4['TOWN', 'TOWN', 'DOCTOR', 'TOWN', 'MAFIA']
+{}
+4['TOWN', 'TOWN', 'DOCTOR', 'STRIPPER', 'COP']
+{}
+5['CELEB', 'MAFIA', 'CELEB', 'TOWN', 'SURVIVOR']
+{4: ('SURVIVOR', 4, True)}
+1
+['CELEB', 'TOWN', 'TOWN', 'TOWN', 'MAFIA']
+{}
+3['TOWN', 'MAFIA', 'TOWN', 'TOWN', 'MILKY']
+{}
+5['TOWN', 'CELEB', 'TOWN', 'MAFIA']
+{}
+5['CELEB', 'MAFIA', 'TOWN', 'MILLER']
+{}
+5['TOWN', 'TOWN', 'MAFIA', 'TOWN']
+{}
+2['GOON', 'MAFIA', 'COP', 'TOWN', 'DOCTOR']
+{}
+5['GOON', 'TOWN', 'MILLER', 'TOWN', 'TOWN', 'TOWN']
+{}
+3['TOWN', 'MAFIA', 'MILLER', 'TOWN', 'COP', 'TOWN']
+{}
+5['STRIPPER', 'TOWN', 'TOWN', 'DOCTOR', 'MAFIA', 'COP']
+{}
+4['GOON', 'TOWN', 'TOWN', 'TOWN', 'TOWN', 'TOWN']
+{}
+4['MAFIA', 'MAFIA', 'MILKY', 'TOWN', 'DOCTOR', 'DOCTOR']
+{}
+1['GODFATHER', 'TOWN', 'TOWN', 'MILKY', 'TOWN', 'TOWN', 'TOWN']
+{}
+4['TOWN', 'TOWN', 'TOWN', 'TOWN', 'GUARD', 'STRIPPER', 'TOWN']
+{4: ('GUARD', 1, True)}
+5['TOWN', 'DOCTOR', 'TOWN', 'GODFATHER', 'TOWN', 'COP', 'TOWN']
+{}
+5['MAFIA', 'CELEB', 'COP', 'MAFIA', 'TOWN', 'TOWN', 'DOCTOR']
+{}
+5['TOWN', 'MAFIA', 'TOWN', 'TOWN', 'MILLER', 'TOWN', 'DOCTOR']
+{}
+3['MAFIA', 'TOWN', 'TOWN', 'MILLER', 'MILLER', 'MILKY', 'DOCTOR']
+{}
+2['TOWN', 'COP', 'TOWN', 'TOWN', 'MAFIA', 'GOON', 'TOWN']
+{}
+5['MAFIA', 'COP', 'COP', 'TOWN', 'TOWN', 'CELEB', 'MAFIA']
+{}
+3['STRIPPER', 'TOWN', 'TOWN', 'TOWN', 'TOWN', 'TOWN', 'CELEB']
+{}
+4['COP', 'TOWN', 'TOWN', 'TOWN', 'MAFIA', 'MILLER', 'TOWN']
+{}
+5['TOWN', 'COP', 'TOWN', 'TOWN', 'TOWN', 'COP', 'GODFATHER']
+{}
+5['GODFATHER', 'MAFIA', 'TOWN', 'DOCTOR', 'TOWN', 'DOCTOR', 'COP']
+{}
+3['TOWN', 'GODFATHER', 'TOWN', 'TOWN', 'TOWN', 'TOWN', 'MILLER']
+{}
+3['TOWN', 'GUARD', 'TOWN', 'CELEB', 'MAFIA', 'MAFIA', 'MILKY']
+{1: ('GUARD', 2, True)}
+5['COP', 'DOCTOR', 'STRIPPER', 'IDIOT', 'TOWN', 'TOWN', 'CELEB']
+{3: ('IDIOT', 3, False)}
+5['TOWN', 'CELEB', 'MAFIA', 'MILKY', 'COP']
+{}
+1['TOWN', 'MILKY', 'TOWN', 'TOWN', 'TOWN', 'STRIPPER', 'TOWN', 'TOWN']
+{}
+4['MAFIA', 'TOWN', 'DOCTOR', 'MAFIA', 'MILLER', 'TOWN', 'TOWN', 'MILKY']
+{}
+5['TOWN', 'TOWN', 'TOWN', 'TOWN', 'TOWN', 'GODFATHER', 'TOWN', 'TOWN']
+{}
+2['MAFIA', 'COP', 'TOWN', 'CELEB', 'MAFIA', 'TOWN', 'TOWN', 'TOWN']
+{}
+5['MILLER', 'MILKY', 'MAFIA', 'DOCTOR', 'MILKY', 'TOWN', 'MILLER', 'IDIOT']
+{7: ('IDIOT', 7, False)}
+2['TOWN', 'MAFIA', 'TOWN', 'MILLER', 'MILLER', 'TOWN', 'MILLER', 'IDIOT']
+{7: ('IDIOT', 7, False)}
+4['MAFIA', 'TOWN', 'MAFIA', 'TOWN', 'MILLER', 'TOWN', 'CELEB', 'MILKY']
+{}
+5['CELEB', 'MILLER', 'IDIOT', 'TOWN', 'CELEB', 'GODFATHER', 'TOWN', 'COP']
+{2: ('IDIOT', 2, False)}
+4['TOWN', 'MAFIA', 'TOWN', 'SURVIVOR', 'GODFATHER', 'MILKY', 'TOWN', 'TOWN', 'TOWN']
+{3: ('SURVIVOR', 3, True)}
+5['MAFIA', 'MILLER', 'TOWN', 'MILLER', 'TOWN', 'CELEB', 'TOWN', 'TOWN', 'TOWN']
+{}
+3['MILLER', 'TOWN', 'TOWN', 'TOWN', 'GODFATHER', 'TOWN', 'TOWN', 'TOWN', 'TOWN']
+{}
+4['TOWN', 'TOWN', 'TOWN', 'TOWN', 'TOWN', 'TOWN', 'STRIPPER', 'TOWN', 'TOWN']
+{}
+2['TOWN', 'TOWN', 'MAFIA', 'TOWN', 'STRIPPER', 'TOWN', 'TOWN', 'TOWN', 'TOWN']
+{}
+4['MILLER', 'DOCTOR', 'MILLER', 'TOWN', 'COP', 'TOWN', 'MAFIA', 'MAFIA', 'TOWN']
+{}
+5['TOWN', 'TOWN', 'TOWN', 'IDIOT', 'COP', 'GODFATHER', 'TOWN', 'DOCTOR', 'GUARD']
+{3: ('IDIOT', 3, False), 8: ('GUARD', 5, True)}
+5['COP', 'TOWN', 'TOWN', 'MAFIA', 'AGENT', 'STRIPPER', 'CELEB', 'TOWN', 'TOWN']
+{4: ('AGENT', 5, False)}
+5['GODFATHER', 'DOCTOR', 'TOWN', 'TOWN', 'TOWN', 'TOWN', 'TOWN', 'TOWN']
+{}
+3['TOWN', 'DOCTOR', 'CELEB', 'MAFIA']
+{}
+3['GODFATHER', 'TOWN', 'CELEB', 'CELEB']
+{}
+2['MILLER', 'CELEB', 'TOWN', 'GOON']
+{}
+3['TOWN', 'COP', 'GODFATHER', 'TOWN']
+{}
+5['DOCTOR', 'CELEB', 'TOWN', 'MAFIA']
+{}
+3['TOWN', 'TOWN', 'TOWN', 'MAFIA']
+{}
+3['CELEB', 'TOWN', 'MAFIA', 'TOWN']
+{}
+4['CELEB', 'TOWN', 'MAFIA', 'TOWN']
+{}
+4['TOWN', 'MAFIA', 'TOWN', 'TOWN']
+{}
+4['CELEB', 'COP', 'MILLER', 'GOON']
+{}
+1['MAFIA', 'TOWN', 'TOWN', 'TOWN']
+{}
+4['TOWN', 'TOWN', 'DOCTOR', 'MAFIA']
+{}
+3['COP', 'TOWN', 'MILKY', 'MAFIA']
+{}
+2['MAFIA', 'TOWN', 'TOWN', 'COP']
+{}
+3
