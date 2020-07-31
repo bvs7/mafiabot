@@ -6,6 +6,7 @@ from .MInfo import *
 from .MGame import MGame
 from .MRules import MRules
 from .MLobby import MLobby
+from .MRoleGen import randomRoleGen
 
 def getLobbies(ctrl, MChatType, dms):
   lobbies = []
@@ -72,3 +73,14 @@ class MController:
         game = self.activeGame[sender_id]
         if not game == None:
           game.handle_dm(sender_id, command, text, data)
+    # TEMPORARY
+    if command == 'rolegen':
+      try:
+        n = int(text.split()[1])
+        temp_ids = [str(i) for i in range(n)]
+        ids,roles,contracts = randomRoleGen(ids)
+        msg = "Roles: {}\nContracts: {}".format(roles,contracts)
+        self.dms.send(msg, sender_id)
+      except Exception as e:
+        msg = "Sorry, I had an error: {}".format(e)
+        self.dms.send(msg, sender_id)
