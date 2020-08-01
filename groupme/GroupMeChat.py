@@ -39,7 +39,6 @@ class GroupMeChat(MChat):
     g = client.groups.create(name)
     time.sleep(.5)
     bot = g.create_bot("Mafia Bot", callback_url = "http://70.180.16.29:1121/", dm_notification=False)
-    bot.post("Hello, hopefully I am working")
     return GroupMeChat(g.id)
 
   def format(self, msg):
@@ -58,6 +57,7 @@ class GroupMeChat(MChat):
       return
     for member in self.group.members:
       if member.user_id == user_id:
+        del self.names[member.user_id]
         member.remove()
 
   def refill(self, users):
@@ -79,6 +79,9 @@ class GroupMeChat(MChat):
       user_submission.append({'user_id':user_id,'nickname':name})
     try:
       self.group.memberships.add_multiple(*user_submission)
+      self.group.refresh_from_server()
+      for member in self.group.members:
+        self.names[member.user_id] = member.nickname
     except Exception as e:
       raise CastError(e)
 

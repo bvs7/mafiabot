@@ -33,7 +33,7 @@ class MGame:
       end_callback(self, e)
 
     ids = list(users.keys())
-    (roles, contracts) = roleGen(ids)
+    (ids, roles, contracts) = roleGen(ids)
     mafia_users = {}
     for id, role in zip(ids,roles):
       if role in MAFIA_ROLES:
