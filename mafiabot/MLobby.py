@@ -41,7 +41,7 @@ class MLobby:
         users[user_id] = self.lobbyChat.getName(user_id)
 
       def end_game(game):
-        time.sleep(300)
+        time.sleep(600)
         game.end()
 
       def end_callback(game, e):

@@ -44,7 +44,7 @@ class MState:
     self.revealed = []
     self.vengeance : Optional[Dict[str,Any]] = None
 
-    self.start_roles = []
+    self.start_roles = {}
 
     self.timer_inst : Optional[int] = None # TODO: add timer
 
