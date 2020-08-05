@@ -79,6 +79,7 @@ default_resp_lib = {
   "ELIMINATE_ANON":"[{target}] has died",
   "CHARGE_DIE": "[{target}] has died",
   "CHARGE_KILLED": ", at the hands of [{aggressor}]",
+  "CHARGE_ASSIGN":"Your charge is [{charge}]",
   "DEATH":      "[{player}] was {role}",
   "STRIP":      "You were distracted...",
   "STUN":       "You are stunned until next morning",

@@ -142,10 +142,10 @@ class MState:
   def voteStatus(self):
     msg = ""
     voteDict = {}
+    for player in self.players:
+      voteDict[player] = 0
     for player in self.players.values():
       if not player.vote == None:
-        if not player.vote in voteDict:
-          voteDict[player.vote] = 0
         voteDict[player.vote] += 1
     num_players = len(self.players)
     thresh = int(num_players/2)+1

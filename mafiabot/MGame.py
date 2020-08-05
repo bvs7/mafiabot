@@ -57,7 +57,6 @@ class MGame:
     return self.mafia_chat.id
 
   def handle_main(self, sender_id, command, text, data):
-    print([(id,name) for (id,name) in self.main_chat.names.items()])
     if command == VOTE_CMD:
       words = text.split()
       voter = sender_id

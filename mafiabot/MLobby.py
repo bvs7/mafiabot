@@ -49,9 +49,9 @@ class MLobby:
       def end_callback(game, e):
         self.ctrl.games.remove(game)
         for user in self.ctrl.activeGame:
-          self.ctrl.[user] = None
+          self.ctrl.activeGame[user] = None
         msg = "Game {} ended: {}\n".format(game.state.id, e)
-        msg += dispStartRoles(game.state.start_roles)
+        msg += game.main_chat.format(dispStartRoles(game.state.start_roles))
         self.lobby_cast(msg)
         thread = threading.Thread(target=end_game, args=(game,))
         thread.start()
