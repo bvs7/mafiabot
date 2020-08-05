@@ -24,6 +24,7 @@ START_CMD = "start"
 IN_CMD = "in"
 OUT_CMD = "out"
 RULE_CMD = "rule"
+WATCH_CMD = "watch"
 
 GAME_MAIN_COMMANDS = [
   VOTE_CMD,
@@ -53,6 +54,7 @@ LOBBY_COMMANDS = [
   RULE_CMD,
   STATUS_CMD,
   HELP_CMD,
+  WATCH_CMD,
 ]
 
 default_resp_lib = {

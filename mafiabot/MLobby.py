@@ -66,5 +66,14 @@ class MLobby:
       msg = "Help Test"
       self.lobby_cast(msg)
 
+    if command == WATCH_CMD:
+      if len(self.games) == 1:
+        name = self.lobbyChat.getName(sender_id)
+        self.games[0].main_chat.add({sender_id:name})
+      elif len(self.games) == 0:
+        self.lobby_cast("Failed to watch, no games")
+      else:
+        self.lobby_cast("Failed to watch, can't tell which game...")
+
   def group_id(self):
     return self.lobbyChat.id
