@@ -101,6 +101,7 @@ default_resp_lib = {
   "CONTRACT_WIN":"{role} [{player}] won! Charge: [{charge}]",
   "CONTRACT_LOSE":"{role} [{player}] lost! Charge: [{charge}]",
   "CONTRACT_RESULT":"{role} [{contractor}] {result}! Charge: [{charge}]",
+  "SHOW_ROLES": "Roles:\n{}",
 
   "INVALID_VOTE_PLAYER": "[{player_id}] cannot vote, not playing",
   "INVALID_VOTE_PHASE": "Can only vote during Day",
@@ -280,3 +281,9 @@ def dispKnownRoles(roleDict, known_roles):
     return dispTeamFromDict(roleDict, known_roles)
   elif known_roles == "OFF":
     return "Players: {}".format(len(roleDict))
+
+def dispStartRoles(start_roles):
+  msg = ""
+  for id,role in start_roles.items():
+    msg += "[{}]: {}\n".format(id,role)
+

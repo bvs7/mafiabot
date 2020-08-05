@@ -40,10 +40,19 @@ class MLobby:
       for user_id in self.in_list:
         users[user_id] = self.lobbyChat.getName(user_id)
 
+      def end_game(game):
+        time.sleep(300)
+        game.end()
+
       def end_callback(game, e):
         self.ctrl.games.remove(game)
-        self.lobby_cast("Game ended: {}".format(e))
-        game.end()
+        for user in self.ctrl.activeGame:
+          self.ctrl.activeGame = None
+        msg = "Game {} ended: {}\n".format(game.state.id, e)
+        msg += dispStartRoles(game.state.start_roles)
+        self.lobby_cast(msg)
+        thread = threading.Thread(target=end_game, args=(game,))
+        thread.start()
 
       game = MGame(self.MChatType, self.dms, self.rules, end_callback, users)
       self.games.append(game)

@@ -561,11 +561,14 @@ class ELIMINATE(MEvent):
   def read(self, mstate):
     self.role = mstate.players[self.target].role
     self.reveal_on_death = mstate.rules[reveal_on_death]
+    self.start_roles = mstate.start_roles
 
   def msg(self, cast_main, cast_mafia, send_dm):
     reveal = dispRole(self.role, self.reveal_on_death)
     msg = default_resp_lib["ELIMINATE"].format(target=self.target,role=reveal)
     cast_main(msg)
+    msg = default_resp_lib["SHOW_ROLES"].format(dispStartRoles(self.start_roles))
+    send_dm(msg, self.target)
 
   def write(self, mstate):
     del mstate.players[self.target]
@@ -690,7 +693,7 @@ class CONTRACT_RESULT(MEvent):
   def msg(self, cast_main, cast_mafia, send_dm):
     msg = default_resp_lib["CONTRACT_RESULT"].format(
       role=self.role, contractor=self.contractor,
-      result="Won" if self.success else "Lost",
+      result="Won!" if self.success else "Lost!",
       charge=self.charge
     )
     cast_main(msg)
@@ -701,4 +704,4 @@ class END(MEvent):
 
   def next(self, push):
     # TODO: implement end state stuff
-    raise EndGameException("End Game {}".format(self.winning_team))
+    raise EndGameException("{} Won!".format(self.winning_team))
