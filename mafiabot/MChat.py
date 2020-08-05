@@ -45,17 +45,20 @@ class MDM:
 
 
 class TestMChat(MChat):
-  
+
   def __init__(self, group_id):
     self.id = group_id
+    self.names = {}
 
   def destroy(self):
     print("DEL {}".format(self.id))
-    
+
   def new(name):
     return TestMChat(name)
 
   def format(self, msg):
+    for id,name in self.names.items():
+      msg = msg.replace("[{}]".format(id),name)
     return msg
 
   def getName(self, user_id):
@@ -65,9 +68,13 @@ class TestMChat(MChat):
     print("REMOVE: {}".format(user_id))
 
   def refill(self, users):
+    for id in users:
+      self.names[id] = users[id]
     print("REFILL: {}".format(users))
 
   def add(self, users):
+    for id in users:
+      self.names[id] = users[id]
     print("ADD: {}".format(users))
 
   def cast(self, msg):

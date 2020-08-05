@@ -14,9 +14,9 @@ def debug(ctrl):
 
   time.sleep(1)
 
-  ctrl.handle_chat("MAFIA CHAT", '3', 'target', '/target A', {})
-  ctrl.handle_dm("4", 'target', '/target A', {})
-  ctrl.handle_dm("5", 'target', '/target A', {})
+#  ctrl.handle_chat("MAFIA CHAT", '3', 'target', '/target A', {})
+ # ctrl.handle_dm("4", 'target', '/target A', {})
+  #ctrl.handle_dm("5", 'target', '/target A', {})
 
 
 ctrl = MController(TestMChat, TestMDM, TestMServer, debug)

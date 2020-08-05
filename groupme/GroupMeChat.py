@@ -62,7 +62,7 @@ class GroupMeChat(MChat):
 
   def refill(self, users):
     """Remove all members except those that will be added, then add"""
-    self.group.refresh_from_server()
+    self.group.update()
     member_ids = [mem.user_id for mem in self.group.members]
     for member_id in member_ids:
       if not member_id in users:
@@ -76,12 +76,11 @@ class GroupMeChat(MChat):
       return
     user_submission = []
     for user_id, name in users.items():
+      self.names[user_id] = name
       user_submission.append({'user_id':user_id,'nickname':name})
     try:
       self.group.memberships.add_multiple(*user_submission)
-      self.group.refresh_from_server()
-      for member in self.group.members:
-        self.names[member.user_id] = member.nickname
+      self.group.update()
     except Exception as e:
       raise CastError(e)
 
@@ -105,7 +104,7 @@ class GroupMeChat(MChat):
     return True
 
   def getAcks(self, message_id):
-    self.group = group.refresh_from_server()
+    self.group = group.update()
     msg_id = str(int(message_id)-1) # Subtract 1 so that our message shows up
     for msg in self.group.messages.list_after(msg_id):
       if msg.id == message_id:

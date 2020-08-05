@@ -32,6 +32,10 @@ class MGame:
     def end_callback_(e):
       end_callback(self, e)
 
+    self.main_cast = main_cast
+    self.mafia_cast = mafia_cast
+    self.send_dm = send_dm
+
     ids = list(users.keys())
     (ids, roles, contracts) = roleGen(ids)
     mafia_users = {}
@@ -53,6 +57,7 @@ class MGame:
     return self.mafia_chat.id
 
   def handle_main(self, sender_id, command, text, data):
+    print([(id,name) for (id,name) in self.main_chat.names.items()])
     if command == VOTE_CMD:
       words = text.split()
       voter = sender_id
@@ -99,11 +104,11 @@ class MGame:
 
   def handle_vote(self,player_id,target_id):
     if not player_id in self.state.players:
-      self.main_chat.cast(default_resp_lib["INVALID_VOTE_PLAYER"].format(player_id=player_id))
+      self.main_cast(default_resp_lib["INVALID_VOTE_PLAYER"].format(player_id=player_id))
       return
 
     if not self.state.phase == MPhase.DAY:
-      self.main_chat.cast(default_resp_lib["INVALID_VOTE_PHASE"])
+      self.main_cast(default_resp_lib["INVALID_VOTE_PHASE"])
       return
 
     self.state.vote(player_id, target_id)
@@ -119,14 +124,14 @@ class MGame:
   def handle_target(self,player_id, text):
     if self.state.phase == MPhase.NIGHT:    
       if not (player_id in self.state.players and self.state.players[player_id].role in TARGETING_ROLES):
-        self.dms.send(default_resp_lib["INVALID_TARGET_PLAYER"],player_id)
+        self.send_dm(default_resp_lib["INVALID_TARGET_PLAYER"],player_id)
         return
     elif self.state.phase == MPhase.DUSK:
       if not (player_id in self.state.players and self.state.players[player_id].role == "IDIOT"):
-        self.dms.send(default_resp_lib["INVALID_TARGET_PLAYER"],player_id)
+        self.send_dm(default_resp_lib["INVALID_TARGET_PLAYER"],player_id)
         return
     else:
-      self.dms.send(default_resp_lib["INVALID_TARGET_PHASE"],player_id)
+      self.send_dm(default_resp_lib["INVALID_TARGET_PHASE"],player_id)
       return
 
     try:
@@ -137,20 +142,20 @@ class MGame:
       else:
         target_id = self.state.player_order[target_number]
     except Exception:
-      self.dms.send(default_resp_lib["INVALID_TARGET"].format(text=text),player_id)
+      self.send_dm(default_resp_lib["INVALID_TARGET"].format(text=text),player_id)
       return
     if self.state.players[player_id].role == "MILKY" and self.state.rules["no_milk_self"] == "ON":
-      self.dms.send(default_resp_lib["MILK_SELF"],player_id)
+      self.send_dm(default_resp_lib["MILK_SELF"],player_id)
       return
     self.state.target(player_id, target_id)
 
   def handle_mtarget(self, player_id, text):
     if not (player_id in self.state.players and self.state.players[player_id].role in MAFIA_ROLES):
-      self.mafia_chat.cast(default_resp_lib["INVALID_MTARGET_PLAYER"])
+      self.mafia_cast(default_resp_lib["INVALID_MTARGET_PLAYER"])
       return
 
     if not self.state.phase == MPhase.NIGHT:
-      self.mafia_chat.cast(default_resp_lib["INVALID_MTARGET_PHASE"])
+      self.mafia_cast(default_resp_lib["INVALID_MTARGET_PHASE"])
       return
     
     try:
@@ -161,53 +166,53 @@ class MGame:
       else:
         target_id = self.state.player_order[target_number]
     except Exception:
-      self.mafia_chat.cast(default_resp_lib["INVALID_MTARGET"].format(text=text))
+      self.mafia_cast(default_resp_lib["INVALID_MTARGET"].format(text=text))
       return
     
     role = self.state.players[player_id].role
     if role == "GOON" and target_id != "NOTARGET":
-      self.mafia_chat.cast(default_resp_lib["INVALID_MTARGET_GOON"])
+      self.mafia_cast(default_resp_lib["INVALID_MTARGET_GOON"])
       return
 
     self.state.mtarget(player_id, target_id)
 
   def handle_reveal(self, player_id):
-    if not (player_id in self.state.players and self.state.players[player_id].role):
-      self.dms.send(default_resp_lib["INVALID_REVEAL_PLAYER"],player_id)
+    if not (player_id in self.state.players and self.state.players[player_id].role == "CELEB"):
+      self.send_dm(default_resp_lib["INVALID_REVEAL_PLAYER"],player_id)
       return
 
     if not self.state.phase == MPhase.DAY:
-      self.dms.send(default_resp_lib["INVALID_REVEAL_PHASE"],player_id)
+      self.send_dm(default_resp_lib["INVALID_REVEAL_PHASE"],player_id)
       return
 
     self.state.reveal(player_id)
 
   def handle_timer(self, player_id):
-    self.main_chat.cast("Timer not implemented yet")
+    self.main_cast("Timer not implemented yet")
   
   def handle_untimer(self, player_id):
-    self.main_chat.cast("Timer not implemented yet")
+    self.main_cast("Timer not implemented yet")
 
   def handle_main_help(self, text):
-    self.main_chat.cast("Help not implemented yet")
+    self.main_cast("Help not implemented yet")
 
   def handle_mafia_help(self, text):
-    self.mafia_chat.cast("Help not implemented yet")
+    self.mafia_cast("Help not implemented yet")
     
   def handle_dm_help(self, player_id, text):
-    self.dms.send("Help not implemented yet",player_id)
+    self.send_dm("Help not implemented yet",player_id)
 
   def handle_main_status(self):
     msg = self.state.main_status()
-    self.main_chat.cast(msg)
+    self.main_cast(msg)
 
   def handle_mafia_status(self):
     msg = self.state.mafia_status()
-    self.mafia_chat.cast(msg)
+    self.mafia_cast(msg)
 
   def handle_dm_status(self, player_id):
     msg = self.state.dm_status(player_id)
-    self.dms.send(msg,player_id)
+    self.send_dm(msg,player_id)
 
   def end(self):
     self.main_chat.destroy()

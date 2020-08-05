@@ -305,4 +305,6 @@
 {}
 3['MAFIA', 'GUARD', 'TOWN', 'TOWN', 'SURVIVOR', 'TOWN']
 {1: ('GUARD', 5, True), 4: ('SURVIVOR', 4, True)}
-5
+5['MILLER', 'MAFIA', 'CELEB', 'TOWN']
+{}
+3
