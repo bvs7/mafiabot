@@ -91,8 +91,8 @@ class MState:
     event.next(self.pushEvent)
 
   def start(self, ids : List[MPlayerID], roles : List[str], contracts):
-    
-    self.start_roles = zip(ids,roles)
+    self.start_roles = dict(zip(ids,roles))
+    print(self.start_roles)
     event = START(ids, roles, contracts)
     self.pushEvent(event)
 

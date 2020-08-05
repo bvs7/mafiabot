@@ -288,4 +288,5 @@ def dispStartRoles(start_roles):
   msg = ""
   for id,role in start_roles.items():
     msg += "[{}]: {}\n".format(id,role)
+  return msg
 
