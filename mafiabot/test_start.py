@@ -8,7 +8,6 @@ def debug(ctrl):
   ctrl.handle_chat("30021302", "3", "in", "",{}) # 3: /in
   ctrl.handle_chat("30021302", "4", "in", "",{}) # 4: /in
   ctrl.handle_chat("30021302", "5", "in", "",{}) # 5: /in
-  ctrl.handle_chat("30021302", "6", "in", "",{}) # 6: /in
 
   ctrl.handle_chat("30021302", "1", "start", "",{}) # Start
 
