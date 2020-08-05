@@ -307,4 +307,12 @@
 {1: ('GUARD', 5, True), 4: ('SURVIVOR', 4, True)}
 5['MILLER', 'MAFIA', 'CELEB', 'TOWN']
 {}
-3
+3['MAFIA', 'MILKY', 'COP']
+{}
+4['MAFIA', 'TOWN', 'CELEB']
+{}
+5['TOWN', 'MAFIA', 'COP']
+{}
+5['GOON', 'TOWN', 'TOWN']
+{}
+4
