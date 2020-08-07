@@ -2,7 +2,7 @@ import threading
 import time
 
 from .MInfo import *
-from .MRules import MRules
+from .MRules import MRules, RULE_BOOK
 from .MGame import MGame
 
 class MLobby:
@@ -53,6 +53,7 @@ class MLobby:
         msg = "Game {} ended: {}\n".format(game.state.id, e)
         msg += game.main_chat.format(dispStartRoles(game.state.start_roles))
         self.lobby_cast(msg)
+        self.main_cast(msg) # Move this elsewhere?
         thread = threading.Thread(target=end_game, args=(game,))
         thread.start()
 
@@ -76,6 +77,20 @@ class MLobby:
         self.lobby_cast("Failed to watch, no games")
       else:
         self.lobby_cast("Failed to watch, can't tell which game...")
+
+    if command == RULE_CMD:
+      msg = ""
+      words = text.split()
+      if len(words) == 1:
+        msg = self.rules.describe(has_expl=False)
+      elif words[1] in RULE_BOOK:
+        rule = words[1]
+        msg = "{}:\n".format(rule)
+        msg += self.rules.explRule(rule, self.rules[rule])
+      elif words[1] == "long":
+        msg = self.rules.describe(has_expl=True)
+    
+      self.lobby_cast(msg)
 
   def group_id(self):
     return self.lobbyChat.id

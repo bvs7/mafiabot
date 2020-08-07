@@ -84,7 +84,7 @@ RULE_BOOK ={
     "MAFIA" :"A COP learns whether their target is Mafia aligned or Not Mafia aligned"
   },
   "unique_night_act" :{
-    "ON" : "A player can only act once per night (STRIPPER cannot mtarget and target)",
+    "ON" : "A player can only act once per night (STRIPPER cannot both mafia target AND strip target)",
     "OFF" : "A player can perform all of their night actions each night",
   }
 }
@@ -137,17 +137,35 @@ class MRules:
     msg = ""
     for (rule, sett, expl) in rule_things:
       msg += rule
-      msg += "-{:->{w}}|".format(sett, w=col_len-(len(rule)))
-      msg += expl
+      msg += "-" + sett
+      msg += ":" + expl
       msg += '\n'
 
     return msg
 
+  def describe(self, has_expl=True):
+    rule_things = []
+    for rule in RULE_LIST:
+      sett = self.rules[rule]
+      expl = RULE_BOOK[rule][sett]
+      rule_things.append( (rule, sett, expl) )
+
+    msg = ""
+    for (rule, sett, expl) in rule_things:
+      msg += rule
+      msg += ":" + sett
+      if has_expl:
+        msg += "|" + expl
+      msg += '\n'
+    return msg
+
   @staticmethod
-  def explRule(rule):
+  def explRule(rule, curr_sett=None):
     """ return a string explaining the possible settings for rule """
     msgs = []
-    sett_col_len = max([len(s)+1 for s in RULE_BOOK[rule]])
     for sett in RULE_BOOK[rule]:
-      msgs.append("{:{w}}|".format(sett,w=sett_col_len) + RULE_BOOK[rule][sett])
+      if curr_sett == sett:
+        msgs.append("[{}]|".format(sett) + RULE_BOOK[rule][sett])
+      else:
+        msgs.append("{}|".format(sett) + RULE_BOOK[rule][sett])
     return '\n'.join(msgs)

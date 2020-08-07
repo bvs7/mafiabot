@@ -4,15 +4,13 @@ from .MInfo import *
 from .MState import MState
 from .MEvent import MPhase
 from .MRoleGen import roleGen
+from .MRules import RULE_BOOK
 
 # TODO: Can MGame be folded into MState?
 # TODO: Unique ID
-# TODO: generalize cast/send!
 
 # TODO: timer
 # TODO: help
-
-# TODO: Don't destroy group on end
 
 # Contains MState, checks inputs, fulfills non-event actions
 class MGame:
@@ -82,6 +80,8 @@ class MGame:
       self.handle_timer(sender_id)
     elif command == UNTIMER_CMD:
       self.handle_untimer(sender_id)
+    elif command == RULE_CMD:
+      self.handle_rule("MAIN", text)
 
   def handle_mafia(self, sender_id, command, text, data):
     if command == TARGET_CMD:
@@ -90,6 +90,8 @@ class MGame:
       self.handle_mafia_status()
     elif command == HELP_CMD:
       self.handle_mafia_help(text)
+    elif command == RULE_CMD:
+      self.handle_rule("MAFIA",text)
 
   def handle_dm(self, sender_id, command, text, data):
     if command == TARGET_CMD:
@@ -100,6 +102,8 @@ class MGame:
       self.handle_dm_status(sender_id)
     elif command == HELP_CMD:
       self.handle_dm_help(sender_id, text)
+    elif command == RULE_CMD:
+      self.handle_rule(sender_id,text)
 
   def handle_vote(self,player_id,target_id):
     if not player_id in self.state.players:
@@ -212,6 +216,27 @@ class MGame:
   def handle_dm_status(self, player_id):
     msg = self.state.dm_status(player_id)
     self.send_dm(msg,player_id)
+
+  def handle_rule(self, sender, text):
+    """ Return the rule for a specific rule or list of rules """
+    msg = ""
+    words = text.split()
+    if len(words) == 1:
+      msg = self.rules.describe(has_expl=False)
+    elif words[1] in RULE_BOOK:
+      rule = words[1]
+      msg = "{}:\n".format(rule)
+      msg += self.rules.explRule(rule, self.rules[rule])
+    elif words[1] == "long":
+      msg = self.rules.describe(has_expl=True)
+    
+    if sender == "MAIN":
+      self.main_cast(msg)
+    elif sender == "MAFIA":
+      self.mafia_cast(msg)
+    else:
+      self.send_dm(msg, sender)
+
 
   def end(self):
     self.main_chat.destroy()

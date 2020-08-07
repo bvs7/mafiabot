@@ -4,7 +4,7 @@ from typing import List
 
 from .MInfo import *
 from .MGame import MGame
-from .MRules import MRules
+from .MRules import MRules, RULE_BOOK
 from .MLobby import MLobby
 from .MRoleGen import randomRoleGen
 
@@ -110,3 +110,16 @@ class MController:
       except Exception as e:
         msg = "Sorry, I had an error: {}".format(e)
         self.dms.send(msg, sender_id)
+    elif command == RULE_CMD:
+      msg = ""
+      words = text.split()
+      if len(words) == 1:
+        msg = self.rules.describe(has_expl=False)
+      elif words[1] in RULE_BOOK:
+        rule = words[1]
+        msg = "{}:\n".format(rule)
+        msg += self.rules.explRule(rule, self.rules[rule])
+      elif words[1] == "long":
+        msg = self.rules.describe(has_expl=True)
+    
+      self.dms.send(msg, sender_id)

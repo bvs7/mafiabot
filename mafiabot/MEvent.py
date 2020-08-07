@@ -52,11 +52,11 @@ class START(MEvent):
     self.start_night = mstate.rules[start_night]
 
   def msg(self, cast_main, cast_mafia, send_dm):
-    for i,role in zip(self.ids, self.roles):
-      send_dm(ROLE_EXPLAIN[role], i)
+    for id,role in zip(self.ids, self.roles):
+      send_dm(ROLE_EXPLAIN[role], id)
       if role in CONTRACT_ROLES:
         (role,charge,succes) = self.contracts[id]
-        send_dm(default_resp_lib["CHARGE_ASSIGN"].format(charge=charge))
+        send_dm(default_resp_lib["CHARGE_ASSIGN"].format(charge=charge),id)
     roleDict = makeRoleDict(self.roles)
     msg = default_resp_lib["START"]
     msg += dispKnownRoles(roleDict, self.known_roles)
