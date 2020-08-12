@@ -360,7 +360,8 @@ class INVESTIGATE(MEvent):
           reveal = "TOWN"
         elif reveal == "MILLER":
           reveal = "MAFIA"
-        msg = default_resp_lib["INVESTIGATE"].format(target=self.target,role=self.role)
+        reveal = dispRole(reveal, self.cop_strength)
+        msg = default_resp_lib["INVESTIGATE"].format(target=self.target,role=self.reveal)
         send_dm(msg, self.actor)
 
 class DAY(MEvent):
