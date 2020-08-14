@@ -149,7 +149,7 @@ class MGame:
       return
     if (self.state.players[player_id].role == "MILKY" and 
         self.state.rules["no_milk_self"] == "ON" and
-        target_id == player_id:
+        target_id == player_id):
       self.send_dm(default_resp_lib["MILK_SELF"],player_id)
       return
     self.state.target(player_id, target_id)

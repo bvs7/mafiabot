@@ -94,9 +94,9 @@ class MRules:
   default_rules = {
     "known_roles":"TEAM",
     "reveal_on_death":"TEAM",
-    "know_if_saved":"SECRET",
+    "know_if_saved":"OFF",
     "know_if_saved_doc":"ON",
-    "know_if_saved_self":"ON",
+    "know_if_saved_self":"OFF",
     "start_night":"EVEN",
     "charge_refocus_guard":"ON",
     "charge_refocus_agent":"ON",
