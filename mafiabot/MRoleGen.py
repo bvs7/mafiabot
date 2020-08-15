@@ -27,18 +27,18 @@ def get_validity(n,n_maf,n_rogue):
   else: # Odd, at least 1 greater
     return n_town >= n_maf+1
 
-def randomNMafGen(n, alpha=1.4, x=.2):
+def randomNMafGen(n, alpha=1.4, x=.15):
   n_maf = n
   n_rogue = 0
 
   while not get_validity(n,n_maf,n_rogue):
     n_maf = n/4
-    r = random.gauss(0, .75) # r is maf advantage number
+    r = random.gauss(-.5, .75) # r is maf advantage number
     n_maf = math.floor(n_maf + r)
 
-  n_rogue = math.floor(random.gammavariate(alpha, n/n_maf*x))
+  n_rogue = math.floor(random.gammavariate(alpha, n*x))
   while not get_validity(n,n_maf,n_rogue):
-    n_rogue = math.floor(random.gammavariate(alpha, n/n_maf*x))
+    n_rogue = math.floor(random.gammavariate(alpha, n*x))
 
   return n, n_maf, n_rogue, 2*r
 
