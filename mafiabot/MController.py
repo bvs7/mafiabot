@@ -78,7 +78,7 @@ class MController:
         if not game == None:
           game.handle_dm(sender_id, command, text, data)
     # TEMPORARY
-    if command == 'rolegen':
+    elif command == 'rolegen':
       try:
         n = int(text.split()[1])
         temp_ids = [i for i in range(n)]
