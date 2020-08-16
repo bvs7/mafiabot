@@ -12,6 +12,7 @@ def getLobbies(ctrl, MChatType, dms):
   lobbies = []
   lobbies.append(MLobby(ctrl, '30021302', MChatType, dms))
   lobbies.append(MLobby(ctrl, '60988610', MChatType, dms))
+  lobbies.append(MLobby(ctrl, '25833774', MChatType, dms))
   return lobbies
   
 def getGames(MChatType):
