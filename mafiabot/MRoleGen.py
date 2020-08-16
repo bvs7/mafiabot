@@ -27,7 +27,7 @@ def get_validity(n,n_maf,n_rogue):
   else: # Odd, at least 1 greater
     return n_town >= n_maf+1
 
-def randomNMafGen(n, alpha=1.4, x=.15):
+def randomNMafGen(n, alpha=1, x=.2):
   n_maf = n
   n_rogue = 0
 
