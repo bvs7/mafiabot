@@ -74,7 +74,6 @@ class START(MEvent):
       (self.start_night == "EVEN" and len(self.ids) % 2 == 0)):
       self.phase = MPhase.NIGHT
       mstate.day = 1
-    mstate.phase = self.phase
 
     mstate.contracts = self.contracts
 
