@@ -360,7 +360,7 @@ class INVESTIGATE(MEvent):
         elif reveal == "MILLER":
           reveal = "MAFIA"
         reveal = dispRole(reveal, self.cop_strength)
-        msg = default_resp_lib["INVESTIGATE"].format(target=self.target,role=self.reveal)
+        msg = default_resp_lib["INVESTIGATE"].format(target=self.target,role=reveal)
         send_dm(msg, self.actor)
 
 class DAY(MEvent):
@@ -556,6 +556,7 @@ class VENGEANCE(MEvent):
     if not self.target in (NOTARGET, None):
       event_list.append(ELIMINATE(self.actor, self.target))
     event_list.append(ELIMINATE(self.vengeance['final_vote'], self.vengeance['idiot']))
+    event_list.append(NIGHT())
     push(event_list)
 
 class ELIMINATE(MEvent):

@@ -140,7 +140,11 @@ class MGame:
     try:
       target_letter = self.getTarget(text)
       target_number = ord(target_letter.upper())-ord('A')
-      if target_number == len(self.state.player_order):
+      if self.state.phase == MPhase.DUSK:
+        player_order = self.state.venges
+      else:
+        player_order = self.state.player_order
+      if target_number == len(player_order):
         target_id = "NOTARGET"
       else:
         target_id = self.state.player_order[target_number]
