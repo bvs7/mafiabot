@@ -22,7 +22,7 @@ class MLobby:
 
     self.lobby_cast = lobby_cast
 
-    self.in_list = []
+    self.in_list = {}
     self.start_timer = None
     self.start_msg_id = None
     self.rules = MRules()
@@ -56,17 +56,18 @@ class MLobby:
           min_players = MIN_PLAYERS
       else:
         min_players = MIN_PLAYERS
-      if not sender_id in self.in_list:
-        self.in_list.append((sender_id,min_players))
+      
+      self.in_list[sender_id] = min_players
+
       msg = "[{}] ready to join a game of at least {} players. ".format(sender_id, min_players)
       msg += "{} others ready to play.".format(len(self.in_list))
       self.lobby_cast(self.lobbyChat.format(msg))
       return True
 
     if command == OUT_CMD:
-      for (in_p,min_p) in self.in_list:
+      for (in_p,min_p) in self.in_list.items():
         if sender_id == in_p[0]:
-          self.in_list.remove((in_p,min_p))
+          del self.in_list[sender_id]
           msg = "Removed [{}]".format(sender_id) # TODO: generalize text
       else:
         msg = "You weren't /in"
@@ -123,10 +124,11 @@ class MLobby:
 
     for (p_id, min_p) in ack_in_list:
       if not p_id in [id for (id,mp) in self.in_list]:
-        self.in_list.append((p_id,min_p))
+        self.in_list[p_id] = min_p
 
     # Sort in_list from largest to smallest min_players
-    in_list = sorted(self.in_list, key=lambda x: x[1])
+    in_list = self.in_list.items()
+    in_list = sorted(in_list, key=lambda x: x[1])
     in_list.reverse()
     # While not done, test for a game, if not, remove largest min_players
     done = False
