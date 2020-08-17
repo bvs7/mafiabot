@@ -19,8 +19,6 @@ class GroupMeServer(MServer):
   def chat(self):
     print(request.data)
     data = json.loads(request.data.decode('utf-8'))
-    print("Chat:")
-    print(data)
     text = data['text']
     if text[0:len(ACCESS_KW)] == ACCESS_KW:
       group_id = data['group_id']
@@ -31,8 +29,6 @@ class GroupMeServer(MServer):
 
   def dm(self):
     data = json.loads(request.data.decode('utf-8'))
-    print("DM:")
-    print(data)
     text = data['text']
     if text[0:len(ACCESS_KW)] == ACCESS_KW:
       sender_id = data['sender_id']

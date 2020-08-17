@@ -88,6 +88,7 @@ class GroupMeChat(MChat):
     try:
       m_id = self.group.post(msg).id
       time.sleep(CAST_DELAY)
+      print(m_id)
       return m_id
     except Exception as e:
       raise CastError(e)
@@ -106,7 +107,7 @@ class GroupMeChat(MChat):
     return True
 
   def getAcks(self, message_id):
-    self.group = group.update()
+    self.group = self.group.update()
     msg_id = str(int(message_id)-1) # Subtract 1 so that our message shows up
     for msg in self.group.messages.list_after(msg_id):
       if msg.id == message_id:

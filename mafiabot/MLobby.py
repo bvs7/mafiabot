@@ -18,7 +18,7 @@ class MLobby:
     self.ctrl = ctrl
 
     def lobby_cast(msg):
-      self.lobbyChat.cast(self.lobbyChat.format(msg))
+      return self.lobbyChat.cast(self.lobbyChat.format(msg))
 
     self.lobby_cast = lobby_cast
 
@@ -92,6 +92,7 @@ class MLobby:
       msg = "Game will start in {} minute{} if at least {} players are in. Like this message to join!".format(
         timer_minutes, 's' if timer_minutes!=1 else '', min_players)
       self.start_msg_id = self.lobby_cast(msg)
+      print(self.start_msg_id)
       self.start_min_players = min_players
       self.start_timer = MTimer(timer_minutes*60, {0:[self.try_start_game]})
 
@@ -119,6 +120,8 @@ class MLobby:
       self.lobby_cast(msg)
 
   def try_start_game(self):
+
+    print("try_start_game enter")
 
     ack_in_list = [(p_id, self.start_min_players) for p_id in self.lobbyChat.getAcks(self.start_msg_id)]
 
@@ -160,6 +163,8 @@ class MLobby:
       self.in_list = []
     else:
       self.lobby_cast("Could not start a game")
+
+    print("try_start_game exit")
 
 
   def group_id(self):
