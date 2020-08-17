@@ -420,8 +420,6 @@ class VOTE(MEvent):
     if self.votee in players or self.votee in (NOTARGET, None):
       voter.vote = self.votee
 
-    print(players)
-
     self.num_voters = len([v for v in players if players[v].vote == self.votee])
     self.num_f_voters = len([v for v in players if players[v].vote == self.f_votee])
     self.num_players = len(players)
@@ -578,7 +576,6 @@ class ELIMINATE(MEvent):
 
   def write(self, mstate):
     del mstate.players[self.target]
-    print(mstate.players)
     mstate.player_order = list(mstate.players.keys())
     
     self.relevant_contractors = []

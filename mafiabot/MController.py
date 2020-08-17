@@ -131,7 +131,6 @@ class MController:
   def end_game_callback(self, game_id, main_chat_id, mafia_chat_id):
     # Orphan chats
     def remove_main_orphan():
-      print(self.orphaned_chats)
       del self.orphaned_chats[main_chat_id]
 
     def kill_main_chat():
@@ -140,7 +139,6 @@ class MController:
       chat.destroy()
 
     def remove_mafia_orphan():
-      print(self.orphaned_chats)
       del self.orphaned_chats[mafia_chat_id]
 
     def kill_mafia_chat():
@@ -150,7 +148,6 @@ class MController:
       
     self.orphaned_chats[main_chat_id] = MTimer(30*60, {0:[remove_main_orphan, kill_main_chat]})
     self.orphaned_chats[mafia_chat_id] = MTimer(30*60, {0:[remove_mafia_orphan, kill_mafia_chat]})
-    print(self.orphaned_chats)
     
     for player in self.activeGame:
       games = self.activeGame[player]

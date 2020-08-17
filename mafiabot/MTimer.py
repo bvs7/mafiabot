@@ -19,7 +19,6 @@ class MTimer:
     
     self.timerThread = threading.Thread(name="Timer"+str(id), target=self.tick)
     self.timerThread.start()
-    print("Started")
     
   def tick(self):
     """ Internal function to count time """
@@ -43,7 +42,6 @@ class MTimer:
       offset = (self.tick_time + offset) - (current_time - last_time)
       last_time = current_time
       self.lock.release()
-      print("Tick: {}".format(offset))
       time.sleep(max([self.tick_time + offset, 0]))
       
   def addAlarms(self, alarms):

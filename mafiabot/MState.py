@@ -81,7 +81,6 @@ class MState:
           self.handleEvent(event)
       except EndGameException as e:
         self.active = False
-        print("Caught end of game: {}".format(e))
         self.end_callback(e)
 
   def handleEvent(self, event):
@@ -92,7 +91,6 @@ class MState:
 
   def start(self, ids : List[MPlayerID], roles : List[str], contracts):
     self.start_roles = dict(zip(ids,roles))
-    print(self.start_roles)
     event = START(ids, roles, contracts)
     self.pushEvent(event)
 
