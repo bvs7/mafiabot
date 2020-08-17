@@ -88,8 +88,10 @@ class GroupMeChat(MChat):
     try:
       m_id = self.group.post(msg).id
       time.sleep(CAST_DELAY)
+      return m_id
     except Exception as e:
       raise CastError(e)
+      return "-1"
 
   def ack(self, message_id):
     try:

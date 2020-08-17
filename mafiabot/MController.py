@@ -7,6 +7,7 @@ from .MGame import MGame
 from .MRules import MRules, RULE_BOOK
 from .MLobby import MLobby
 from .MRoleGen import randomRoleGen
+from .MTimer import MTimer
 
 def getLobbies(ctrl, MChatType, dms):
   lobbies = []
@@ -31,20 +32,18 @@ def getDMs(MDMType):
 
 class MController:
 
-  # init
-
   def __init__(self, MChatType, MDMType, MServerType, debug=None):
     self.MChatType = MChatType
     self.MServerType = MServerType
-
-    self.games = getGames(MChatType)
     self.dms = getDMs(MDMType)
     
     self.lobbies = getLobbies(self, MChatType, self.dms)
+    self.orphaned_chats = {} # Dict of chat_id => timer
 
+    # TODO: a set of rules for each dm/players
     self.rules = MRules()
 
-    self.activeGame = {} # Maps player id to their active game
+    self.activeGame = {} # Maps player id to their active game (or a list of active games)
 
     self.rolegen_opine = {} # Maps player_id -> (roles,contracts)
 
@@ -57,28 +56,32 @@ class MController:
     
   # callback for Server
   def handle_chat(self,  group_id, sender_id, command, text, data):
-    if command in GAME_MAIN_COMMANDS:
-      for game in self.games:
-        if game.active() and group_id == game.main_id():
-          game.handle_main(sender_id, command, text, data)
-    if command in GAME_MAFIA_COMMANDS:
-      for game in self.games:
-        if game.active() and group_id == game.mafia_id():
-          game.handle_mafia(sender_id, command, text, data)
-    if command in LOBBY_COMMANDS:
-      for lobby in self.lobbies:
-        if lobby.group_id() == group_id:
-          lobby.handle(sender_id, command, text, data)
+    # Each lobby tries to handle
+    for lobby in self.lobbies:
+      if lobby.handle(group_id, sender_id, command, text, data):
+        return True
+    # handle default mafia bot actions
+    if command == HELP_CMD:
+      words = text.split()
+      if len(words) > 0:
+        topic = words[1]
+        if topic in ROLE_EXPLAIN:
+          resp = self.MChatType(group_id)
+          resp.cast(ROLE_EXPLAIN[topic])
 
   def handle_dm(self, sender_id, command, text, data):
     # check for this player's game?
     if command in GAME_DM_COMMANDS:
       if sender_id in self.activeGame:
-        game = self.activeGame[sender_id]
-        if not game == None:
-          game.handle_dm(sender_id, command, text, data)
-    # TEMPORARY
-    elif command == 'rolegen':
+        try:
+          game = self.activeGame[sender_id][0]
+          if not game == None:
+            game.handle_dm(sender_id, command, text, data)
+            return True
+        except (IndexError,KeyError):
+          pass
+
+    if command == 'rolegen':
       try:
         n = int(text.split()[1])
         temp_ids = [i for i in range(n)]
@@ -124,3 +127,37 @@ class MController:
         msg = self.rules.describe(has_expl=True)
     
       self.dms.send(msg, sender_id)
+
+  def end_game_callback(self, game_id, main_chat_id, mafia_chat_id):
+    # Orphan chats
+    def remove_main_orphan():
+      print(self.orphaned_chats)
+      del self.orphaned_chats[main_chat_id]
+
+    def kill_main_chat():
+      chat = self.MChatType(main_chat_id)
+      chat.cast("Destroying Chat")
+      chat.destroy()
+
+    def remove_mafia_orphan():
+      print(self.orphaned_chats)
+      del self.orphaned_chats[mafia_chat_id]
+
+    def kill_mafia_chat():
+      chat = self.MChatType(mafia_chat_id)
+      chat.cast("Destroying Chat")
+      chat.destroy()
+      
+    self.orphaned_chats[main_chat_id] = MTimer(30*60, {0:[remove_main_orphan, kill_main_chat]})
+    self.orphaned_chats[mafia_chat_id] = MTimer(30*60, {0:[remove_mafia_orphan, kill_mafia_chat]})
+    print(self.orphaned_chats)
+    
+    for player in self.activeGame:
+      games = self.activeGame[player]
+      for game in games:
+        if game_id == game.state.id:
+          self.activeGame[player].remove(game)
+
+
+    
+

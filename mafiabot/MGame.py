@@ -244,8 +244,3 @@ class MGame:
       self.send_dm(msg, sender)
 
 
-  def end(self):
-    self.main_chat.destroy()
-    self.mafia_chat.destroy()
-
-
