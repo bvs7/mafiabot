@@ -107,7 +107,7 @@ class GroupMeChat(MChat):
     return True
 
   def getAcks(self, message_id):
-    self.group = self.group.update()
+    self.group.update()
     msg_id = str(int(message_id)-1) # Subtract 1 so that our message shows up
     for msg in self.group.messages.list_after(msg_id):
       if msg.id == message_id:

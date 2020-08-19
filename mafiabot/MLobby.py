@@ -126,7 +126,7 @@ class MLobby:
     ack_in_list = [(p_id, self.start_min_players) for p_id in self.lobbyChat.getAcks(self.start_msg_id)]
 
     for (p_id, min_p) in ack_in_list:
-      if not p_id in [id for (id,mp) in self.in_list]:
+      if not p_id in self.in_list:
         self.in_list[p_id] = min_p
 
     # Sort in_list from largest to smallest min_players
@@ -160,7 +160,7 @@ class MLobby:
         if not user in self.ctrl.activeGame:
           self.ctrl.activeGame[user] = []
         self.ctrl.activeGame[user].append(game)
-      self.in_list = []
+      self.in_list = {}
     else:
       self.lobby_cast("Could not start a game")
 
