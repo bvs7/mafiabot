@@ -3,21 +3,6 @@ import copy
 
 from .MInfo import *
 
-RULE_LIST = [
-  "known_roles",
-  "reveal_on_death",
-  "start_night",
-  "know_if_saved",
-  "know_if_saved_doc",
-  "know_if_saved_self",
-  "idiot_vengeance",
-  "charge_refocus_guard",
-  "charge_refocus_agent",
-  "know_if_stripped",
-  "no_milk_self",
-  "cop_strength",
-  "unique_night_act"
-]
 
 RULE_BOOK ={
   "known_roles" : {

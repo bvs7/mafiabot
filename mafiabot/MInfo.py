@@ -26,6 +26,7 @@ OUT_CMD = "out"
 RULE_CMD = "rule"
 WATCH_CMD = "watch"
 
+
 GAME_MAIN_COMMANDS = [
   VOTE_CMD,
   STATUS_CMD,
@@ -60,6 +61,30 @@ LOBBY_COMMANDS = [
   WATCH_CMD,
   RULE_CMD,
 ]
+
+main_command_help = {
+  VOTE_CMD: ('/vote [target]\n  [target] can be a @mention of another player,'
+    ' "me" to vote for yourself, "nokill" to vote to pass to Night peacefully,'
+    ' or something else to retract your vote.\n  Voting happens during the Day'
+    ' and ends with electing someone to kill. This is the main way Town kills Mafia.'),
+  STATUS_CMD: ('/status\n  Display info about the state of the game, such as'
+    ' who is playing, voting status, timer status, etc.'),
+  RULE_CMD: ('/rule [rule]\n If [rule] is blank, display the current rule set.'
+    ' otherwise display the possible settings for [rule] if such a rule exists'),
+  HELP_CMD: ('/help [topic]\n Get help on a topic. [topic] can be "command",'
+    ' a rule, a ROLE, a Team, or some other topics (try /help index to list them)'),
+}
+
+mafia_command_help = {
+  TARGET_CMD: ('/target [target]\n  [target] is the letter of the player you'
+    ' want to kill (try /status to see letters). A GOON can\'t target'),
+  STATUS_CMD: ('/status\n  Display info about the state of the game, such as'
+    ' who is playing, voting status, timer status, etc.'),
+  RULE_CMD: ('/rule [rule]\n If [rule] is blank, display the current rule set.'
+    ' otherwise display the possible settings for [rule] if such a rule exists'),
+  HELP_CMD: ('/help [topic]\n Get help on a topic. [topic] can be "command",'
+    ' a rule, a ROLE, a Team, or some other topics (try /help index to list them)'),
+}
 
 default_resp_lib = {
   "VOTE_RETRACT": "[{voter}] retracted vote for [{f_votee}]",
@@ -214,6 +239,29 @@ ROLE_EXPLAIN= {
                "by election or by directing murder, you win if your charge dies."),
     }
 
+
+RULE_LIST = [
+  "known_roles",
+  "reveal_on_death",
+  "start_night",
+  "know_if_saved",
+  "know_if_saved_doc",
+  "know_if_saved_self",
+  "idiot_vengeance",
+  "charge_refocus_guard",
+  "charge_refocus_agent",
+  "know_if_stripped",
+  "no_milk_self",
+  "cop_strength",
+  "unique_night_act"
+]
+
+# all of these could have an s tacked on?
+general_help = {
+  'role': "\n".join(ALL_ROLES),
+  'rule': "\n".join(RULE_LIST),
+}
+
 def listMenu(players):
   ps = []
   c = 'A'
@@ -294,4 +342,9 @@ def dispStartRoles(start_roles):
   for id,role in start_roles.items():
     msg += "[{}]: {}\n".format(id,role)
   return msg
+
+
+def generalHelp(words):
+  if len(words) <= 1:
+
 

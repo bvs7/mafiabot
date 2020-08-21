@@ -130,6 +130,7 @@ class MController:
 
   def end_game_callback(self, game_id, main_chat_id, mafia_chat_id):
     # Orphan chats
+
     def remove_main_orphan():
       del self.orphaned_chats[main_chat_id]
 

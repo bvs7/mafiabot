@@ -41,6 +41,8 @@ class MGame:
       if role in MAFIA_ROLES:
         mafia_users[id] = users[id]
 
+    self.start_roles = createStartRoles(ids, roles, contracts)
+
     self.main_chat.refill(users)
     self.mafia_chat.refill(mafia_users)
     self.state = MState(main_cast, mafia_cast, send_dm, self.rules, end_callback_, ids, roles, contracts)
@@ -243,4 +245,14 @@ class MGame:
     else:
       self.send_dm(msg, sender)
 
+def createStartRoles(ids, roles, contracts):
+  msg = "Roles:"
+  players = list(zip(ids,roles))
+  for role in ALL_ROLES:
+    players_role = [(id,r) for (id,r) in players if r == role]
+    for (p_id,r) in players_role:
+      msg += "\n  [{}]: {}".format(p_id, r)
+      if p_id in contracts:
+        msg += " ([{}])".format(contracts[p_id][0])
+  return msg
 

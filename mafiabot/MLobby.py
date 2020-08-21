@@ -33,13 +33,11 @@ class MLobby:
     if command in GAME_MAIN_COMMANDS:
       for game in self.games:
         if game.active() and group_id == game.main_id():
-          game.handle_main(sender_id, command, text, data)
-          return True
+          return game.handle_main(sender_id, command, text, data)
     if command in GAME_MAFIA_COMMANDS:
       for game in self.games:
         if game.active() and group_id == game.mafia_id():
-          game.handle_mafia(sender_id, command, text, data)
-          return True
+          return game.handle_mafia(sender_id, command, text, data)
     if command in LOBBY_COMMANDS:
       if self.group_id() == group_id:
         return self.handle_lobby(sender_id, command, text, data)
@@ -73,6 +71,7 @@ class MLobby:
         msg = "You weren't /in"
       self.lobby_cast(msg)
       return True
+
     if command == START_CMD:
       words = text.split()
       min_players = MIN_PLAYERS
@@ -144,12 +143,13 @@ class MLobby:
     def end_game_callback(game, e):
       self.ctrl.end_game_callback(game.state.id, game.main_chat.id, game.mafia_chat.id)
       msg = "Game {} ended: {}\n".format(game.state.id, e)
-      msg += game.main_chat.format(dispStartRoles(game.state.start_roles))
+      msg += game.main_chat.format(game.state.start_roles)
       self.lobby_cast(msg)
       game.main_cast(msg)
       self.start_timer = None
 
     if len(users) > MIN_PLAYERS:
+      self.lobby_cast("Starting game")
       game = MGame(self.MChatType, self.dms, self.rules, end_game_callback, users)
       self.games.append(game)
 
@@ -160,7 +160,6 @@ class MLobby:
       self.in_list = []
     else:
       self.lobby_cast("Could not start a game")
-
 
   def group_id(self):
     return self.lobbyChat.id
