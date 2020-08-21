@@ -342,9 +342,3 @@ def dispStartRoles(start_roles):
   for id,role in start_roles.items():
     msg += "[{}]: {}\n".format(id,role)
   return msg
-
-
-def generalHelp(words):
-  if len(words) <= 1:
-
-

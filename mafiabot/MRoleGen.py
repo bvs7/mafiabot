@@ -4,255 +4,272 @@ from .MInfo import *
 import math
 import random
 
-def roleGen(ids):
-  return randomRoleGen(ids)
+class MRoleGen:
 
-def debugRoleGen(ids):
-  n = len(ids)
-  defaultRoles = ['TOWN','TOWN','MAFIA','COP','DOCTOR','IDIOT']
-  contracts = {}
-  if n >= 6:
-    contracts[ids[5]] = ("IDIOT",ids[5],False)
-  return defaultRoles[0:n], contracts
+  @staticmethod
+  def roleGen(ids):
+    return randomRoleGen(ids)
 
-def get_validity(n,n_maf,n_rogue):
-  n_town = n-n_maf-n_rogue
-  if n_maf < 1:
-    return False
-  if not n_town > n_rogue:
-    return False
-  return n_town >= n_maf+2
+  @staticmethod
+  def debugRoleGen(ids):
+    n = len(ids)
+    defaultRoles = ['TOWN','TOWN','MAFIA','COP','DOCTOR','IDIOT']
+    contracts = {}
+    if n >= 6:
+      contracts[ids[5]] = ("IDIOT",ids[5],False)
+    return defaultRoles[0:n], contracts
 
-MAX_TRIES = 1000
+  @staticmethod
+  def get_validity(n,n_maf,n_rogue):
+    n_town = n-n_maf-n_rogue
+    if n_maf < 1:
+      return False
+    if not n_town > n_rogue:
+      return False
+    return n_town >= n_maf+2
 
-def getNGauss(mu,sig,minimum,maximum=None):
-  tries = 0
-  n_role = math.floor(random.gauss(mu,sig))
-  while not (n_role >= minimum and (maximum == None or n_role <= maximum)):
-    tries += 1
-    if tries >= MAX_TRIES:
-      return 0
+  MAX_TRIES = 1000
+
+  @staticmethod
+  def getNGauss(mu,sig,minimum,maximum=None):
+    tries = 0
     n_role = math.floor(random.gauss(mu,sig))
-  return n_role
+    while not (n_role >= minimum and (maximum == None or n_role <= maximum)):
+      tries += 1
+      if tries >= MAX_TRIES:
+        return 0
+      n_role = math.floor(random.gauss(mu,sig))
+    return n_role
 
-def gaussNMafGen(n, mu_div = 5, u = .6, s = .15):
-  mu = n/mu_div + u
-  sig = s * math.sqrt(n)
-  return getNGauss(mu, sig, 1)
+  @staticmethod
+  def gaussNMafGen(n, mu_div = 5, u = .6, s = .15):
+    mu = n/mu_div + u
+    sig = s * math.sqrt(n)
+    return getNGauss(mu, sig, 1)
 
 
-def gaussNRogueGen(n, u=.4,s_div=5):
-  mu = u
-  sig = n/s_div
-  return getNGauss(mu,sig, 0)
+  @staticmethod
+  def gaussNRogueGen(n, u=.4,s_div=5):
+    mu = u
+    sig = n/s_div
+    return getNGauss(mu,sig, 0)
 
-def gaussNTeamGen(n):
-  # Gen n_rogue first then get num maf from that!
-  n_rogue = gaussNRogueGen(n)
-  n_maf = gaussNMafGen(n-n_rogue)
-  while not get_validity(n,n_maf,n_rogue):
+  @staticmethod
+  def gaussNTeamGen(n):
+    # Gen n_rogue first then get num maf from that!
     n_rogue = gaussNRogueGen(n)
     n_maf = gaussNMafGen(n-n_rogue)
-  n_town = n-n_maf-n_rogue
-  return n_town, n_maf, n_rogue
+    while not get_validity(n,n_maf,n_rogue):
+      n_rogue = gaussNRogueGen(n)
+      n_maf = gaussNMafGen(n-n_rogue)
+    n_town = n-n_maf-n_rogue
+    return n_town, n_maf, n_rogue
 
-# role_info is dict of role -> (score,dr)
-def selectRole(role_info):
-  total = 0
-  roles = list(role_info.keys())
-  for role in roles:
-    total += role_info[role]
-  n = random.randrange(0,total)
-  tot = 0
-  for role in roles:
-    tot += role_info[role]
-    if n < tot:
-      return role
+  # role_info is dict of role -> (score,dr)
+  @staticmethod
+  def selectRole(role_info):
+    total = 0
+    roles = list(role_info.keys())
+    for role in roles:
+      total += role_info[role]
+    n = random.randrange(0,total)
+    tot = 0
+    for role in roles:
+      tot += role_info[role]
+      if n < tot:
+        return role
 
-  raise NotImplementedError("Shouldn't happen")
+    raise NotImplementedError("Shouldn't happen")
 
 
-def randomNumGen(num):
-  n_town,n_maf,n_rogue = gaussNTeamGen(num)
+  @staticmethod
+  def randomNumGen(num):
+    n_town,n_maf,n_rogue = gaussNTeamGen(num)
 
-  n = n_town + n_maf + n_rogue
+    n = n_town + n_maf + n_rogue
 
-  roles = []
+    roles = []
 
-  # Decide n of roles of each in order?
-  # STRIPPER, GODFATHER, MILLER, GOON => maf score?
-  # maf score => COP, DOCTOR, MILKY, CELEB => maf score
-  # maf score => ROGUES
+    # Decide n of roles of each in order?
+    # STRIPPER, GODFATHER, MILLER, GOON => maf score?
+    # maf score => COP, DOCTOR, MILKY, CELEB => maf score
+    # maf score => ROGUES
 
-  n_stripper = getNGauss(0, math.sqrt(n_maf)*.7,0,n_maf)
-  n_r_maf = n_maf - n_stripper
-  n_godfather = getNGauss(0, math.sqrt(n_r_maf)*.7,0,n_r_maf)
-  n_r_maf = n_maf - n_stripper - n_godfather
-  n_goon = getNGauss(0, math.sqrt(n_maf)*.8,0,n_r_maf)
-  n_mafia = n_maf - n_goon - n_godfather - n_stripper
+    n_stripper = getNGauss(0, math.sqrt(n_maf)*.7,0,n_maf)
+    n_r_maf = n_maf - n_stripper
+    n_godfather = getNGauss(0, math.sqrt(n_r_maf)*.7,0,n_r_maf)
+    n_r_maf = n_maf - n_stripper - n_godfather
+    n_goon = getNGauss(0, math.sqrt(n_maf)*.8,0,n_r_maf)
+    n_mafia = n_maf - n_goon - n_godfather - n_stripper
 
-  maf_score = n_mafia + 2*n_stripper + 1.5*n_godfather + (-1 if n_goon == n_maf else .5*n_goon)
+    maf_score = n_mafia + 2*n_stripper + 1.5*n_godfather + (-1 if n_goon == n_maf else .5*n_goon)
 
-  print('1')
-  print(maf_score)
+    print('1')
+    print(maf_score)
 
-  # Static town roles
-  n_miller = getNGauss(.4, .25*math.sqrt(n_town), 0, math.sqrt(n_town))
-  maf_score = maf_score + n_miller*.5  
-  n_celeb = getNGauss(.4, .25*math.sqrt(n_town), 0, math.sqrt(n_town))
-  maf_score = maf_score - n_celeb
+    # Static town roles
+    n_miller = getNGauss(.4, .25*math.sqrt(n_town), 0, math.sqrt(n_town))
+    maf_score = maf_score + n_miller*.5  
+    n_celeb = getNGauss(.4, .25*math.sqrt(n_town), 0, math.sqrt(n_town))
+    maf_score = maf_score - n_celeb
 
-  print('2')
-  print(maf_score)
+    print('2')
+    print(maf_score)
 
-  #TODO: Order these randomly?
+    #TODO: Order these randomly?
 
-  # Dynamic town roles
-  n_cop = getNGauss(maf_score/4 + .3, math.sqrt(max(0,maf_score)) * .5, 0, math.sqrt(n_town))
-  maf_score = maf_score - n_cop*1.5
-  n_doc = getNGauss(maf_score/4 + .4, math.sqrt(max(0,maf_score)) * .5, 0, math.sqrt(n_town))
-  maf_score = maf_score - n_doc*1.5
-  n_milky = getNGauss(maf_score/3, .56, 0, math.sqrt(n_town))
-  maf_score = maf_score - n_milky
+    # Dynamic town roles
+    n_cop = getNGauss(maf_score/4 + .3, math.sqrt(max(0,maf_score)) * .5, 0, math.sqrt(n_town))
+    maf_score = maf_score - n_cop*1.5
+    n_doc = getNGauss(maf_score/4 + .4, math.sqrt(max(0,maf_score)) * .5, 0, math.sqrt(n_town))
+    maf_score = maf_score - n_doc*1.5
+    n_milky = getNGauss(maf_score/3, .56, 0, math.sqrt(n_town))
+    maf_score = maf_score - n_milky
 
-  print('3')
-  print(maf_score)
+    print('3')
+    print(maf_score)
 
-  for i in range(n_maf):
-    if n_stripper > 0:
-      roles.append("STRIPPER")
-      n_stripper -= 1
-      continue
-    if n_godfather > 0:
-      roles.append("GODFATHER")
-      n_godfather -= 1
-      continue
-    if n_goon > 0:
-      roles.append("GOON")
-      n_goon -= 1
-      continue
-    roles.append("MAFIA")
-  
-  for i in range(n_town):
-    if n_cop > 0:
-      roles.append("COP")
-      n_cop -= 1
-      continue
-    if n_doc >0:
-      roles.append("DOCTOR")
-      n_doc -= 1
-      continue
-    if n_celeb > 0:
-      roles.append("CELEB")
-      n_celeb -= 1
-      continue
-    if n_miller > 0:
-      roles.append("MILLER")
-      n_miller -=1
-      continue
-    if n_milky > 0:
-      roles.append("MILKY")
-      n_milky -= 1
-      continue
-    roles.append("TOWN")
+    for i in range(n_maf):
+      if n_stripper > 0:
+        roles.append("STRIPPER")
+        n_stripper -= 1
+        continue
+      if n_godfather > 0:
+        roles.append("GODFATHER")
+        n_godfather -= 1
+        continue
+      if n_goon > 0:
+        roles.append("GOON")
+        n_goon -= 1
+        continue
+      roles.append("MAFIA")
+    
+    for i in range(n_town):
+      if n_cop > 0:
+        roles.append("COP")
+        n_cop -= 1
+        continue
+      if n_doc >0:
+        roles.append("DOCTOR")
+        n_doc -= 1
+        continue
+      if n_celeb > 0:
+        roles.append("CELEB")
+        n_celeb -= 1
+        continue
+      if n_miller > 0:
+        roles.append("MILLER")
+        n_miller -=1
+        continue
+      if n_milky > 0:
+        roles.append("MILKY")
+        n_milky -= 1
+        continue
+      roles.append("TOWN")
 
-  rogues = []
+    rogues = []
 
-  # Rogue roles
-  for r in range(n_rogue):
-    # buckets for maf_score
-    if maf_score >= 1:
-      # More likely Survivor, Guard(Town), Agent(Maf)
-      role, target_team, score = getAntiMafRogue()
-    elif maf_score > -1:
-      # Random
-      role, target_team, score = getRandRogue()
-    else:
-      # More likely Idiot, Guard(Maf), Agent(Town)
-      role, target_team, score = getProMafRogue()
-    rogues.append((role,target_team))
-    maf_score += score
-    roles.append(role)
+    # Rogue roles
+    for r in range(n_rogue):
+      # buckets for maf_score
+      if maf_score >= 1:
+        # More likely Survivor, Guard(Town), Agent(Maf)
+        role, target_team, score = getAntiMafRogue()
+      elif maf_score > -1:
+        # Random
+        role, target_team, score = getRandRogue()
+      else:
+        # More likely Idiot, Guard(Maf), Agent(Town)
+        role, target_team, score = getProMafRogue()
+      rogues.append((role,target_team))
+      maf_score += score
+      roles.append(role)
 
-  print('4')
-  print(maf_score)
+    print('4')
+    print(maf_score)
 
-  return roles, rogues
+    return roles, rogues
 
-def getScore(role, target_team):
-  if role == "IDIOT":
-    score = .5
-  elif role == "SURVIVOR":
-    score = 0
-  elif role in ["GUARD","AGENT"]:
-    if target_team == "Town":
-      score = -1
-    elif target_team == "Mafia":
-      score = 1
-    else:
+  @staticmethod
+  def getScore(role, target_team):
+    if role == "IDIOT":
+      score = .5
+    elif role == "SURVIVOR":
       score = 0
-    if role == "AGENT":
-      score = score * -1
-  return score
+    elif role in ["GUARD","AGENT"]:
+      if target_team == "Town":
+        score = -1
+      elif target_team == "Mafia":
+        score = 1
+      else:
+        score = 0
+      if role == "AGENT":
+        score = score * -1
+    return score
 
-def getAntiMafRogue():
-  print("Anti")
-  role = selectRole({"SURVIVOR":20, "GUARD":40, "AGENT":40})
-  target_team = "Town" if role == "GUARD" else "Mafia"
-  return role, target_team, getScore(role,target_team)
+  @staticmethod
+  def getAntiMafRogue():
+    print("Anti")
+    role = selectRole({"SURVIVOR":20, "GUARD":40, "AGENT":40})
+    target_team = "Town" if role == "GUARD" else "Mafia"
+    return role, target_team, getScore(role,target_team)
 
-def getRandRogue():
-  print("Rand")
-  role = selectRole({"IDIOT":40, "SURVIVOR":40, "GUARD":10, "AGENT":10})
-  target_team = selectRole({"Town":50,"Mafia":30,"Rogue":20})
-  return role, target_team, getScore(role, target_team)
+  @staticmethod
+  def getRandRogue():
+    print("Rand")
+    role = selectRole({"IDIOT":40, "SURVIVOR":40, "GUARD":10, "AGENT":10})
+    target_team = selectRole({"Town":50,"Mafia":30,"Rogue":20})
+    return role, target_team, getScore(role, target_team)
 
-def getProMafRogue():
-  print("Pro")
-  role = selectRole({"IDIOT":20, "GUARD":40, "AGENT":40})
-  target_team = "Town" if role == "AGENT" else "Mafia"
-  return role, target_team, getScore(role,target_team)
+  @staticmethod
+  def getProMafRogue():
+    print("Pro")
+    role = selectRole({"IDIOT":20, "GUARD":40, "AGENT":40})
+    target_team = "Town" if role == "AGENT" else "Mafia"
+    return role, target_team, getScore(role,target_team)
 
-def getTargetFromTeam(ids, roles, target_team):
-  combo = zip(ids,roles)
-  if target_team == "Mafia":
-    targets = MAFIA_ROLES
-  elif target_team == "Town":
-    targets = TOWN_ROLES
-  else:
-    targets = ROGUE_ROLES
-  possible = [c for c,r in combo if r in targets]
-  if len(possible) > 0:
-    return random.choice(possible)
-  else:
-    return random.choice(ids)
+  @staticmethod
+  def getTargetFromTeam(ids, roles, target_team):
+    combo = zip(ids,roles)
+    if target_team == "Mafia":
+      targets = MAFIA_ROLES
+    elif target_team == "Town":
+      targets = TOWN_ROLES
+    else:
+      targets = ROGUE_ROLES
+    possible = [c for c,r in combo if r in targets]
+    if len(possible) > 0:
+      return random.choice(possible)
+    else:
+      return random.choice(ids)
 
-def decideContracts(roles, rogues, ids):
-  contracts = {}
-  for id, role in zip(ids,roles):
-    if role in CONTRACT_ROLES:
-      success = role in ('SURVIVOR','GUARD')
-      if role in ('IDIOT','SURVIVOR'):
-        target = id
-      elif role in ('GUARD','AGENT'):
-        rogue_role, target_team = [(r,t) for (r,t) in rogues if r==role][0]
-        target = getTargetFromTeam(ids,roles,target_team)
-        rogues.remove((rogue_role,target_team))
-      contracts[id] = (role, target, success)
-  return roles, contracts
+  @staticmethod
+  def decideContracts(roles, rogues, ids):
+    contracts = {}
+    for id, role in zip(ids,roles):
+      if role in CONTRACT_ROLES:
+        success = role in ('SURVIVOR','GUARD')
+        if role in ('IDIOT','SURVIVOR'):
+          target = id
+        elif role in ('GUARD','AGENT'):
+          rogue_role, target_team = [(r,t) for (r,t) in rogues if r==role][0]
+          target = getTargetFromTeam(ids,roles,target_team)
+          rogues.remove((rogue_role,target_team))
+        contracts[id] = (role, target, success)
+    return roles, contracts
 
-  
-def randomRoleGen(ids):
-  roles,rogues = randomNumGen(len(ids))
+  @staticmethod
+  def randomRoleGen(ids):
+    roles,rogues = randomNumGen(len(ids))
 
-  random.shuffle(roles)
+    random.shuffle(roles)
 
-  print(roles, rogues)
+    print(roles, rogues)
 
-  # Should shuffle roles into ids, then decide rogue contracts based on rogues info
-  roles,contracts = decideContracts(roles, rogues, ids)
+    # Should shuffle roles into ids, then decide rogue contracts based on rogues info
+    roles,contracts = decideContracts(roles, rogues, ids)
 
-  return ids, roles, contracts
+    return ids, roles, contracts
 
 
 """

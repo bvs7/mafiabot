@@ -11,11 +11,13 @@ TIMER_MINUTES = 10
 
 class MLobby:
 
-  def __init__(self, ctrl, group_id, MChatType, dms):
+  def __init__(self, ctrl, group_id, MChatType, dms, roleGen, MTimerType):
     self.MChatType = MChatType
     self.lobbyChat = MChatType(group_id)
     self.dms = dms
     self.ctrl = ctrl
+    self.roleGen = roleGen
+    self.MTimerType = MTimerType
 
     def lobby_cast(msg):
       return self.lobbyChat.cast(self.lobbyChat.format(msg))
@@ -96,7 +98,7 @@ class MLobby:
         timer_minutes, 's' if timer_minutes!=1 else '', min_players)
       self.start_msg_id = self.lobby_cast(msg)
       self.start_min_players = min_players
-      self.start_timer = MTimer(timer_minutes*60, {0:[self.try_start_game]})
+      self.start_timer = self.MTimerType(timer_minutes*60, {0:[self.try_start_game]})
 
     if command == WATCH_CMD:
       if len(self.games) == 1:
@@ -154,7 +156,7 @@ class MLobby:
 
     if len(users) > MIN_PLAYERS:
       self.lobby_cast("Starting game")
-      game = MGame(self.MChatType, self.dms, self.rules, end_game_callback, users)
+      game = MGame(self.MChatType, self.dms, self.rules, end_game_callback, users, self.roleGen)
       self.games.append(game)
 
       for user in users:

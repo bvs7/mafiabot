@@ -3,7 +3,6 @@ import time
 from .MInfo import *
 from .MState import MState
 from .MEvent import MPhase
-from .MRoleGen import roleGen
 from .MRules import RULE_BOOK
 
 # TODO: Can MGame be folded into MState?
@@ -15,7 +14,7 @@ from .MRules import RULE_BOOK
 # Contains MState, checks inputs, fulfills non-event actions
 class MGame:
 
-  def __init__(self, MChatType, dms, rules, end_callback, users):
+  def __init__(self, MChatType, dms, rules, end_callback, users, roleGen):
     self.main_chat = MChatType.new("MAIN CHAT")
     self.mafia_chat = MChatType.new("MAFIA CHAT")
     self.dms = dms
@@ -143,7 +142,7 @@ class MGame:
       target_letter = self.getTarget(text)
       target_number = ord(target_letter.upper())-ord('A')
       if self.state.phase == MPhase.DUSK:
-        player_order = self.state.venges
+        player_order = self.state.vengeance['venges']
       else:
         player_order = self.state.player_order
       if target_number == len(player_order):
@@ -255,4 +254,3 @@ def createStartRoles(ids, roles, contracts):
       if p_id in contracts:
         msg += " ([{}])".format(contracts[p_id][0])
   return msg
-

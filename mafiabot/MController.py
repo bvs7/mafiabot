@@ -6,14 +6,16 @@ from .MInfo import *
 from .MGame import MGame
 from .MRules import MRules, RULE_BOOK
 from .MLobby import MLobby
-from .MRoleGen import randomRoleGen
+from .MRoleGen import MRoleGen
 from .MTimer import MTimer
 
-def getLobbies(ctrl, MChatType, dms):
+
+# TODO: make this a file we read in
+def getLobbies(ctrl, MChatType, dms, MRoleGenType, MTimerType):
   lobbies = []
-  lobbies.append(MLobby(ctrl, '30021302', MChatType, dms))
-  lobbies.append(MLobby(ctrl, '60988610', MChatType, dms))
-  lobbies.append(MLobby(ctrl, '25833774', MChatType, dms))
+  lobbies.append(MLobby(ctrl, '30021302', MChatType, dms, MRoleGenType, MTimerType))
+  lobbies.append(MLobby(ctrl, '60988610', MChatType, dms, MRoleGenType, MTimerType))
+  lobbies.append(MLobby(ctrl, '25833774', MChatType, dms, MRoleGenType, MTimerType))
   return lobbies
   
 def getGames(MChatType):
@@ -22,36 +24,27 @@ def getGames(MChatType):
 def getDMs(MDMType):
   return MDMType()
 
-# TODO: multiple lobbies!, lobby instances
-# TODO: getLobbyChats, getGameChats. Flesh out
-
-# TODO: Proper RoleGen!
 # TODO: Rule edits and checking
 # TODO: Save state and refreshing games
 # TODO: Database Recording and stats
 
 class MController:
 
-  def __init__(self, MChatType, MDMType, MServerType, debug=None):
+  def __init__(self, MChatType, MDMType, MServerType, roleGen=MRoleGen.roleGen, MTimerType=MTimer):
     self.MChatType = MChatType
     self.MServerType = MServerType
     self.dms = getDMs(MDMType)
-    
-    self.lobbies = getLobbies(self, MChatType, self.dms)
+    self.roleGen = roleGen
+    self.MTimerType=MTimerType
+
+    self.lobbies = getLobbies(self, MChatType, self.dms, self.roleGen, self.MTimerType)
     self.orphaned_chats = {} # Dict of chat_id => timer
 
     # TODO: a set of rules for each dm/players
     self.rules = MRules()
-
     self.activeGame = {} # Maps player id to their active game (or a list of active games)
-
     self.rolegen_opine = {} # Maps player_id -> (roles,contracts)
-
     self.ins = []
-
-    if not debug == None:
-      debug(self)
-
     server = MServerType(self.handle_chat, self.handle_dm)
     
   # callback for Server

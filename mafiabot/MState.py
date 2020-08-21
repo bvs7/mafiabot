@@ -42,7 +42,7 @@ class MState:
     self.stripped = []
     self.stunned = []
     self.revealed = []
-    self.vengeance : Optional[Dict[str,Any]] = None
+    self.vengeance : Optional[Dict[str,Any]] = None 
 
     self.timer_inst : Optional[int] = None # TODO: add timer
 

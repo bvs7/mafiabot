@@ -7,5 +7,5 @@ from .MChat import MChat, MDM, CastError, TestMChat, TestMDM
 from .MServer import MServer, TestMServer
 from .MGame import MGame
 from .MController import MController
-from .MRoleGen import roleGen
-from .MTimer import MTimer
+from .MRoleGen import MRoleGen
+from .MTimer import MTimer, FastMTimer
