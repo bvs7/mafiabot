@@ -40,7 +40,8 @@ class MLobby:
           return game.handle_mafia(sender_id, command, text, data)
     if command in LOBBY_COMMANDS:
       if self.group_id() == group_id:
-        return self.handle_lobby(sender_id, command, text, data)
+        if self.handle_lobby(sender_id, command, text, data):
+          return True
 
   def handle_lobby(self, sender_id, command, text, data):
 
@@ -58,17 +59,20 @@ class MLobby:
       self.in_list[sender_id] = min_players
 
       msg = "[{}] ready to join a game of at least {} players. ".format(sender_id, min_players)
-      msg += "{} others ready to play.".format(len(self.in_list))
+      msg += "{} ready to play.".format(len(self.in_list))
       self.lobby_cast(self.lobbyChat.format(msg))
       return True
 
     if command == OUT_CMD:
       for (in_p,min_p) in self.in_list.items():
-        if sender_id == in_p[0]:
-          del self.in_list[sender_id]
-          msg = "Removed [{}]".format(sender_id) # TODO: generalize text
+        if sender_id == in_p:
+          break
       else:
         msg = "You weren't /in"
+        self.lobby_cast(msg)
+        return True
+      del self.in_list[sender_id]
+      msg = "Removed [{}]".format(sender_id) # TODO: generalize text
       self.lobby_cast(msg)
       return True
 
@@ -122,7 +126,7 @@ class MLobby:
     ack_in_list = [(p_id, self.start_min_players) for p_id in self.lobbyChat.getAcks(self.start_msg_id)]
 
     for (p_id, min_p) in ack_in_list:
-      if not p_id in [id for (id,mp) in self.in_list]:
+      if not p_id in self.in_list:
         self.in_list[p_id] = min_p
 
     # Sort in_list from largest to smallest min_players
@@ -157,7 +161,7 @@ class MLobby:
         if not user in self.ctrl.activeGame:
           self.ctrl.activeGame[user] = []
         self.ctrl.activeGame[user].append(game)
-      self.in_list = []
+      self.in_list = {}
     else:
       self.lobby_cast("Could not start a game")
 
