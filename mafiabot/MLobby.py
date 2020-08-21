@@ -42,7 +42,8 @@ class MLobby:
           return True
     if command in LOBBY_COMMANDS:
       if self.group_id() == group_id:
-        return self.handle_lobby(sender_id, command, text, data)
+        if self.handle_lobby(sender_id, command, text, data):
+          return True
 
   def handle_lobby(self, sender_id, command, text, data):
 
@@ -60,17 +61,20 @@ class MLobby:
       self.in_list[sender_id] = min_players
 
       msg = "[{}] ready to join a game of at least {} players. ".format(sender_id, min_players)
-      msg += "{} others ready to play.".format(len(self.in_list))
+      msg += "{} ready to play.".format(len(self.in_list))
       self.lobby_cast(self.lobbyChat.format(msg))
       return True
 
     if command == OUT_CMD:
       for (in_p,min_p) in self.in_list.items():
-        if sender_id == in_p[0]:
-          del self.in_list[sender_id]
-          msg = "Removed [{}]".format(sender_id) # TODO: generalize text
+        if sender_id == in_p:
+          break
       else:
         msg = "You weren't /in"
+        self.lobby_cast(msg)
+        return True
+      del self.in_list[sender_id]
+      msg = "Removed [{}]".format(sender_id) # TODO: generalize text
       self.lobby_cast(msg)
       return True
     if command == START_CMD:
