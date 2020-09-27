@@ -27,7 +27,7 @@ ctrl.handle_chat("30021302", "5", "in", "/in 1",{}) # 5: /in
 
 ctrl.handle_chat("30021302", "1", "start", "/start 1 3",{}) # Start
 
-time.sleep(1)
+time.sleep(5)
 
 ctrl.handle_chat("MAIN CHAT", '1', 'vote', "/vote 5", voteData('5'))
 time.sleep(.5)
