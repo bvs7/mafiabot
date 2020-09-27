@@ -14,9 +14,9 @@ Bot designed to play the game "Mafia".  Currently testing for GroupMe games, and
 
 ## Roles
 ### Town
-#### Town
+#### TOWN
     The TOWN is a normal player in this game, the last line of defense against the mafia scum. They sniff out who the mafia are and convince their fellow town members to kill them during the day!
-#### Cop
+#### COP
     The COP is the one of the most offensive members of the townspeople. During the Night, they send a direct message to MODERATOR with the letter of the person they want to investigate, and upon morning, MODERATOR will tell them whether that person is MAFIA or NOT MAFIA.
 #### Doctor
     The DOCTOR's job is to save the townspeople from the mafia scum. During the Night, they send a direct message to MODERATOR with the letter of the person they want to save. If the mafia targets that person, they will have a near death experience, but survive.
