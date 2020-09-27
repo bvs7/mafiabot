@@ -40,7 +40,7 @@ class MGame:
       if role in MAFIA_ROLES:
         mafia_users[id] = users[id]
 
-    self.start_roles = createStartRoles(ids, roles, contracts)
+    self.start_roles = dict(zip(ids,roles))
 
     self.main_chat.refill(users)
     self.mafia_chat.refill(mafia_users)
@@ -146,6 +146,8 @@ class MGame:
       else:
         player_order = self.state.player_order
       if target_number == len(player_order):
+        if self.state.phase == MPhase.DUSK:
+          raise Exception("invalid target {}".format(target_letter))
         target_id = "NOTARGET"
       else:
         target_id = self.state.player_order[target_number]
