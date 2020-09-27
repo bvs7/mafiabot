@@ -262,13 +262,14 @@ general_help = {
   'rule': "\n".join(RULE_LIST),
 }
 
-def listMenu(players):
+def listMenu(players, notarget=True):
   ps = []
   c = 'A'
   for player in players:
     ps.append("{}: [{}]".format(c,player))
     c = chr(ord(c)+1)
-  ps.append("{}: [NOTARGET]".format(c))
+  if notarget:
+    ps.append("{}: [NOTARGET]".format(c))
   return ps
 
 def teamFromRole(role):

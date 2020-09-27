@@ -529,7 +529,7 @@ class DUSK(MEvent):
     msg = default_resp_lib["DUSK"]
     cast_main(msg)
     msg = default_resp_lib["DUSK_OPTIONS"]
-    msg += "\n".join(listMenu(self.venges))
+    msg += "\n".join(listMenu(self.venges, notarget=False))
     send_dm(msg, self.idiot)
 
   def write(self, mstate):

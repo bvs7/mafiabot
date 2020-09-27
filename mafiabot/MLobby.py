@@ -149,7 +149,7 @@ class MLobby:
     def end_game_callback(game, e):
       self.ctrl.end_game_callback(game.state.id, game.main_chat.id, game.mafia_chat.id)
       msg = "Game {} ended: {}\n".format(game.state.id, e)
-      msg += game.main_chat.format(game.state.start_roles)
+      msg += game.main_chat.format(dispStartRoles(game.state.start_roles))
       self.lobby_cast(msg)
       game.main_cast(msg)
       self.start_timer = None
