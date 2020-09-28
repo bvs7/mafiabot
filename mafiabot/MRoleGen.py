@@ -8,7 +8,7 @@ class MRoleGen:
 
   @staticmethod
   def roleGen(ids):
-    return randomRoleGen(ids)
+    return MRoleGen.randomRoleGen(ids)
 
   @staticmethod
   def debugRoleGen(ids):
@@ -28,15 +28,13 @@ class MRoleGen:
       return False
     return n_town >= n_maf+2
 
-  MAX_TRIES = 1000
-
   @staticmethod
   def getNGauss(mu,sig,minimum,maximum=None):
     tries = 0
     n_role = math.floor(random.gauss(mu,sig))
     while not (n_role >= minimum and (maximum == None or n_role <= maximum)):
       tries += 1
-      if tries >= MAX_TRIES:
+      if tries >= 1000:
         return 0
       n_role = math.floor(random.gauss(mu,sig))
     return n_role
@@ -45,23 +43,23 @@ class MRoleGen:
   def gaussNMafGen(n, mu_div = 5, u = .6, s = .15):
     mu = n/mu_div + u
     sig = s * math.sqrt(n)
-    return getNGauss(mu, sig, 1)
+    return MRoleGen.getNGauss(mu, sig, 1)
 
 
   @staticmethod
   def gaussNRogueGen(n, u=.4,s_div=5):
     mu = u
     sig = n/s_div
-    return getNGauss(mu,sig, 0)
+    return MRoleGen.getNGauss(mu,sig, 0)
 
   @staticmethod
   def gaussNTeamGen(n):
     # Gen n_rogue first then get num maf from that!
-    n_rogue = gaussNRogueGen(n)
-    n_maf = gaussNMafGen(n-n_rogue)
-    while not get_validity(n,n_maf,n_rogue):
-      n_rogue = gaussNRogueGen(n)
-      n_maf = gaussNMafGen(n-n_rogue)
+    n_rogue = MRoleGen.gaussNRogueGen(n)
+    n_maf = MRoleGen.gaussNMafGen(n-n_rogue)
+    while not MRoleGen.get_validity(n,n_maf,n_rogue):
+      n_rogue = MRoleGen.gaussNRogueGen(n)
+      n_maf = MRoleGen.gaussNMafGen(n-n_rogue)
     n_town = n-n_maf-n_rogue
     return n_town, n_maf, n_rogue
 
@@ -84,7 +82,7 @@ class MRoleGen:
 
   @staticmethod
   def randomNumGen(num):
-    n_town,n_maf,n_rogue = gaussNTeamGen(num)
+    n_town,n_maf,n_rogue = MRoleGen.gaussNTeamGen(num)
 
     n = n_town + n_maf + n_rogue
 
@@ -95,11 +93,11 @@ class MRoleGen:
     # maf score => COP, DOCTOR, MILKY, CELEB => maf score
     # maf score => ROGUES
 
-    n_stripper = getNGauss(0, math.sqrt(n_maf)*.7,0,n_maf)
+    n_stripper = MRoleGen.getNGauss(0, math.sqrt(n_maf)*.7,0,n_maf)
     n_r_maf = n_maf - n_stripper
-    n_godfather = getNGauss(0, math.sqrt(n_r_maf)*.7,0,n_r_maf)
+    n_godfather = MRoleGen.getNGauss(0, math.sqrt(n_r_maf)*.7,0,n_r_maf)
     n_r_maf = n_maf - n_stripper - n_godfather
-    n_goon = getNGauss(0, math.sqrt(n_maf)*.8,0,n_r_maf)
+    n_goon = MRoleGen.getNGauss(0, math.sqrt(n_maf)*.8,0,n_r_maf)
     n_mafia = n_maf - n_goon - n_godfather - n_stripper
 
     maf_score = n_mafia + 2*n_stripper + 1.5*n_godfather + (-1 if n_goon == n_maf else .5*n_goon)
@@ -108,9 +106,9 @@ class MRoleGen:
     print(maf_score)
 
     # Static town roles
-    n_miller = getNGauss(.4, .25*math.sqrt(n_town), 0, math.sqrt(n_town))
+    n_miller = MRoleGen.getNGauss(.4, .25*math.sqrt(n_town), 0, math.sqrt(n_town))
     maf_score = maf_score + n_miller*.5  
-    n_celeb = getNGauss(.4, .25*math.sqrt(n_town), 0, math.sqrt(n_town))
+    n_celeb = MRoleGen.getNGauss(.4, .25*math.sqrt(n_town), 0, math.sqrt(n_town))
     maf_score = maf_score - n_celeb
 
     print('2')
@@ -119,11 +117,11 @@ class MRoleGen:
     #TODO: Order these randomly?
 
     # Dynamic town roles
-    n_cop = getNGauss(maf_score/4 + .3, math.sqrt(max(0,maf_score)) * .5, 0, math.sqrt(n_town))
+    n_cop = MRoleGen.getNGauss(maf_score/4 + .3, math.sqrt(max(0,maf_score)) * .5, 0, math.sqrt(n_town))
     maf_score = maf_score - n_cop*1.5
-    n_doc = getNGauss(maf_score/4 + .4, math.sqrt(max(0,maf_score)) * .5, 0, math.sqrt(n_town))
+    n_doc = MRoleGen.getNGauss(maf_score/4 + .4, math.sqrt(max(0,maf_score)) * .5, 0, math.sqrt(n_town))
     maf_score = maf_score - n_doc*1.5
-    n_milky = getNGauss(maf_score/3, .56, 0, math.sqrt(n_town))
+    n_milky = MRoleGen.getNGauss(maf_score/3, .56, 0, math.sqrt(n_town))
     maf_score = maf_score - n_milky
 
     print('3')
@@ -174,13 +172,13 @@ class MRoleGen:
       # buckets for maf_score
       if maf_score >= 1:
         # More likely Survivor, Guard(Town), Agent(Maf)
-        role, target_team, score = getAntiMafRogue()
+        role, target_team, score = MRoleGen.getAntiMafRogue()
       elif maf_score > -1:
         # Random
-        role, target_team, score = getRandRogue()
+        role, target_team, score = MRoleGen.getRandRogue()
       else:
         # More likely Idiot, Guard(Maf), Agent(Town)
-        role, target_team, score = getProMafRogue()
+        role, target_team, score = MRoleGen.getProMafRogue()
       rogues.append((role,target_team))
       maf_score += score
       roles.append(role)
@@ -210,23 +208,23 @@ class MRoleGen:
   @staticmethod
   def getAntiMafRogue():
     print("Anti")
-    role = selectRole({"SURVIVOR":20, "GUARD":40, "AGENT":40})
+    role = MRoleGen.selectRole({"SURVIVOR":20, "GUARD":40, "AGENT":40})
     target_team = "Town" if role == "GUARD" else "Mafia"
-    return role, target_team, getScore(role,target_team)
+    return role, target_team, MRoleGen.getScore(role,target_team)
 
   @staticmethod
   def getRandRogue():
     print("Rand")
-    role = selectRole({"IDIOT":40, "SURVIVOR":40, "GUARD":10, "AGENT":10})
-    target_team = selectRole({"Town":50,"Mafia":30,"Rogue":20})
-    return role, target_team, getScore(role, target_team)
+    role = MRoleGen.selectRole({"IDIOT":40, "SURVIVOR":40, "GUARD":10, "AGENT":10})
+    target_team = MRoleGen.selectRole({"Town":50,"Mafia":30,"Rogue":20})
+    return role, target_team, MRoleGen.getScore(role, target_team)
 
   @staticmethod
   def getProMafRogue():
     print("Pro")
-    role = selectRole({"IDIOT":20, "GUARD":40, "AGENT":40})
+    role = MRoleGen.selectRole({"IDIOT":20, "GUARD":40, "AGENT":40})
     target_team = "Town" if role == "AGENT" else "Mafia"
-    return role, target_team, getScore(role,target_team)
+    return role, target_team, MRoleGen.getScore(role,target_team)
 
   @staticmethod
   def getTargetFromTeam(ids, roles, target_team):
@@ -253,21 +251,21 @@ class MRoleGen:
           target = id
         elif role in ('GUARD','AGENT'):
           rogue_role, target_team = [(r,t) for (r,t) in rogues if r==role][0]
-          target = getTargetFromTeam(ids,roles,target_team)
+          target = MRoleGen.getTargetFromTeam(ids,roles,target_team)
           rogues.remove((rogue_role,target_team))
         contracts[id] = (role, target, success)
     return roles, contracts
 
   @staticmethod
   def randomRoleGen(ids):
-    roles,rogues = randomNumGen(len(ids))
+    roles,rogues = MRoleGen.randomNumGen(len(ids))
 
     random.shuffle(roles)
 
     print(roles, rogues)
 
     # Should shuffle roles into ids, then decide rogue contracts based on rogues info
-    roles,contracts = decideContracts(roles, rogues, ids)
+    roles,contracts = MRoleGen.decideContracts(roles, rogues, ids)
 
     return ids, roles, contracts
 

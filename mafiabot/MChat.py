@@ -7,6 +7,7 @@ class MChat:
   def __init__(self, group_id):
     pass
 
+  @staticmethod
   def new(name):
     chat = MChat(name)
     return chat
@@ -53,6 +54,7 @@ class TestMChat(MChat):
   def destroy(self):
     print("DEL {}".format(self.id))
 
+  @staticmethod
   def new(name):
     return TestMChat(name)
 

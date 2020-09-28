@@ -78,7 +78,7 @@ class MController:
       try:
         n = int(text.split()[1])
         temp_ids = [i for i in range(n)]
-        ids,roles,contracts = randomRoleGen(temp_ids)
+        ids,roles,contracts = MRoleGen.randomRoleGen(temp_ids)
         role_disp = dispRoleFromDict(makeRoleDict(roles))
         contracts_disp = []
         for p_id in contracts:

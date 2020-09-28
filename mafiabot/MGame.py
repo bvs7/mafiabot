@@ -15,10 +15,12 @@ from .MRules import RULE_BOOK
 # Contains MState, checks inputs, fulfills non-event actions
 class MGame:
 
-  def __init__(self, main_chat, mafia_chat, dms, end_callback):
+  def __init__(self, main_chat, mafia_chat, dms, end_callback, lobby_id):
     self.main_chat = main_chat
     self.mafia_chat = mafia_chat
     self.dms = dms
+
+    self.lobby_id = lobby_id
 
     def main_cast(msg:str):
       self.main_chat.cast(self.main_chat.format(msg))
@@ -35,11 +37,11 @@ class MGame:
     self.end_callback = end_callback_
 
   @staticmethod
-  def new(MChatType, dms, rules, end_callback, users, roleGen):
+  def new(MChatType, dms, rules, end_callback, users, roleGen, lobby_id):
     main_chat = MChatType.new("MAIN CHAT")
     mafia_chat = MChatType.new("MAFIA CHAT")
 
-    g = MGame(main_chat, mafia_chat, dms, end_callback)
+    g = MGame(main_chat, mafia_chat, dms, end_callback, lobby_id)
 
     g.start(users, roleGen, rules)
     return g
@@ -58,7 +60,18 @@ class MGame:
 
     self.main_chat.refill(users)
     self.mafia_chat.refill(mafia_users)
-    self.state = MState(self.main_cast, self.mafia_cast, self.send_dm, self.rules, self.end_callback)
+
+    try:
+      f = open("../data/game_id", 'r')
+      id = int(f.read().strip())
+      f.close()
+      f = open("../data/game_id", 'w')
+      f.write(str(id+1))
+      f.close()
+    except Exception as e:
+      print("Failed to make game id: {}".format(e))
+
+    self.state = MState(id, self.main_cast, self.mafia_cast, self.send_dm, self.rules, self.end_callback)
 
     self.state.start(ids, roles, contracts)
 
@@ -100,6 +113,8 @@ class MGame:
     elif command == RULE_CMD:
       self.handle_rule("MAIN", text)
 
+    self.save()
+
   def handle_mafia(self, sender_id, command, text, data):
     if command == TARGET_CMD:
       self.handle_mtarget(sender_id, text)
@@ -109,6 +124,8 @@ class MGame:
       self.handle_mafia_help(text)
     elif command == RULE_CMD:
       self.handle_rule("MAFIA",text)
+
+    self.save()
 
   def handle_dm(self, sender_id, command, text, data):
     if command == TARGET_CMD:
@@ -121,6 +138,8 @@ class MGame:
       self.handle_dm_help(sender_id, text)
     elif command == RULE_CMD:
       self.handle_rule(sender_id,text)
+
+    self.save()
 
   def handle_vote(self,player_id,target_id):
     if not player_id in self.state.players:
@@ -262,6 +281,11 @@ class MGame:
     else:
       self.send_dm(msg, sender)
 
+  def save(self):
+    f = open("../data/game_{}.maf".format(self.state.id),"w")
+    self.writeGame(f)
+    f.close()
+
   def writeGame(self, f):
     json.dump(self.to_json(), f, indent=2)
     print("wrote game")
@@ -270,6 +294,7 @@ class MGame:
     d = {
       "main_chat":self.main_chat.id,
       "mafia_chat":self.mafia_chat.id,
+      "lobby_id":self.lobby_id,
       "state":self.state.to_json(),
     }
     return d
@@ -278,7 +303,7 @@ class MGame:
   def from_json(f, MChatType, dms, end_callback):
     d = json.load(f)
 
-    g = MGame(MChatType(d["main_chat"]), MChatType(d["mafia_chat"]), dms, end_callback)
+    g = MGame(MChatType(d["main_chat"]), MChatType(d["mafia_chat"]), dms, end_callback,d['lobby_id'])
 
     g.state = MState.from_json(d["state"], g.main_cast, g.mafia_cast, g.send_dm, g.end_callback)
 

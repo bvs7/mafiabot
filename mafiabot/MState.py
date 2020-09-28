@@ -14,6 +14,7 @@ from .MVengeance import MVengeance
 class MState:
 
   def __init__(self, 
+      id : int,
       cast_main : Callable[[str],None],
       cast_mafia : Callable[[str],None],
       send_dm : Callable[[str,MPlayerID],None],
@@ -28,7 +29,7 @@ class MState:
     self.end_callback = end_callback
 
     # General Game State
-    self.id : int = 0 ## TODO
+    self.id = id
     self.day : int = 0
     self.phase : MPhase = MPhase.INIT
 
@@ -238,8 +239,7 @@ class MState:
   def from_json(d, main_cast, mafia_cast, send_dm, end_callback):
     r = MRules()
     r.rules = d["rules"]
-    s = MState(main_cast, mafia_cast, send_dm, r, end_callback)
-    s.id = d["id"]
+    s = MState(d["id"], main_cast, mafia_cast, send_dm, r, end_callback)
     s.day = d["day"]
     phase = d["phase"]
     if phase == "DAY":
