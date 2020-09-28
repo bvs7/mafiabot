@@ -1,11 +1,13 @@
 from enum import Enum, auto
 from typing import List, Union, Optional, Dict, Callable, Any
 from threading import Lock, Thread
+import json
 
 from .MInfo import *
 from .MPlayer import MPlayer, MPlayerID, NOTARGET
 from .MEvent import MEvent, START, VOTE, TARGET, MTARGET, REVEAL, TIMER, END, MPhase, EndGameException
 from .MRules import MRules
+from .MVengeance import MVengeance
 
 # Static rolegen
 
@@ -17,9 +19,6 @@ class MState:
       send_dm : Callable[[str,MPlayerID],None],
       rules : MRules,
       end_callback,
-      ids : List[MPlayerID],
-      roles : List[str],
-      contracts
     ):
 
     self.cast_main = cast_main
@@ -42,7 +41,7 @@ class MState:
     self.stripped = []
     self.stunned = []
     self.revealed = []
-    self.vengeance : Optional[Dict[str,Any]] = None 
+    self.vengeance : Optional[MVengeance] = None 
 
     self.timer_inst : Optional[int] = None # TODO: add timer
 
@@ -53,8 +52,7 @@ class MState:
     self.thread = Thread(target=self.popLoop, name="MState thread")
     self.thread.start()
 
-    # Start acts
-    self.start(ids,roles,contracts)
+    self.start_roles = {}
 
   def appendEvent(self, event : Union[MEvent, List[MEvent]]):
     if not type(event) == list:
@@ -212,3 +210,64 @@ class MState:
       msg += self.nightOptions()
     msg += self.roleStatus()
     return msg
+
+  def to_json(self):
+    d = {
+      "id":self.id,
+      "day":self.day,
+      "phase":self.phase.name,
+      "players":[p.to_json() for p in self.players.values()],
+      "contracts":self.contracts,
+      "start_roles":self.start_roles,
+      "rules":self.rules.rules
+    }
+    if not self.mafia_target == None:
+      d["mafia_target"] = self.mafia_target
+      d["mafia_targeter"] = self.mafia_targeter
+    if not len(self.stripped) == 0:
+      d['stripped'] = self.stripped
+    if not len(self.stunned) == 0:
+      d['stunned'] = self.stunned
+    if not len(self.revealed) == 0:
+      d['reveal'] = self.reveal
+    if not self.vengeance == None:
+      d['vengeance'] = self.vengeance.to_json()
+    return d
+
+  @staticmethod
+  def from_json(d, main_cast, mafia_cast, send_dm, end_callback):
+    r = MRules()
+    r.rules = d["rules"]
+    s = MState(main_cast, mafia_cast, send_dm, r, end_callback)
+    s.id = d["id"]
+    s.day = d["day"]
+    phase = d["phase"]
+    if phase == "DAY":
+      s.phase = MPhase.DAY
+    elif phase == "NIGHT":
+      s.phase = MPhase.NIGHT
+    elif phase == "DUSK":
+      s.phase = MPhase.DUSK
+    s.players = {}
+    for player in d["players"]:
+      vote = None if not "vote" in player else player['vote']
+      target = None if not "target" in player else player['target']
+      id = player["id"]
+      role = player["role"]
+      s.players[id] = MPlayer(id, role, vote, target)
+    s.player_order = list(s.players.keys())
+    s.contracts = d["contracts"]
+    s.start_roles = d["start_roles"]
+    if "mafia_target" in d:
+      s.mafia_target = d["mafia_target"]
+      s.mafia_targeter = d["mafia_targeter"]
+    if "stripped" in d:
+      s.stripped = d["stripped"]
+    if "stunned" in d:
+      s.stunned = d["stunned"]
+    if "revealed" in d:
+      s.revealed = d["revealed"]
+    if "vengeance" in d:
+      s.vengeance = MVengeance.from_json(d["vengeance"])
+    return s
+

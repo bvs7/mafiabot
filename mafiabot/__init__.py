@@ -9,3 +9,4 @@ from .MGame import MGame
 from .MController import MController
 from .MRoleGen import MRoleGen
 from .MTimer import MTimer, FastMTimer
+from .MVengeance import MVengeance

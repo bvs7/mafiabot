@@ -1,4 +1,5 @@
 import time
+import json
 
 from .MInfo import *
 from .MState import MState
@@ -14,11 +15,10 @@ from .MRules import RULE_BOOK
 # Contains MState, checks inputs, fulfills non-event actions
 class MGame:
 
-  def __init__(self, MChatType, dms, rules, end_callback, users, roleGen):
-    self.main_chat = MChatType.new("MAIN CHAT")
-    self.mafia_chat = MChatType.new("MAFIA CHAT")
+  def __init__(self, main_chat, mafia_chat, dms, end_callback):
+    self.main_chat = main_chat
+    self.mafia_chat = mafia_chat
     self.dms = dms
-    self.rules = rules
 
     def main_cast(msg:str):
       self.main_chat.cast(self.main_chat.format(msg))
@@ -32,6 +32,19 @@ class MGame:
     self.main_cast = main_cast
     self.mafia_cast = mafia_cast
     self.send_dm = send_dm
+    self.end_callback = end_callback_
+
+  @staticmethod
+  def new(MChatType, dms, rules, end_callback, users, roleGen):
+    main_chat = MChatType.new("MAIN CHAT")
+    mafia_chat = MChatType.new("MAFIA CHAT")
+
+    g = MGame(main_chat, mafia_chat, dms, end_callback)
+
+    g.start(users, roleGen, rules)
+    return g
+
+  def start(self, users, roleGen, rules):
 
     ids = list(users.keys())
     (ids, roles, contracts) = roleGen(ids)
@@ -41,10 +54,13 @@ class MGame:
         mafia_users[id] = users[id]
 
     self.start_roles = dict(zip(ids,roles))
+    self.rules = rules
 
     self.main_chat.refill(users)
     self.mafia_chat.refill(mafia_users)
-    self.state = MState(main_cast, mafia_cast, send_dm, self.rules, end_callback_, ids, roles, contracts)
+    self.state = MState(self.main_cast, self.mafia_cast, self.send_dm, self.rules, self.end_callback)
+
+    self.state.start(ids, roles, contracts)
 
   def active(self):
     return self.state.active
@@ -142,7 +158,7 @@ class MGame:
       target_letter = self.getTarget(text)
       target_number = ord(target_letter.upper())-ord('A')
       if self.state.phase == MPhase.DUSK:
-        player_order = self.state.vengeance['venges']
+        player_order = self.state.vengeance.venges
       else:
         player_order = self.state.player_order
       if target_number == len(player_order):
@@ -150,9 +166,9 @@ class MGame:
           raise Exception("invalid target {}".format(target_letter))
         target_id = "NOTARGET"
       else:
-        target_id = self.state.player_order[target_number]
-    except Exception:
-      self.send_dm(default_resp_lib["INVALID_TARGET"].format(text=text),player_id)
+        target_id = player_order[target_number]
+    except Exception as e:
+      self.send_dm(default_resp_lib["INVALID_TARGET"].format(text=text)+"{}".format(e),player_id)
       return
     if (self.state.players[player_id].role == "MILKY" and 
         self.state.rules["no_milk_self"] == "ON" and
@@ -245,6 +261,32 @@ class MGame:
       self.mafia_cast(msg)
     else:
       self.send_dm(msg, sender)
+
+  def writeGame(self, f):
+    json.dump(self.to_json(), f, indent=2)
+    print("wrote game")
+
+  def to_json(self):
+    d = {
+      "main_chat":self.main_chat.id,
+      "mafia_chat":self.mafia_chat.id,
+      "state":self.state.to_json(),
+    }
+    return d
+
+  @staticmethod
+  def from_json(f, MChatType, dms, end_callback):
+    d = json.load(f)
+
+    g = MGame(MChatType(d["main_chat"]), MChatType(d["mafia_chat"]), dms, end_callback)
+
+    g.state = MState.from_json(d["state"], g.main_cast, g.mafia_cast, g.send_dm, g.end_callback)
+
+    g.id = g.state.id
+    g.rules = g.state.rules
+
+    return g
+
 
 def createStartRoles(ids, roles, contracts):
   msg = "Roles:"

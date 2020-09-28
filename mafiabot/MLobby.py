@@ -156,7 +156,7 @@ class MLobby:
 
     if len(users) > MIN_PLAYERS:
       self.lobby_cast("Starting game")
-      game = MGame(self.MChatType, self.dms, self.rules, end_game_callback, users, self.roleGen)
+      game = MGame.new(self.MChatType, self.dms, self.rules, end_game_callback, users, self.roleGen)
       self.games.append(game)
 
       for user in users:

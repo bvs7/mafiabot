@@ -3,6 +3,7 @@ from typing import List, Union, Optional, Dict, Callable
 
 from .MInfo import *
 from .MPlayer import MPlayer, MPlayerID, NOTARGET
+from .MVengeance import MVengeance
 
 # TODO: ELECT/DAWN events remove TIMER from queue (and stop timer later)
 
@@ -33,13 +34,13 @@ class MEvent:
     pass # This phase is for reading data from mstate and doing initial calculations
 
   def msg(self, cast_main, cast_mafia, send_dm):
-    pass
+    pass # For sending out information to players
 
   def write(self, mstate):
-    pass
+    pass # For writing changed data to mstate
 
   def next(self, pushEvent):
-    pass
+    pass # For queuing up a following event
 
 class START(MEvent):
   def __init__(self, ids, roles, contracts):
@@ -125,7 +126,7 @@ class NIGHT(MEvent):
     for player in mstate.players.values():
       player.vote = None
     mstate.stripped = []
-    mstate.vengeance = []
+    mstate.vengeance = None
 
 class MTARGET(MEvent):
 
@@ -172,7 +173,7 @@ class TARGET(MEvent):
       self.finished = (mstate.mafia_target != None) and all(
         [p.target != None for p in mstate.players.values() if p.role in TARGETING_ROLES])
     elif self.phase == MPhase.DUSK:
-      idiot = mstate.vengeance["idiot"]
+      idiot : MPlayerID = mstate.vengeance.idiot
       self.finished = mstate.players[idiot].target != None
 
   def next(self, push):
@@ -491,8 +492,7 @@ class ELECT(MEvent):
         (role,charge,_) = mstate.contracts[self.target]
         mstate.contracts[self.target] = (role,charge,True)
         self.venges = [p_id for p_id in mstate.players if (mstate.players[p_id].vote == self.target and p_id != self.target)]
-        mstate.vengeance = {'venges':self.venges,
-          'final_vote':self.actor, 'idiot':self.target}
+        mstate.vengeance = MVengeance(self.venges, self.actor, self.target)
         if self.idiot_vengeance == "DAY":
           # Reset votes
           for player in mstate.players.values():
@@ -523,7 +523,7 @@ class DUSK(MEvent):
     self.idiot = idiot
 
   def read(self, mstate):
-    self.venges = mstate.vengeance['venges']
+    self.venges : List[MPlayerID] = mstate.vengeance.venges
 
   def msg(self, cast_main, cast_mafia, send_dm):
     msg = default_resp_lib["DUSK"]
@@ -543,7 +543,7 @@ class VENGEANCE(MEvent):
   def read(self, mstate):
     if not self.target in (NOTARGET, None):
       self.role = mstate.players[self.target].role
-    self.vengeance = mstate.vengeance
+    self.vengeance : MVengeance = mstate.vengeance
 
   def msg(self, cast_main, cast_mafia, send_dm):
     msg = default_resp_lib["VENGEANCE"].format(actor=self.actor, target=self.target)
@@ -553,7 +553,7 @@ class VENGEANCE(MEvent):
     event_list = []
     if not self.target in (NOTARGET, None):
       event_list.append(ELIMINATE(self.actor, self.target))
-    event_list.append(ELIMINATE(self.vengeance['final_vote'], self.vengeance['idiot']))
+    event_list.append(ELIMINATE(self.vengeance.final_vote, self.vengeance.idiot))
     event_list.append(NIGHT())
     push(event_list)
 
