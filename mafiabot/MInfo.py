@@ -86,9 +86,12 @@ mafia_command_help = {
     ' a rule, a ROLE, a Team, or some other topics (try /help index to list them)'),
 }
 
-default_resp_lib = {
+resp_lib = {
+  "VOTE_CHANGE": "[{voter}] retracts vote for [{f_votee}] and votes for [{votee}]",
   "VOTE_RETRACT": "[{voter}] retracted vote for [{f_votee}]",
   "VOTE":       "[{voter}] votes for [{votee}]",
+  "VOTE_UPDATE": ", {n_voters}/{thresh} to elect [{votee}]",
+  "VOTE_UPDATE_NOKILL": ", {n_voters}/{nokill_thresh} for peace",
   "MTARGET":    "[{actor}] prepares to kill [{target}]",
   "TARGET":     "You have targeted [{target}]",
   "NOTARGET":   "You have decided not to target anyone tonight",
@@ -112,6 +115,7 @@ default_resp_lib = {
   "DEATH":      "[{player}] was {role}",
   "STRIP":      "You were distracted...",
   "STUN":       "You are stunned until next morning",
+  "STUNNED":    "While stunned you can only target NOTARGET",
   "SAVE":       "[{target}] was saved after being attacked by the mafia!",
   "SAVE_SECRET":"Somebody was saved after being attacked by the mafia!",
   "SAVE_DOC":   "You saved your patient!",

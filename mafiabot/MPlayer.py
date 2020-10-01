@@ -4,6 +4,7 @@
 from typing import Optional, NewType
 
 MPlayerID = NewType('MPlayerID', str)
+MRole = NewType('MRole', str)
 
 NOTARGET : MPlayerID = "NOTARGET"
 
@@ -50,14 +51,14 @@ CONTRACT_ROLES = {
 class MPlayer:
   def __init__(self, 
       id : MPlayerID, 
-      role : str, 
+      role : MRole, 
       vote : Optional[MPlayerID]=None, 
       target: Optional[MPlayerID]=None
     ):
 
     self.id = id
     self.vote : Optional[MPlayerID] = vote
-    self.role : str = role
+    self.role : MRole = role
     self.target : Optional[MPlayerID] = target
 
   def __str__(self):
