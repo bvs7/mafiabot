@@ -295,7 +295,7 @@ class MGame:
       "main_chat":self.main_chat.id,
       "mafia_chat":self.mafia_chat.id,
       "lobby_id":self.lobby_id,
-      "state":self.state.to_json(),
+      "state":self.state,
     }
     return d
 

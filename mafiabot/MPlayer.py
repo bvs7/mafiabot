@@ -79,3 +79,11 @@ class MPlayer:
 
     return d
 
+  @staticmethod
+  def from_json(d):
+    if not 'vote' in d:
+      d['vote'] = None
+    if not 'target' in d:
+      d['target'] = None
+    return MPlayer(d['id'],d['role'],d['vote'],d['target'])
+

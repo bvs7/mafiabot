@@ -1,15 +1,3 @@
-known_roles = "known_roles"
-reveal_on_death = "reveal_on_death"
-know_if_saved = "know_if_saved"
-know_if_saved_doc = "know_if_saved_doc"
-know_if_saved_self = "know_if_saved_self"
-start_night = "start_night"
-charge_refocus_guard = "charge_refocus_guard"
-charge_refocus_agent = "charge_refocus_agent"
-idiot_vengeance = "idiot_vengeance"
-know_if_stripped = "know_if_stripped"
-no_milk_self = "no_milk_self"
-cop_strength = "cop_strength"
 
 ACCESS_KW = "/"
 
@@ -109,9 +97,11 @@ resp_lib = {
   "VENGEANCE":  "[{actor}] takes [{target}] with them",
   "ELIMINATE" : "[{target}] was {role}",
   "ELIMINATE_ANON":"[{target}] has died",
-  "CHARGE_DIE": "[{target}] has died",
-  "CHARGE_KILLED": ", at the hands of [{aggressor}]",
+  "CHARGE_DIE_GUARD": "Oh no! Your charge [{charge}] has died, at the hands of [{aggressor}]!",
+  "CHARGE_DIE_AGENT": "Congratulations! Your charge [{charge}] has died, at the hands of [{aggressor}]!",
+  "SURVIVOR_DIE": "Oh no! You died at the hands of [{aggressor}]! As SURVIVOR, you have lost!",
   "CHARGE_ASSIGN":"Your charge is [{charge}]",
+  "REFOCUS" : "You have been refocused as {new_role}",
   "DEATH":      "[{player}] was {role}",
   "STRIP":      "You were distracted...",
   "STUN":       "You are stunned until next morning",
@@ -130,20 +120,24 @@ resp_lib = {
   "DUSK":       "The sky darkens as their reddening eyes observe the crowd...",
   "DUSK_OPTIONS": "Pick someone who voted for you to kill:\n",
   "START":      "Start Game:\n",
-  "WIN":   "{winning_team} Wins!",
-  "REFOCUS": "Refocus {role} [{actor}] -> {new_role}, [{target}] -> [{aggressor}]",
-  "REFOCUS_SELF": "Refocus {role} [{actor}] -> {new_role}, [{target}] -> self",
-  "SURVIVOR_IDIOT_DIE": "{role} [{player}] died, killed by [{aggressor}]",
+  "WIN":   "{winning_team} won!",
+  "IDIOT_WIN": "IDIOT [{idiot}] won! Everyone else lost!",
   "CONTRACT_WIN":"{role} [{player}] won! Charge: [{charge}]",
   "CONTRACT_LOSE":"{role} [{player}] lost! Charge: [{charge}]",
-  "CONTRACT_RESULT":"{role} [{contractor}] {result}! Charge: [{charge}]",
   "SHOW_ROLES": "Roles:\n{}",
 
-  "INVALID_VOTE_PLAYER": "[{player_id}] cannot vote, not playing",
+  "INVALID_VOTER": "[{player_id}] cannot vote, not playing",
+  "INVALID_VOTEE": "Cannot vote for [{player_id}], they are not playing",
   "INVALID_VOTE_PHASE": "Can only vote during Day",
   "INVALID_TARGET": "Invalid target: {text}",
-  "INVALID_TARGET_PLAYER": "You cannot target if you are not playing or do not have a targeting role",
+  "INVALID_TARGETER": "You cannot target if you are not playing",
+  "INVALID_TARGET_ROLE": "You cannot target if you don't have a targeting role",
+  "INVALID_TARGETED" : "You cannot target [{target_id}] as they are not playing",
   "INVALID_TARGET_PHASE": "Can only target during Night",
+  "INVALID_TARGET_STUNNED": "You are stunned. A stunned player can only select NOTARGET",
+  "INVALID_ITARGET_PHASE": "Can only revenge target during Dusk",
+  "INVALID_ITARGET_PLAYER": "You are not the one who needs vengeance",
+  "INVALID_ITARGETED": "Could not target that player as they didn't vote for you",
   "MILK_SELF": "Ewwww please don't milk yourself...",
   "INVALID_MTARGET": "Invalid target: {text}",
   "INVALID_MTARGET_GOON": "A GOON can only choose no kill",

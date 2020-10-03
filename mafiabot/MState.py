@@ -23,8 +23,9 @@ class MState:
     ):
 
     self.cast_main = cast_main
-    self.cast_mafia= cast_mafia
+    self.cast_mafia = cast_mafia
     self.send_dm   = send_dm
+    
     self.rules = rules
     self.end_callback = end_callback
 
