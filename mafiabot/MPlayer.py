@@ -1,52 +1,12 @@
 # from MTarget import NullTarget, NoTarget, PlayerTarget
+from .MInfo import MRole
 
 # from enum import Enum
 from typing import Optional, NewType
 
 MPlayerID = NewType('MPlayerID', str)
-MRole = NewType('MRole', str)
 
 NOTARGET : MPlayerID = "NOTARGET"
-
-TOWN_ROLES = [
-  'TOWN',
-  'COP',
-  'DOCTOR',
-  'CELEB',
-  'MILLER',
-  'MILKY',
-  'MASON',
-]
-
-MAFIA_ROLES = [
-  'MAFIA',
-  'GODFATHER',
-  'STRIPPER',
-  'GOON',
-]
-
-ROGUE_ROLES = [
-  'IDIOT',
-  'SURVIVOR',
-  'GUARD',
-  'AGENT',
-]
-
-ALL_ROLES = TOWN_ROLES + MAFIA_ROLES + ROGUE_ROLES
-
-TARGETING_ROLES = {
-  'COP',
-  'DOCTOR',
-  'MILKY',
-  'STRIPPER',
-}
-
-CONTRACT_ROLES = {
-  'IDIOT',
-  'SURVIVOR',
-  'GUARD',
-  'AGENT',
-}
 
 class MPlayer:
   def __init__(self, 
@@ -65,7 +25,7 @@ class MPlayer:
     return "[{id},{role}:{vote}:{target}]".format(**self.__dict__)
     
   def __repr__(self):
-    return "[{id},{role}:{vote}:{target}]".format(**self.__dict__)
+    return "[%s,%s:%s:%s]" % (self.id, repr(self.role), self.vote, self.target)
 
   def to_json(self):
     d = {

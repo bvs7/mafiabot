@@ -1,7 +1,10 @@
+# Encoder for saving mafia states, and hooks for decoding them.
+
 from json import *
 
-from .MPlayer import MPlayer, MPlayerID, MRole
-from .MState_refactor import MState, MVengeance, MContract, MPhase
+from .MInfo import MRole, MTeam
+from .MPlayer import MPlayer, MPlayerID
+from .MState import MState, MVengeance, MContract, MPhase
 from .MRules import MRules
 from .MGame import MGame
 
@@ -12,7 +15,6 @@ class MSaveEncoder(JSONEncoder):
     if hasattr(obj, "to_json") and callable(obj.to_json):
       d = obj.to_json()
       name = "__{}__".format(obj.__class__.__name__)
-      print(type(d))
       if isinstance(d, dict):
         d[name] = True
       else:
@@ -29,6 +31,8 @@ hooks=[
   'MPhase',
   'MGame',
   'MRules',
+  'MRole',
+  'MTeam',
 ]
 
 def mafia_hook(d):
@@ -37,7 +41,7 @@ def mafia_hook(d):
       try:
         result = globals()[hook].from_json(d)
       except Exception as e:
-        print("MAFIA JSON ERROR reading {}: {}".format(str(d),e))
-        raise NotImplementedError
+        print("MAFIA JSON ERROR reading {}: {}".format(str(d),str(e)))
+        raise e
       return result
   return d

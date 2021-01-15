@@ -71,7 +71,7 @@ class MGame:
     except Exception as e:
       print("Failed to make game id: {}".format(e))
 
-    self.state = MState(id, self.main_cast, self.mafia_cast, self.send_dm, self.rules, self.end_callback)
+    self.state = MState(id, self.rules, self.main_cast, self.mafia_cast, self.send_dm)
 
     self.state.start(ids, roles, contracts)
 
@@ -143,11 +143,11 @@ class MGame:
 
   def handle_vote(self,player_id,target_id):
     if not player_id in self.state.players:
-      self.main_cast(default_resp_lib["INVALID_VOTE_PLAYER"].format(player_id=player_id))
+      self.main_cast(resp_lib["INVALID_VOTE_PLAYER"].format(player_id=player_id))
       return
 
     if not self.state.phase == MPhase.DAY:
-      self.main_cast(default_resp_lib["INVALID_VOTE_PHASE"])
+      self.main_cast(resp_lib["INVALID_VOTE_PHASE"])
       return
 
     self.state.vote(player_id, target_id)
@@ -163,14 +163,14 @@ class MGame:
   def handle_target(self,player_id, text):
     if self.state.phase == MPhase.NIGHT:    
       if not (player_id in self.state.players and self.state.players[player_id].role in TARGETING_ROLES):
-        self.send_dm(default_resp_lib["INVALID_TARGET_PLAYER"],player_id)
+        self.send_dm(resp_lib["INVALID_TARGET_PLAYER"],player_id)
         return
     elif self.state.phase == MPhase.DUSK:
       if not (player_id in self.state.players and self.state.players[player_id].role == "IDIOT"):
-        self.send_dm(default_resp_lib["INVALID_TARGET_PLAYER"],player_id)
+        self.send_dm(resp_lib["INVALID_TARGET_PLAYER"],player_id)
         return
     else:
-      self.send_dm(default_resp_lib["INVALID_TARGET_PHASE"],player_id)
+      self.send_dm(resp_lib["INVALID_TARGET_PHASE"],player_id)
       return
 
     try:
@@ -187,22 +187,22 @@ class MGame:
       else:
         target_id = player_order[target_number]
     except Exception as e:
-      self.send_dm(default_resp_lib["INVALID_TARGET"].format(text=text)+"{}".format(e),player_id)
+      self.send_dm(resp_lib["INVALID_TARGET"].format(text=text)+"{}".format(e),player_id)
       return
     if (self.state.players[player_id].role == "MILKY" and 
         self.state.rules["no_milk_self"] == "ON" and
         target_id == player_id):
-      self.send_dm(default_resp_lib["MILK_SELF"],player_id)
+      self.send_dm(resp_lib["MILK_SELF"],player_id)
       return
     self.state.target(player_id, target_id)
 
   def handle_mtarget(self, player_id, text):
     if not (player_id in self.state.players and self.state.players[player_id].role in MAFIA_ROLES):
-      self.mafia_cast(default_resp_lib["INVALID_MTARGET_PLAYER"])
+      self.mafia_cast(resp_lib["INVALID_MTARGET_PLAYER"])
       return
 
     if not self.state.phase == MPhase.NIGHT:
-      self.mafia_cast(default_resp_lib["INVALID_MTARGET_PHASE"])
+      self.mafia_cast(resp_lib["INVALID_MTARGET_PHASE"])
       return
     
     try:
@@ -213,23 +213,23 @@ class MGame:
       else:
         target_id = self.state.player_order[target_number]
     except Exception:
-      self.mafia_cast(default_resp_lib["INVALID_MTARGET"].format(text=text))
+      self.mafia_cast(resp_lib["INVALID_MTARGET"].format(text=text))
       return
     
     role = self.state.players[player_id].role
     if role == "GOON" and target_id != "NOTARGET":
-      self.mafia_cast(default_resp_lib["INVALID_MTARGET_GOON"])
+      self.mafia_cast(resp_lib["INVALID_MTARGET_GOON"])
       return
 
     self.state.mtarget(player_id, target_id)
 
   def handle_reveal(self, player_id):
     if not (player_id in self.state.players and self.state.players[player_id].role == "CELEB"):
-      self.send_dm(default_resp_lib["INVALID_REVEAL_PLAYER"],player_id)
+      self.send_dm(resp_lib["INVALID_REVEAL_PLAYER"],player_id)
       return
 
     if not self.state.phase == MPhase.DAY:
-      self.send_dm(default_resp_lib["INVALID_REVEAL_PHASE"],player_id)
+      self.send_dm(resp_lib["INVALID_REVEAL_PHASE"],player_id)
       return
 
     self.state.reveal(player_id)
@@ -305,7 +305,7 @@ class MGame:
 
     g = MGame(MChatType(d["main_chat"]), MChatType(d["mafia_chat"]), dms, end_callback,d['lobby_id'])
 
-    g.state = MState.from_json(d["state"], g.main_cast, g.mafia_cast, g.send_dm, g.end_callback)
+    g.state = MState.from_json(d["state"])
 
     g.id = g.state.id
     g.rules = g.state.rules

@@ -1,4 +1,4 @@
-from mafiabot import MController, TestMServer, TestMChat, TestMDM, MRoleGen, FastMTimer, MGame
+from .. import MController, TestMServer, TestMChat, TestMDM, MRoleGen, FastMTimer, MGame
 
 import time
 
