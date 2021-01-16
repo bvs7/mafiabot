@@ -104,8 +104,7 @@ resp_lib = {
   "SURVIVOR_DIE": "Oh no! You died at the hands of [{aggressor}]! As SURVIVOR, you have lost!",
   "CHARGE_ASSIGN":"Your charge is [{charge}]",
   "REFOCUS" : "You have been refocused as {new_role}",
-  "DEATH":      "[{player}] was {role}",
-  "STRIP":      "You were distracted...",
+  "STRIPPED":   "You were distracted...",
   "STUN":       "You are stunned until next morning",
   "STUNNED":    "While stunned you can only target NOTARGET",
   "SAVE":       "[{target}] was saved after being attacked by the mafia!",
@@ -121,10 +120,10 @@ resp_lib = {
   "NIGHT_OPTIONS":"Pick someone to target:\n",
   "DUSK":       "The sky darkens as their reddening eyes observe the crowd...",
   "DUSK_OPTIONS": "Pick someone who voted for you to kill:\n",
-  "START":      "Start Game:\n",
-  "START_MAFIA": "Start Game: MAFIA\n",
+  "START":      "Start Game. Everyone is in the MAIN CHAT:",
+  "START_MAFIA": "Start Game. You are the Mafia!",
   "WIN":   "{winning_team} won!",
-  "IDIOT_WIN": "IDIOT [{idiot}] won! Everyone else lost!",
+  "IDIOT_WIN": "IDIOT [{idiot}] won!",
   "CONTRACT_WIN":"{role} [{player}] won! Charge: [{charge}]",
   "CONTRACT_LOSE":"{role} [{player}] lost! Charge: [{charge}]",
   "SHOW_ROLES": "Roles:\n{}",
@@ -140,13 +139,14 @@ resp_lib = {
   "INVALID_TARGET_STUNNED": "You are stunned. A stunned player can only select NOTARGET",
   "INVALID_ITARGET_PHASE": "Can only revenge target during Dusk",
   "INVALID_ITARGET_PLAYER": "You are not the one who needs vengeance",
+  "INVALID_ITARGET":  "Invalid target: {text}",
   "INVALID_ITARGETED": "Could not target that player as they didn't vote for you",
-  "MILK_SELF": "Ewwww please don't milk yourself...",
+  "INVALID_TARGET_MILK_SELF": "Ewww... Please don't milk yourself in front of me...",
   "INVALID_MTARGET": "Invalid target: {text}",
-  "INVALID_MTARGET_GOON": "A GOON can only choose no kill",
   "INVALID_MTARGET_PLAYER": "You cannot target if you are not playing or do not have a mafia role",
   "INVALID_MTARGET_PHASE": "Can only target during Night",
-  "INVALID_REVEAL_PLAYER": "You cannot reveal if you are not playing or you are not a CELEB",
+  "INVALID_REVEAL_PLAYER": "You cannot reveal if you are not playing",
+  "INVALID_REVEAL_ROLE": "You cannot reveal if you are not a CELEB",
   "INVALID_REVEAL_PHASE": "Can only reveal during Day",
 }
 
@@ -388,6 +388,6 @@ def dispKnownRoles(roleDict, known_roles):
 
 def dispStartRoles(start_ids,start_roles):
   msg = ""
-  for id,role in zip(start_ids,start_roles):
-    msg += "[{}]: {}\n".format(id,role)
+  assigns = ["[{}]: {}".format(i[0],i[1]) for i in zip(start_ids,start_roles)]
+  msg += "\n".join(assigns)
   return msg

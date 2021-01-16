@@ -56,8 +56,8 @@ RULE_BOOK = OrderedDict([
   }),
   ("know_if_stripped",{
     "ON" : "Any character targeted by a STRIPPER, learns they were stripped the next morning",
-    "TARGET" : "Any targeting role (COP, DOCTOR, MILKY, CELEB, STRIPPER) is informed if they were stripped the next morning",
-    "USEFUL" : "On a useful strip (target is prevented from doing something) the target learns they were stripped the next morning",
+    "TARGET" : "Any targeting role (COP, DOCTOR, MILKY, STRIPPER) is informed if they were stripped the next morning (Also CELEB)",
+    "USEFUL" : "On a useful strip (target is prevented from doing something) the target learns they were stripped",
     "OFF" : "A character targeted by a STRIPPER never learns they were stripped, even if the side-effects are obvious (COP learns nothing, DOC save failed, CELEB's reveal doesn't work, etc.)",
   }),
   ("no_milk_self",{
