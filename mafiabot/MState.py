@@ -1,5 +1,5 @@
 from enum import Enum, auto
-from typing import List, Union, Optional, Dict, Callable, Any, Tuple, Set
+from typing import List, Union, Optional, Dict, Callable, Any, Tuple, Set, Iterable
 from threading import Lock, Thread
 import json
 from collections import OrderedDict
@@ -30,24 +30,24 @@ class InvalidActionException(Exception):
     super().__init__(msg)
 
 class EndGameException(Exception):
-  pass
+  def __init__(self, msg):
+    self.msg = msg
+    super().__init__(self)
 
 class IdiotWinException(EndGameException):
 
-  def __init__(self, idiot_id, message=None):
+  def __init__(self, idiot_id, msg=None):
     self.idiot_id = idiot_id
-    if message == None:
-      message = resp_lib["IDIOT_WIN"].format(idiot=idiot_id)
-    self.message = message
-    super().__init__(self.message)
+    if msg == None:
+      msg = resp_lib["IDIOT_WIN"].format(idiot=idiot_id)
+    super().__init__(msg)
 
 class TeamWinException(EndGameException):
-  def __init__(self, team, message=None):
+  def __init__(self, team, msg=None):
     self.team = team
-    if message == None:
-      message = resp_lib["WIN"].format(winning_team=team)
-    self.message = message
-    super().__init__(self.message)
+    if msg == None:
+      msg = resp_lib["WIN"].format(winning_team=team)
+    super().__init__(msg)
 
 class MContract:
   def __init__(self, role:MRole, charge:MPlayerID, success:bool):
@@ -101,21 +101,59 @@ class MState:
 
     self.start_roles = "Init"
 
-  def start(self, ids, roles, contracts):
+  # Is Iterable what we want? or would some other base class be better?
+  def start(self, ids:Iterable[MPlayerID], 
+                  roles:Union[Iterable[MRole],Iterable[str]], 
+                  contracts:Dict[MPlayerID, MContract]):
     # Check inputs for validity...
+    assert isinstance(ids, Iterable)
+    assert len(ids) >= 3
+    assert isinstance(ids[0],type(NOTARGET))
+    assert isinstance(roles, Iterable)
+    assert len(roles) == len(ids)
+    assert isinstance(roles[0], MRole) or isinstance(roles[0],str)
+    roles = [MRole(r) for r in roles] # This will throw error if any  string Roles are bad
     # Ensure starting roles are valid?
+    maf = [m for m in roles if m.is_mafia()]
+    n_players = len(roles)
+    n_mafia = len(maf)
+    assert not (n_mafia >= (n_players+1) // 2)
+    assert not (n_mafia == 0)
     # Ensure starting contracts are valid
-    rs = [MRole(r) for r in roles]
-    self.__start(ids, rs, contracts)
+    for p_id, contract in contracts.items():
+      assert p_id in ids
+      assert roles[ids.index(p_id)] == contract.role
+      assert contract.charge in ids
+      assert contract.success == (contract.role in {MRole.SURVIVOR, MRole.GUARD})
+    self.__start(ids, roles, contracts)
 
-  def __start(self, ids, roles, contracts):
+  def __start(self, ids:Iterable[MPlayerID], 
+                    roles:Iterable[MRole], 
+                    contracts:Dict[MPlayerID, MContract]):
     # Do start things
-    self.start_roles = dispStartRoles(ids,roles)
     self.contracts = contracts
+    for p_id,role in zip(ids,roles):
+      p = MPlayer(p_id, role)
+      self.players[p_id] = p
+      # Send role explain
+      msg = p.role.expl()
+      if p.role in {MRole.GUARD,MRole.AGENT}:
+        msg += " " + resp_lib["CHARGE_ASSIGN"].format(charge=self.contracts[p_id].charge)
+      
+      for rule in MRules.relevant_rules[p.role]:
+        sett = self.rules[rule]
+        msg += "\n{}|{}: {}".format(rule,sett, MRules.RULE_BOOK[rule][sett])
+      
+      self.send_dm(msg, p_id)
+    masons = set([p_id for p_id in self.players if self.players[p_id].role == MRole.MASON])
     
-    for id,role in zip(ids,roles):
-      p = MPlayer(id, role)
-      self.players[id] = p
+    for mason in masons:
+      if len(masons) > 1:
+        masons_str = ["[{}]".format(mason) for mason in (masons - {mason})]
+        msg = resp_lib["MASON_REVEAL"].format("\n".join(masons_str))
+        self.send_dm(msg, mason)
+    self.start_roles = createStartRolesMsg(self.players,self.contracts)
+
 
     msg = resp_lib["START"]
 
@@ -234,7 +272,9 @@ class MState:
 
         if target.role == "IDIOT":
           self.contracts[target_id].success = True
-          self.vengeance = MVengeance([p_id for p,p_id in self.players.items() if p.vote == target_id], actor_id, target_id)
+          voters = [p_id for (p_id,p) in self.players.items() if (
+            p.vote == target_id and p_id != target_id)]
+          self.vengeance = MVengeance(voters, actor_id, target_id)
 
           idiot_vengeance = self.rules[MRules.idiot_vengeance]
           if not idiot_vengeance == "OFF":
@@ -250,7 +290,7 @@ class MState:
               self.stunned |= set(self.vengeance.venges)
 
             elif idiot_vengeance == "KILL":
-              return self.__dusk(target_id) # Go to dusk, don't kill idiot yet
+              return self.__dusk(target_id, main_msg) # Go to dusk, don't kill idiot yet
             elif idiot_vengeance == "WIN":
               return self.__idiot_win(target_id, main_msg)
 
@@ -279,19 +319,23 @@ class MState:
     for p,contract in self.contracts.items():
       if contract.charge == target_id:
         # charge has died
+        dm_msg = [""]
         if contract.role == "AGENT":
-          self.send_dm(resp_lib["CHARGE_DIE_GUARD"].format(charge=target_id, aggressor=actor_id), p)
+          dm_msg[0] += resp_lib["CHARGE_DIE_AGENT"].format(charge=target_id, aggressor=actor_id)
           contract.success = True
         elif contract.role =="GUARD":
-          self.send_dm(resp_lib["CHARGE_DIE_AGENT"].format(charge=target_id, aggressor=actor_id), p)
+          dm_msg[0] += resp_lib["CHARGE_DIE_GUARD"].format(charge=target_id, aggressor=actor_id)
           contract.success = False
         elif contract.role == "SURVIVOR":
-          self.send_dm(resp_lib["SURVIVOR_DIE"].format(aggressor=actor_id), p)
+          dm_msg[0] += resp_lib["SURVIVOR_DIE"].format(aggressor=actor_id)
+          contract.success = False
         # Refocus if charge role is still alive
         if p in self.players and (
           (contract.role == "GUARD" and self.rules[MRules.charge_refocus_guard]) or
           (contract.role == "AGENT" and self.rules[MRules.charge_refocus_agent])):
-          self.__refocus(p, target_id, actor_id, contract.role)
+          self.__refocus(p, target_id, actor_id, contract.role, dm_msg)
+        if not dm_msg[0] == "":
+          self.send_dm(dm_msg[0], p)
 
     n_players = len(self.players)
     n_mafia = len([p for p in self.players.values() if p.role.is_mafia()])
@@ -303,31 +347,41 @@ class MState:
     role_msg = resp_lib["SHOW_ROLES"].format(self.start_roles)
     self.send_dm(role_msg, target_id)
 
-  def __refocus(self, actor, target, aggressor, role):
-
+  # TODO: when the game is over, don't refocus?
+  def __refocus(self, actor, target, aggressor, role, dm_msg:List[str]=[""]):
     new_charge = aggressor
-    if role == "GUARD":
+    if role == MRole.GUARD:
       if actor == aggressor or not aggressor in self.players:
-        new_role = "IDIOT"
+        new_role = MRole.IDIOT
         new_charge = actor
       else:
-        new_role = "AGENT"
-    elif role == "AGENT":
+        new_role = MRole.AGENT
+    elif role == MRole.AGENT:
       if actor == aggressor or not aggressor in self.players:
-        new_role = "SURVIVOR"
+        new_role = MRole.SURVIVOR
         new_charge = actor
       else:
-        new_role = "GUARD"
+        new_role = MRole.GUARD
 
-    msg = resp_lib["REFOCUS"].format(new_role=new_role)
-    if new_role in ("GUARD","AGENT"):
-       msg += "\n" + resp_lib["CHARGE"].format(charge=new_charge)
+    dm_msg[0] += "\n" + resp_lib["REFOCUS"].format(new_role=new_role)
+    if new_role in (MRole.GUARD, MRole.AGENT):
+       dm_msg[0] += "\n" + resp_lib["CHARGE_ASSIGN"].format(charge=new_charge)
 
     self.players[actor].role = new_role
     contract = self.contracts[actor]
     contract.role = new_role
     contract.charge = new_charge
     contract.success = new_role in ("SURVIVOR","GUARD")
+
+    # Modify start roles:
+    srs = self.start_roles.split('\n')
+    goal = '[{}]:'.format(actor)
+    for i,sr in enumerate(srs):
+      if sr[:len(goal)] == goal:
+        srs[i] +=  " -> {role}".format(role=new_role)
+        if new_role in {MRole.GUARD,MRole.AGENT}:
+          srs[i] += "([{charge}])".format(charge=new_charge)
+    self.start_roles = "\n".join(srs)
 
   def __night(self, main_msg:List[str]=[""], nokill=False):
     main_msg[0] += resp_lib['NIGHT']
@@ -511,25 +565,21 @@ class MState:
       p.target = None
     self.stunned = set()
 
-  def __dusk(self, idiot_id):
+  def __dusk(self, idiot_id, main_msg=[""]):
     self.phase = MPhase.DUSK
-    self.cast_main(resp_lib["DUSK"])
+    main_msg[0] += "\n" + resp_lib["DUSK"]
+    self.cast_main(main_msg[0])
     opts = resp_lib["DUSK_OPTIONS"]
     opts += "\n".join(listMenu(self.vengeance.venges, notarget=False))
     self.send_dm(opts, self.vengeance.idiot)
 
   def itarget(self, idiot_id : MPlayerID, target_id : Optional[MPlayerID]):
-    # Check Phase and player
     if not self.phase == MPhase.DUSK:
-      self.send_dm(resp_lib["INVALID_ITARGET_PHASE"], idiot_id)
-      return
+      raise InvalidActionException(resp_lib["INVALID_ITARGET_PHASE"])
     if not (self.vengeance != None and idiot_id == self.vengeance.idiot):
-      self.send_dm(resp_lib["INVALID_ITARGET_PLAYER"])
-      return
-    # Check that the target is valid
-    if self.vengeance != None and target_id in self.vengeance.venges:
-      self.send_dm(resp_lib["INVALID_ITARGETED"])
-      return
+      raise InvalidActionException(resp_lib["INVALID_ITARGET_PLAYER"])
+    if self.vengeance != None and not target_id in self.vengeance.venges:
+      raise InvalidActionException(resp_lib["INVALID_ITARGETED"])
     return self.__itarget(idiot_id, target_id)
     
   def __itarget(self, idiot_id : MPlayerID, target_id : Optional[MPlayerID]):
@@ -548,14 +598,18 @@ class MState:
 
   def __contract_result(self, contractor_id:MPlayerID, contract:MContract):
     if contract.success:
-      return resp_lib["CONTRACT_WIN"].format(role=contract.role, player=contractor_id, charge=contract.charge)
+      msg = resp_lib["CONTRACT_WIN"].format(role=contract.role, player=contractor_id)
     else:
-      return resp_lib["CONTRACT_LOSE"].format(role=contract.role, player=contractor_id, charge=contract.charge)
+      msg = resp_lib["CONTRACT_LOSE"].format(role=contract.role, player=contractor_id, charge=contract.charge)
+    if contract.role in {MRole.AGENT, MRole.GUARD}:
+      msg += " " + resp_lib["CHARGE_REVEAL"].format(charge=contract.charge)
+    return msg
+
 
   def __team_win(self, team, main_msg:List[str]):
     
     msg = "\n" + resp_lib["WIN"].format(winning_team=team)
-    for p_id,contract in self.contracts:
+    for p_id,contract in self.contracts.items():
       msg += "\n" + self.__contract_result(p_id, contract)
 
     msg += "\n" + resp_lib["SHOW_ROLES"].format(self.start_roles)
@@ -564,7 +618,7 @@ class MState:
 
   def __idiot_win(self, idiot, main_msg:List[str]):
     msg = "\n" + resp_lib["IDIOT_WIN"].format(idiot)
-    for p_id,contract in self.contracts:
+    for p_id,contract in self.contracts.items():
       msg += "\n" + self.__contract_result(p_id, contract)
 
     msg += resp_lib["SHOW_ROLES"].format(self.start_roles)

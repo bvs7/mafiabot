@@ -2,7 +2,7 @@ import threading
 import time
 
 from .MInfo import *
-from .MRules import MRules, RULE_BOOK
+from .MRules import MRules
 from .MGame import MGame
 from .MTimer import MTimer
 
@@ -114,7 +114,7 @@ class MLobby:
       words = text.split()
       if len(words) == 1:
         msg = self.rules.describe(has_expl=False)
-      elif words[1] in RULE_BOOK:
+      elif words[1] in MRules.RULE_BOOK:
         rule = words[1]
         msg = "{}:\n".format(rule)
         msg += self.rules.explRule(rule, self.rules[rule])
@@ -149,7 +149,7 @@ class MLobby:
     def end_game_callback(game, e):
       self.ctrl.end_game_callback(game.state.id, game.main_chat.id, game.mafia_chat.id)
       msg = "Game {} ended: {}\n".format(game.state.id, e)
-      msg += game.main_chat.format(dispStartRoles(game.state.start_roles))
+      msg += game.main_chat.format("") # TODO: fix start roles disp
       self.lobby_cast(msg)
       game.main_cast(msg)
       self.start_timer = None

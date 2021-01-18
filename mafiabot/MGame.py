@@ -4,7 +4,7 @@ import json
 from .MInfo import *
 from .MState import MState
 from .MEvent import MPhase
-from .MRules import RULE_BOOK
+from .MRules import MRules
 
 # TODO: Can MGame be folded into MState?
 # TODO: Unique ID
@@ -267,7 +267,7 @@ class MGame:
     words = text.split()
     if len(words) == 1:
       msg = self.rules.describe(has_expl=False)
-    elif words[1] in RULE_BOOK:
+    elif words[1] in MRules.RULE_BOOK:
       rule = words[1]
       msg = "{}:\n".format(rule)
       msg += self.rules.explRule(rule, self.rules[rule])

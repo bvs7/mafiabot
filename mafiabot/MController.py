@@ -4,7 +4,7 @@ from typing import List
 
 from .MInfo import *
 from .MGame import MGame
-from .MRules import MRules, RULE_BOOK
+from .MRules import MRules
 from .MLobby import MLobby
 from .MRoleGen import MRoleGen
 from .MTimer import MTimer
@@ -112,7 +112,7 @@ class MController:
       words = text.split()
       if len(words) == 1:
         msg = self.rules.describe(has_expl=False)
-      elif words[1] in RULE_BOOK:
+      elif words[1] in MRules.RULE_BOOK:
         rule = words[1]
         msg = "{}:\n".format(rule)
         msg += self.rules.explRule(rule, self.rules[rule])

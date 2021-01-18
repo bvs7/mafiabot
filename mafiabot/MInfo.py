@@ -99,11 +99,12 @@ resp_lib = {
   "VENGEANCE":  "[{actor}] takes [{target}] with them",
   "ELIMINATE" : "[{target}] was {role}",
   "ELIMINATE_ANON":"[{target}] has died",
-  "CHARGE_DIE_GUARD": "Oh no! Your charge [{charge}] has died, at the hands of [{aggressor}]!",
-  "CHARGE_DIE_AGENT": "Congratulations! Your charge [{charge}] has died, at the hands of [{aggressor}]!",
+  "CHARGE_DIE_GUARD": "Oh no! Your charge, [{charge}], has died at the hands of [{aggressor}]!",
+  "CHARGE_DIE_AGENT": "Congratulations! Your charge, [{charge}], has died at the hands of [{aggressor}]!",
   "SURVIVOR_DIE": "Oh no! You died at the hands of [{aggressor}]! As SURVIVOR, you have lost!",
+  "REFOCUS" : "You have been refocused to {new_role}",
   "CHARGE_ASSIGN":"Your charge is [{charge}]",
-  "REFOCUS" : "You have been refocused as {new_role}",
+  "MASON_REVEAL": "Your fellow MASONs are:\n{}",
   "STRIPPED":   "You were distracted...",
   "STUN":       "You are stunned until next morning",
   "STUNNED":    "While stunned you can only target NOTARGET",
@@ -124,9 +125,10 @@ resp_lib = {
   "START_MAFIA": "Start Game. You are the Mafia!",
   "WIN":   "{winning_team} won!",
   "IDIOT_WIN": "IDIOT [{idiot}] won!",
-  "CONTRACT_WIN":"{role} [{player}] won! Charge: [{charge}]",
-  "CONTRACT_LOSE":"{role} [{player}] lost! Charge: [{charge}]",
-  "SHOW_ROLES": "Roles:\n{}",
+  "CONTRACT_WIN":"{role} [{player}] won!",
+  "CONTRACT_LOSE":"{role} [{player}] lost!",
+  "CHARGE_REVEAL":"Charge: [{charge}]",
+  "SHOW_ROLES": "Roles:{}",
 
   "INVALID_VOTER": "[{player_id}] cannot vote, not playing",
   "INVALID_VOTEE": "Cannot vote for [{player_id}], they are not playing",
@@ -137,7 +139,7 @@ resp_lib = {
   "INVALID_TARGETED" : "You cannot target [{target_id}] as they are not playing",
   "INVALID_TARGET_PHASE": "Can only target during Night",
   "INVALID_TARGET_STUNNED": "You are stunned. A stunned player can only select NOTARGET",
-  "INVALID_ITARGET_PHASE": "Can only revenge target during Dusk",
+  "INVALID_ITARGET_PHASE": "Can only take revenge during Dusk",
   "INVALID_ITARGET_PLAYER": "You are not the one who needs vengeance",
   "INVALID_ITARGET":  "Invalid target: {text}",
   "INVALID_ITARGETED": "Could not target that player as they didn't vote for you",
@@ -193,6 +195,8 @@ ROLE_EXPLAIN= {
     "Town... But if the cop investigates them, they show up as MAFIA!"),
   'MILKY'  : ("The MILKY gives out some milk to someone every night. Other "
     "than that they are a normal townsperson. Don't milk yourself!"),
+  'MASON'  : ("The MASONs have friends. All MASONs know each other and are "
+    "Town Aligned! You are explicitly allowed to private message each other."),
   'MAFIA' : ("The MAFIA is part of the mafia chat to talk privately with "
     "their co-conspirators. During the Day, they try not to get killed. "
     "During the Night, they choose somebody to kill!"),
@@ -386,8 +390,10 @@ def dispKnownRoles(roleDict, known_roles):
   elif known_roles == "OFF":
     return "Players: {}".format(len(roleDict))
 
-def dispStartRoles(start_ids,start_roles):
+def createStartRolesMsg(players,contracts):
   msg = ""
-  assigns = ["[{}]: {}".format(i[0],i[1]) for i in zip(start_ids,start_roles)]
-  msg += "\n".join(assigns)
+  for p in players.values():
+    msg += "\n[{}]: {}".format(p.id, p.role)
+    if p.role in {"GUARD", "AGENT"}:
+      msg += "([{}])".format(contracts[p.id].charge)
   return msg
