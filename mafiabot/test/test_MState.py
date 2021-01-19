@@ -1,5 +1,6 @@
 import unittest
 from collections import deque
+
 from mafiabot import *
 
 def verbose(*args):
@@ -11,9 +12,9 @@ def chunk(*args):
 def silent(*args):
   pass
 
-print_mode = verbose
+#print_mode = verbose
 #print_mode = chunk
-#print_mode = silent
+print_mode = silent
 
 def standardState(rules=MRules()):
   return MState(1,rules,cast_main=print_mode,cast_mafia=print_mode,send_dm=print_mode)
@@ -398,7 +399,6 @@ class TestStandardRuleModerateRoles(unittest.TestCase):
     test_dm, add_dm = create_dm_tester(print_mode)
     mstate = standardState()
     mstate.send_dm = test_dm
-    add_dm(resp_lib["STUN"], '4')
     mstate.start(['1','2','3','4','5','6'], ['TOWN', 'TOWN','TOWN','GOON', 'TOWN','TOWN'], {})
     with self.assertRaises(InvalidActionException) as iae:
       mstate.mtarget('4','1')
@@ -595,7 +595,6 @@ class TestSurvivorSimpleRules(unittest.TestCase):
     self.assertIn(resp_lib["CONTRACT_LOSE"].format(role='SURVIVOR',player='5'),
         iae.exception.msg)
 
-
   def test_survivor_lose_last_elect(self):
     mstate = standardState()
     contract = MContract(MRole.SURVIVOR, '5', True)
@@ -747,8 +746,8 @@ class TestGuardAgent(unittest.TestCase):
     mstate = standardState()
     dm_tester, add_dm = create_dm_tester(print_mode)
     mstate.send_dm = dm_tester
-    contract_idiot = MContract(MRole.IDIOT, '1', True)
-    contract_guard = MContract(MRole.GUARD, '2', False)
+    contract_idiot = MContract(MRole.IDIOT, '1', False)
+    contract_guard = MContract(MRole.GUARD, '2', True)
     mstate.start(['1','2','3','4','5'],
       ['IDIOT','TOWN','TOWN','MAFIA','GUARD'], {'1':contract_idiot, '5':contract_guard})
     

@@ -183,6 +183,23 @@ class MState:
     else:
       self.__day()
 
+  def timer(self):
+    # Timer triggers, forcing forward progress in the game state
+    self.__timer()
+  
+  def __timer(self): # TODO: Testing
+    main_msg = [""]
+    if self.phase == MPhase.DAY:
+      main_msg[0] += resp_lib["TIMER_DAY"]
+      self.__night(main_msg, nokill=True)
+    elif self.phase == MPhase.NIGHT:
+      main_msg[0] += resp_lib["TIMER_NIGHT"]
+      self.__dawn(main_msg)
+    elif self.phase == MPhase.DUSK:
+      main_msg[0] += resp_lib["TIMER_DUSK"]
+      self.__eliminate(self.vengeance.venges[-1], self.vengeance.idiot, main_msg)
+      self.__night(main_msg, nokill=False)
+
   def reveal(self, reveal_id : MPlayerID):
     if not reveal_id in self.players:
       raise InvalidActionException(resp_lib["INVALID_REVEAL_PLAYER"])
@@ -464,8 +481,8 @@ class MState:
       self.__dawn()
     return
 
-  def __dawn(self):
-    main_msg = [resp_lib['DAWN']]
+  def __dawn(self, main_msg=[""]):
+    main_msg[0] += [resp_lib['DAWN']]
 
     self.__dawn_strip()
     target_saved = self.__dawn_save()
