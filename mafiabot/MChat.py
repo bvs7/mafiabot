@@ -5,49 +5,6 @@ class CastError(Exception):
 class MChat:
 
   def __init__(self, group_id):
-    pass
-
-  @staticmethod
-  def new(name):
-    chat = MChat(name)
-    return chat
-
-  def getName(self, user_id):
-    raise NotImplementedError("Default MChat")
-
-  def remove(self, user_id):
-    raise NotImplementedError("Default MChat")
-
-  def refill(self, users):
-    raise NotImplementedError("Default MChat")
-
-  def add(self, users):
-    raise NotImplementedError("Default MChat")
-
-  def cast(self,msg):
-    raise NotImplementedError("Default MChat")
-
-  def ack(self, message_id):
-    raise NotImplementedError("Default MChat")
-
-  def getAcks(self, message_id):
-    raise NotImplementedError("Default MChat")
-
-  def destroy(self):
-    pass
-
-class MDM:
-
-  def __init__(self):
-    raise NotImplementedError("Default MDM")
-
-  def send(self, msg, user_id):
-    raise NotImplementedError("Default MDM")
-
-
-class TestMChat(MChat):
-
-  def __init__(self, group_id):
     self.id = group_id
     self.names = {}
 
@@ -56,7 +13,7 @@ class TestMChat(MChat):
 
   @staticmethod
   def new(name):
-    return TestMChat(name)
+    return MChat
 
   def format(self, msg):
     for id,name in self.names.items():
@@ -80,7 +37,7 @@ class TestMChat(MChat):
     print("ADD: {}".format(users))
 
   def cast(self, msg):
-    print("CAST {}: {}".format(self.id, msg))
+    print("CAST {}: {}".format(self.id, self.format(msg)))
 
   def ack(self, message_id):
     print("ACK: {}".format(message_id))
@@ -88,10 +45,22 @@ class TestMChat(MChat):
   def getAcks(self, message_id):
     return []
 
-class TestMDM(MDM):
-  
+class MDM:
+# No, MDM isn't singleton, it is based on a game?
+# We need to somehow generally link chats to get names well.
   def __init__(self):
-    pass
+    if not "instance" in self.__class__.__dict__:
+      self.__class__.instance = self
+    else:
+      raise Exception("MDM is singleton")
 
   def send(self,msg,user_id):
     print("SEND {}: {}".format(user_id,msg))
+
+  @staticmethod
+  def get_dms():
+    if not "instance" in MDM.__dict__:
+      MDM.instance = MDM()
+    return MDM.instance
+
+

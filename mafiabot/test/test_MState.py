@@ -12,12 +12,17 @@ def chunk(*args):
 def silent(*args):
   pass
 
-#print_mode = verbose
+def halt_timer(*args):
+  print("Halt Timer!")
+
+print_mode = verbose
 #print_mode = chunk
-print_mode = silent
+#print_mode = silent
 
 def standardState(rules=MRules()):
-  return MState(1,rules,cast_main=print_mode,cast_mafia=print_mode,send_dm=print_mode)
+  mstate = MState(1,rules,cast_main=print_mode,cast_mafia=print_mode,send_dm=print_mode)
+  mstate.halt_timer = halt_timer
+  return mstate
 
 def assertDayPhasePlayers(testCase, mstate:MState, phase:MPhase, day:int, nplayers:int):
   testCase.assertEqual(mstate.phase,phase)
@@ -59,7 +64,7 @@ class TestStandardRuleSimpleGames(unittest.TestCase):
   def test_3p_day1win(self):
 
     mstate = standardState()
-    mstate.start(['1','2','3'], ['TOWN','TOWN','MAFIA'],{})
+    mstate.teststart(['1','2','3'], ['TOWN','TOWN','MAFIA'],{})
     assertDayPhasePlayers(self,mstate,MPhase.DAY,1,3)
 
     mstate.vote('1','3')
@@ -70,7 +75,7 @@ class TestStandardRuleSimpleGames(unittest.TestCase):
 
   def test_3p_night1win(self):
     mstate = standardState()
-    mstate.start(['1','2','3'], ['TOWN','TOWN','MAFIA'],{})
+    mstate.teststart(['1','2','3'], ['TOWN','TOWN','MAFIA'],{})
     assertDayPhasePlayers(self,mstate,MPhase.DAY,1,3)
 
     mstate.vote('1','3')
@@ -89,7 +94,7 @@ class TestStandardRuleSimpleGames(unittest.TestCase):
 
   def test_4p_nokills(self):
     mstate = standardState()
-    mstate.start(['1','2','3','4'], ['TOWN','TOWN','MAFIA','TOWN'],{})
+    mstate.teststart(['1','2','3','4'], ['TOWN','TOWN','MAFIA','TOWN'],{})
     # start night
     assertDayPhasePlayers(self,mstate,MPhase.NIGHT,1,4)
     mstate.mtarget('3',NOTARGET)
@@ -107,7 +112,7 @@ class TestStandardRuleSimpleGames(unittest.TestCase):
 
   def test_10p_mafiawin(self):
     mstate = standardState()
-    mstate.start(['1','2','3','4','5','6','7','8','9','10'], ['TOWN']*7 + ['MAFIA']*3, {})
+    mstate.teststart(['1','2','3','4','5','6','7','8','9','10'], ['TOWN']*7 + ['MAFIA']*3, {})
     assertDayPhasePlayers(self,mstate,MPhase.NIGHT,1,10)
     mstate.mtarget('8','1')
     assertDayPhasePlayers(self,mstate,MPhase.DAY,2,9)
@@ -127,7 +132,7 @@ class TestStandardRuleSimpleGames(unittest.TestCase):
 
   def test_10p_townwin(self):
     mstate = standardState()
-    mstate.start(['1','2','3','4','5','6','7','8','9','10'], ['TOWN']*7 + ['MAFIA']*3, {})
+    mstate.teststart(['1','2','3','4','5','6','7','8','9','10'], ['TOWN']*7 + ['MAFIA']*3, {})
     assertDayPhasePlayers(self,mstate,MPhase.NIGHT,1,10)
     mstate.mtarget('10','9')
     assertDayPhasePlayers(self,mstate,MPhase.DAY,2,9)
@@ -147,7 +152,7 @@ class TestStandardRuleSimpleGames(unittest.TestCase):
   
   def test_invalid_votes(self):
     mstate = standardState()
-    mstate.start(['1','2','3','4'], ['TOWN']*3 + ['MAFIA'], {})
+    mstate.teststart(['1','2','3','4'], ['TOWN']*3 + ['MAFIA'], {})
 
     assertDayPhasePlayers(self,mstate,MPhase.NIGHT,1,4)
 
@@ -218,7 +223,7 @@ class TestRoleIntro(unittest.TestCase):
       guard_id:guard_contract,
       agent_id:agent_contract,
     }
-    mstate.start(ns, roles, contracts)
+    mstate.teststart(ns, roles, contracts)
 
   def test_many_rules(self):
     rules = MRules()
@@ -235,7 +240,6 @@ class TestRoleIntro(unittest.TestCase):
     rules[MRules.cop_strength] = "ROLE"
     rules[MRules.unique_night_act] = "OFF"
     rules[MRules.goon_potence] = "OFF"
-    print('======================')
     self.all_roles(rules)
     
 
@@ -245,7 +249,7 @@ class TestStandardRuleModerateRoles(unittest.TestCase):
     test_dm, add_dm = create_dm_tester(print_mode)
     mstate = standardState()
     mstate.send_dm = test_dm
-    mstate.start(['1','2','3','4','5'], ['COP', 'TOWN','MILLER','MAFIA','GODFATHER'], {})
+    mstate.teststart(['1','2','3','4','5'], ['COP', 'TOWN','MILLER','MAFIA','GODFATHER'], {})
     assertDayPhasePlayers(self,mstate,MPhase.DAY,1,5)
     mstate.vote('1',NOTARGET)
     mstate.vote('2',NOTARGET)
@@ -320,7 +324,7 @@ class TestStandardRuleModerateRoles(unittest.TestCase):
 
   def test_doctor(self):
     mstate = standardState()
-    mstate.start(['1','2','3','4'], ['DOCTOR', 'TOWN','TOWN','MAFIA'], {})
+    mstate.teststart(['1','2','3','4'], ['DOCTOR', 'TOWN','TOWN','MAFIA'], {})
 
     assertDayPhasePlayers(self,mstate,MPhase.NIGHT,1,4)
 
@@ -348,7 +352,7 @@ class TestStandardRuleModerateRoles(unittest.TestCase):
     mstate = standardState()
     mstate.cast_main = c_main
     mstate.send_dm = s_dm
-    mstate.start(['1','2','3','4'], ['CELEB', 'CELEB','TOWN','STRIPPER'], {})
+    mstate.teststart(['1','2','3','4'], ['CELEB', 'CELEB','TOWN','STRIPPER'], {})
 
     try:
       mstate.reveal('1')
@@ -389,7 +393,7 @@ class TestStandardRuleModerateRoles(unittest.TestCase):
     add_dm(expected1,'3')
     add_dm(expected1,'4')
 
-    mstate.start(
+    mstate.teststart(
       ['1','2','3','4','5'], 
       ['TOWN','MASON','MASON','MASON','MAFIA'], 
       {})
@@ -399,7 +403,7 @@ class TestStandardRuleModerateRoles(unittest.TestCase):
     test_dm, add_dm = create_dm_tester(print_mode)
     mstate = standardState()
     mstate.send_dm = test_dm
-    mstate.start(['1','2','3','4','5','6'], ['TOWN', 'TOWN','TOWN','GOON', 'TOWN','TOWN'], {})
+    mstate.teststart(['1','2','3','4','5','6'], ['TOWN', 'TOWN','TOWN','GOON', 'TOWN','TOWN'], {})
     with self.assertRaises(InvalidActionException) as iae:
       mstate.mtarget('4','1')
     self.assertEqual(iae.exception.msg, resp_lib["INVALID_TARGET_STUNNED"])
@@ -426,7 +430,7 @@ class TestStandardRuleModerateRoles(unittest.TestCase):
 
   def test_milky(self):
     mstate = standardState()
-    mstate.start(['1','2','3','4','5'], ['TOWN','TOWN','MILKY','MAFIA','TOWN'], {})
+    mstate.teststart(['1','2','3','4','5'], ['TOWN','TOWN','MILKY','MAFIA','TOWN'], {})
     mstate.vote('5',NOTARGET)
     mstate.vote('1',NOTARGET)
     mstate.vote('4',NOTARGET)
@@ -455,7 +459,7 @@ class TestIdiotSimpleRules(unittest.TestCase):
   def test_revenge_on_last_mafia(self):
     mstate = standardState()
     contract = MContract(MRole.IDIOT, '5', False)
-    mstate.start(['1','2','3','4','5'], ['TOWN','TOWN','TOWN','MAFIA','IDIOT'], {'5':contract})
+    mstate.teststart(['1','2','3','4','5'], ['TOWN','TOWN','TOWN','MAFIA','IDIOT'], {'5':contract})
 
     with self.assertRaises(InvalidActionException) as iae:
       mstate.itarget('5','2')
@@ -484,7 +488,7 @@ class TestIdiotSimpleRules(unittest.TestCase):
   def test_revenge_on_town(self):
     mstate = standardState()
     contract = MContract(MRole.IDIOT, '5', False)
-    mstate.start(['1','2','3','4','5'], ['TOWN','TOWN','TOWN','MAFIA','IDIOT'], {'5':contract})
+    mstate.teststart(['1','2','3','4','5'], ['TOWN','TOWN','TOWN','MAFIA','IDIOT'], {'5':contract})
 
     mstate.vote('4','5')
     mstate.vote('5','5')
@@ -500,7 +504,7 @@ class TestIdiotSimpleRules(unittest.TestCase):
   def test_revenge_on_last_town(self):
     mstate = standardState()
     contract = MContract(MRole.IDIOT, '5', False)
-    mstate.start(['1','2','3','4','5'], ['TOWN','TOWN','MAFIA','MAFIA','IDIOT'], {'5':contract})
+    mstate.teststart(['1','2','3','4','5'], ['TOWN','TOWN','MAFIA','MAFIA','IDIOT'], {'5':contract})
     mstate.vote('4','5')
     mstate.vote('5','5')
     mstate.vote('1','5')
@@ -514,7 +518,7 @@ class TestIdiotSimpleRules(unittest.TestCase):
   def test_lose_to_kill(self):
     mstate = standardState()
     contract = MContract(MRole.IDIOT, '5', False)
-    mstate.start(['1','2','4','5'], ['TOWN','TOWN','MAFIA','IDIOT'], {'5':contract})
+    mstate.teststart(['1','2','4','5'], ['TOWN','TOWN','MAFIA','IDIOT'], {'5':contract})
 
     mstate.mtarget('4','5')
     mstate.vote('1','4')
@@ -527,7 +531,7 @@ class TestIdiotSimpleRules(unittest.TestCase):
     mstate = standardState()
     contract4 = MContract(MRole.IDIOT, '4', False)
     contract5 = MContract(MRole.IDIOT, '5', False)
-    mstate.start(['1','2','3','4','5'], ['TOWN','TOWN','MAFIA','IDIOT','IDIOT'], {'4':contract4,'5':contract5})
+    mstate.teststart(['1','2','3','4','5'], ['TOWN','TOWN','MAFIA','IDIOT','IDIOT'], {'4':contract4,'5':contract5})
 
     mstate.vote('1','4')
     mstate.vote('2','4')
@@ -549,7 +553,7 @@ class TestIdiotSimpleRules(unittest.TestCase):
   def test_lose_to_survive(self):
     mstate = standardState()
     contract = MContract(MRole.IDIOT, '5', False)
-    mstate.start(['1','2','3','4','5'], ['TOWN','TOWN','TOWN','MAFIA','IDIOT'], {'5':contract})
+    mstate.teststart(['1','2','3','4','5'], ['TOWN','TOWN','TOWN','MAFIA','IDIOT'], {'5':contract})
     mstate.vote('1','4')
     mstate.vote('2','4')
     with self.assertRaises(EndGameException) as ege:
@@ -560,7 +564,7 @@ class TestSurvivorSimpleRules(unittest.TestCase):
   def test_survivor_win_town(self):
     mstate = standardState()
     contract = MContract(MRole.SURVIVOR, '5', True)
-    mstate.start(['1','2','3','4','5'], ['TOWN','TOWN','TOWN','MAFIA','SURVIVOR'], {'5':contract})
+    mstate.teststart(['1','2','3','4','5'], ['TOWN','TOWN','TOWN','MAFIA','SURVIVOR'], {'5':contract})
     mstate.vote('1','4')
     mstate.vote('2','4')
     with self.assertRaises(EndGameException) as iae:
@@ -572,7 +576,7 @@ class TestSurvivorSimpleRules(unittest.TestCase):
   def test_survivor_win_mafia(self):
     mstate = standardState()
     contract = MContract(MRole.SURVIVOR, '5', True)
-    mstate.start(['1','2','4','5'], ['TOWN','TOWN','MAFIA','SURVIVOR'], {'5':contract})
+    mstate.teststart(['1','2','4','5'], ['TOWN','TOWN','MAFIA','SURVIVOR'], {'5':contract})
     mstate.mtarget('4','2')
     mstate.vote('5','1')
     with self.assertRaises(EndGameException) as iae:
@@ -583,7 +587,7 @@ class TestSurvivorSimpleRules(unittest.TestCase):
   def test_survivor_lose(self):
     mstate = standardState()
     contract = MContract(MRole.SURVIVOR, '5', True)
-    mstate.start(['1','2','3','4','5'], ['TOWN','TOWN','TOWN','MAFIA','SURVIVOR'], {'5':contract})
+    mstate.teststart(['1','2','3','4','5'], ['TOWN','TOWN','TOWN','MAFIA','SURVIVOR'], {'5':contract})
     mstate.vote('1','5')
     mstate.vote('2','5')
     mstate.vote('3','5')
@@ -598,7 +602,7 @@ class TestSurvivorSimpleRules(unittest.TestCase):
   def test_survivor_lose_last_elect(self):
     mstate = standardState()
     contract = MContract(MRole.SURVIVOR, '5', True)
-    mstate.start(['1','2','3','4','5'], ['TOWN','TOWN','MAFIA','MAFIA','SURVIVOR'], {'5':contract})
+    mstate.teststart(['1','2','3','4','5'], ['TOWN','TOWN','MAFIA','MAFIA','SURVIVOR'], {'5':contract})
     mstate.vote('1','5')
     mstate.vote('2','5')
     with self.assertRaises(EndGameException) as iae:
@@ -609,7 +613,7 @@ class TestSurvivorSimpleRules(unittest.TestCase):
   def test_survivor_lose_last_kill(self):
     mstate = standardState()
     contract = MContract(MRole.SURVIVOR, '5', True)
-    mstate.start(['1','2','3','4','5'], ['TOWN','TOWN','MAFIA','MAFIA','SURVIVOR'], {'5':contract})
+    mstate.teststart(['1','2','3','4','5'], ['TOWN','TOWN','MAFIA','MAFIA','SURVIVOR'], {'5':contract})
     mstate.vote('1',NOTARGET)
     mstate.vote('2',NOTARGET)
     mstate.vote('3',NOTARGET)
@@ -622,7 +626,7 @@ class TestGuardAgent(unittest.TestCase):
   def test_boring_success(self):
     mstate = standardState()
     contract = MContract(MRole.GUARD, '1', True)
-    mstate.start(['1','2','3','4','5'], ['TOWN','TOWN','TOWN','MAFIA','GUARD'], {'5':contract})
+    mstate.teststart(['1','2','3','4','5'], ['TOWN','TOWN','TOWN','MAFIA','GUARD'], {'5':contract})
     mstate.vote('1','4')
     mstate.vote('2','4')
     with self.assertRaises(EndGameException) as ege:
@@ -633,7 +637,7 @@ class TestGuardAgent(unittest.TestCase):
   def test_day2_success(self):
     mstate = standardState()
     contract = MContract(MRole.GUARD, '1', True)
-    mstate.start(['1','2','3','4','5'], ['TOWN','TOWN','TOWN','MAFIA','GUARD'], {'5':contract})
+    mstate.teststart(['1','2','3','4','5'], ['TOWN','TOWN','TOWN','MAFIA','GUARD'], {'5':contract})
     mstate.vote('1','2')
     mstate.vote('2','2')
     mstate.vote('3','2')
@@ -647,7 +651,7 @@ class TestGuardAgent(unittest.TestCase):
   def test_night_fail(self):
     mstate = standardState()
     contract = MContract(MRole.GUARD, '1', True)
-    mstate.start(['1','2','3','4','5'], ['TOWN','TOWN','MAFIA','MAFIA','GUARD'], {'5':contract})
+    mstate.teststart(['1','2','3','4','5'], ['TOWN','TOWN','MAFIA','MAFIA','GUARD'], {'5':contract})
     mstate.vote('1',NOTARGET)
     mstate.vote('2',NOTARGET)
     mstate.vote('3',NOTARGET)
@@ -660,7 +664,7 @@ class TestGuardAgent(unittest.TestCase):
     mstate = standardState()
     contract = MContract(MRole.GUARD, '1', True)
     contract2 = MContract(MRole.AGENT, '1', False)
-    mstate.start(['1','2','3','4','5','6','7','8','9','10'],
+    mstate.teststart(['1','2','3','4','5','6','7','8','9','10'],
       ['TOWN','TOWN','TOWN','TOWN','TOWN','MAFIA','MAFIA','MAFIA','AGENT','GUARD'], {'9':contract2, '10':contract})
     mstate.mtarget('6','1')
     self.assertEqual(mstate.players['9'].role, MRole.GUARD)
@@ -723,7 +727,7 @@ class TestGuardAgent(unittest.TestCase):
     mstate = standardState()
     contract = MContract(MRole.GUARD, '1', True)
     contract2 = MContract(MRole.AGENT, '1', False)
-    mstate.start(['1','2','3','4','5','6'],
+    mstate.teststart(['1','2','3','4','5','6'],
       ['TOWN','TOWN','TOWN','MAFIA','AGENT','GUARD'], {'5':contract2, '6':contract})
     mstate.mtarget('4','5')
     mstate.vote('1','6')
@@ -748,7 +752,7 @@ class TestGuardAgent(unittest.TestCase):
     mstate.send_dm = dm_tester
     contract_idiot = MContract(MRole.IDIOT, '1', False)
     contract_guard = MContract(MRole.GUARD, '2', True)
-    mstate.start(['1','2','3','4','5'],
+    mstate.teststart(['1','2','3','4','5'],
       ['IDIOT','TOWN','TOWN','MAFIA','GUARD'], {'1':contract_idiot, '5':contract_guard})
     
     # 2 votes for idiot (last)
@@ -772,7 +776,7 @@ class TestGuardAgent(unittest.TestCase):
     dm_tester, add_dm = create_dm_tester(print_mode)
     mstate.send_dm = dm_tester
     contract = MContract(MRole.GUARD, '1', True)
-    mstate.start(['1','2','3','4','5'], ['TOWN','TOWN','TOWN','MAFIA','GUARD'], {'5':contract})
+    mstate.teststart(['1','2','3','4','5'], ['TOWN','TOWN','TOWN','MAFIA','GUARD'], {'5':contract})
 
     mstate.vote('1','1')
     mstate.vote('4','1')
@@ -783,6 +787,41 @@ class TestGuardAgent(unittest.TestCase):
 
     mstate.vote('5','1')
 
+class TestTimer(unittest.TestCase):
+  def test_timer(self):
+    mstate = standardState()
+    mstate.teststart(['1','2','3','4','5'], ['TOWN','DOCTOR','COP','MAFIA','GOON'], {})
+
+    assertDayPhasePlayers(self,mstate,MPhase.DAY,1,5)
+
+    mstate.timer()
+    
+    assertDayPhasePlayers(self,mstate,MPhase.NIGHT,1,5)
+
+    mstate.mtarget('5','1')
+    mstate.target('2','1')
+    mstate.timer()
+
+    mstate.vote('1','4')
+    mstate.vote('2','4')
+
+    mstate.timer()
+    mstate.timer()
+    assertDayPhasePlayers(self,mstate,MPhase.DAY,3,5)
+    mstate.vote('3','4')
+    mstate.vote('5','4')
+    mstate.vote('1','4')
+    mstate.mtarget('5',NOTARGET)
+    mstate.target('3','5')
+    mstate.timer()
+
+class TestEdges(unittest.TestCase):
+
+  def test_large_game(self):
+    mstate = standardState()
+    ns = [str(n) for n in range(500)]
+    roles = ['TOWN']*480 + ["MAFIA"]*20
+    mstate.teststart(ns,roles,{})
 
 if __name__ == '__main__':
   unittest.main()

@@ -2,89 +2,98 @@ import time
 import json
 
 from .MInfo import *
-from .MState import MState
+from .MState import MState, InvalidActionException, EndGameException
 from .MEvent import MPhase
 from .MRules import MRules
+from .MSave import mload, msave
+from .MChat import MChat, MDM
+from .MPlayer import MPlayerID
 
-# TODO: Can MGame be folded into MState?
-# TODO: Unique ID
+# Starts game, creates chats?
+# Sticks around after the game to manage chats?
+# route these commands into here:
+# vote, target, reveal, timer, untimer
+# These ones use context? But are general commands usually
+# (status), (help)
 
-# TODO: timer
-# TODO: help
+# Initialized upon "start" in lobby resolving?
+# Can create from saved MState, or made new?
+# from save:
+#  find chats?
+#  recreate MState
+#  get lobby still?
+
+# TODO: Generalize group_id
+MChatType = MChat
+MDMType = MDM
 
 # Contains MState, checks inputs, fulfills non-event actions
 class MGame:
 
-  def __init__(self, main_chat, mafia_chat, dms, end_callback, lobby_id):
-    self.main_chat = main_chat
-    self.mafia_chat = mafia_chat
-    self.dms = dms
+  def __init__(self, lobby, mstate:MState, 
+               main_chat_id, mafia_chat_id):
+    self.lobby = lobby
+    self.mstate = mstate
+    self.main_chat = MChatType(main_chat_id)
+    self.mafia_chat = MChatType(mafia_chat_id)
+    self.dms = MDM.get_dms() # Singleton!
 
-    self.lobby_id = lobby_id
+    self.hook_up()
+  
+  def hook_up(self):
+    self.mstate.cast_main = self.main_chat.cast
+    self.mstate.cast_mafia= self.mafia_chat.cast
+    self.mstate.send_dm   = self.dms.send
+    self.mstate.halt_timer = self.halt_timer
 
-    def main_cast(msg:str):
-      self.main_chat.cast(self.main_chat.format(msg))
-    def mafia_cast(msg:str):
-      self.mafia_chat.cast(self.main_chat.format(msg))
-    def send_dm(msg:str,user_id):
-      self.dms.send(self.main_chat.format(msg), user_id)
-    def end_callback_(e):
-      end_callback(self, e)
+  def halt_timer(self):
+    print("Halt timer for MGame {}".format(self))
 
-    self.main_cast = main_cast
-    self.mafia_cast = mafia_cast
-    self.send_dm = send_dm
-    self.end_callback = end_callback_
 
   @staticmethod
-  def new(MChatType, dms, rules, end_callback, users, roleGen, lobby_id):
-    main_chat = MChatType.new("MAIN CHAT")
-    mafia_chat = MChatType.new("MAFIA CHAT")
+  def new(lobby, rules:MRules=MRules()): 
 
-    g = MGame(main_chat, mafia_chat, dms, end_callback, lobby_id)
+    state_id = getStateID()
+    mstate = MState(state_id, rules)
+    main_chat_id = MChatType.new("MAIN CHAT "+str(state_id))
+    mafia_chat_id = MChatType.new("MAFIA CHAT "+str(state_id))
 
-    g.start(users, roleGen, rules)
+    g = MGame(lobby, mstate, main_chat_id, mafia_chat_id)
     return g
 
-  def start(self, users, roleGen, rules):
-
+  def start(self, users, roleGen):
+    """ Inputs, roleGen is a roleGen fn, users is... user ids and nicknames?
+    Should we import user nicknames? Yes, eventually have MUser! for generality
+    """
     ids = list(users.keys())
-    (ids, roles, contracts) = roleGen(ids)
+    (assignments, contracts) = roleGen(ids)
+    ids = [p_id for p_id,r in assignments]
+    roles = [MRole(r) for p_id,r in assignments]
+    assignments = list(zip(ids,roles))
+    # Should roleGen do a better job of returning things?
     mafia_users = {}
-    for id, role in zip(ids,roles):
-      if role in MAFIA_ROLES:
-        mafia_users[id] = users[id]
+    for p_id, role in assignments:
+      if role.is_mafia():
+        mafia_users[p_id] = users[p_id]
 
-    self.start_roles = dict(zip(ids,roles))
-    self.rules = rules
+    self.main_chat.add(users)
+    self.mafia_chat.add(mafia_users)
 
-    self.main_chat.refill(users)
-    self.mafia_chat.refill(mafia_users)
-
-    try:
-      f = open("../data/game_id", 'r')
-      id = int(f.read().strip())
-      f.close()
-      f = open("../data/game_id", 'w')
-      f.write(str(id+1))
-      f.close()
-    except Exception as e:
-      print("Failed to make game id: {}".format(e))
-
-    self.state = MState(id, self.rules, self.main_cast, self.mafia_cast, self.send_dm)
-
-    self.state.start(ids, roles, contracts)
+    self.mstate.start(assignments, contracts)
 
   def active(self):
-    return self.state.active
+    return self.mstate != None and self.mstate.phase.active()
 
-  def main_id(self):
-    return self.main_chat.id
+  def end_game(self,msg):
+    # TODO: how to handle this?
+    print("END_GAME: ", msg)
 
-  def mafia_id(self):
-    return self.mafia_chat.id
-
-  def handle_main(self, sender_id, command, text, data):
+  # A message sent to main chat, decide signature?
+  def handle_main(self, sender_id:MPlayerID, cmd:MCmd, *args):
+    """ This function should be implemented by subclass!
+    """
+    raise NotImplementedError("Default MGame")
+    """
     if command == VOTE_CMD:
       words = text.split()
       voter = sender_id
@@ -114,8 +123,11 @@ class MGame:
       self.handle_rule("MAIN", text)
 
     self.save()
+    """
 
-  def handle_mafia(self, sender_id, command, text, data):
+  def handle_mafia(self, sender_id:MPlayerID, cmd:MCmd, *args):
+    raise NotImplementedError("Default MGame")
+  """
     if command == TARGET_CMD:
       self.handle_mtarget(sender_id, text)
     elif command == STATUS_CMD:
@@ -126,8 +138,11 @@ class MGame:
       self.handle_rule("MAFIA",text)
 
     self.save()
+    """
 
-  def handle_dm(self, sender_id, command, text, data):
+  def handle_dm(self, sender_id, cmd:MCmd, *args):
+    raise NotImplementedError("Default MGame")
+  """
     if command == TARGET_CMD:
       self.handle_target(sender_id, text)
     elif command == REVEAL_CMD:
@@ -140,17 +155,17 @@ class MGame:
       self.handle_rule(sender_id,text)
 
     self.save()
+    """
 
-  def handle_vote(self,player_id,target_id):
-    if not player_id in self.state.players:
-      self.main_cast(resp_lib["INVALID_VOTE_PLAYER"].format(player_id=player_id))
-      return
-
-    if not self.state.phase == MPhase.DAY:
-      self.main_cast(resp_lib["INVALID_VOTE_PHASE"])
-      return
-
-    self.state.vote(player_id, target_id)
+  def handle_vote(self,voter_id,votee_id):
+    try:
+      self.mstate.vote(voter_id, votee_id)
+      return True
+    except InvalidActionException as iae:
+      self.main_chat.cast(iae.msg)
+      return False
+    except EndGameException as ege:
+      self.end_game(ege.msg)
   
   @staticmethod
   def getTarget(text):
@@ -160,28 +175,33 @@ class MGame:
       raise TypeError()
     return target_letter
 
-  def handle_target(self,player_id, text):
-    if self.state.phase == MPhase.NIGHT:    
-      if not (player_id in self.state.players and self.state.players[player_id].role in TARGETING_ROLES):
-        self.send_dm(resp_lib["INVALID_TARGET_PLAYER"],player_id)
-        return
-    elif self.state.phase == MPhase.DUSK:
-      if not (player_id in self.state.players and self.state.players[player_id].role == "IDIOT"):
-        self.send_dm(resp_lib["INVALID_TARGET_PLAYER"],player_id)
-        return
-    else:
-      self.send_dm(resp_lib["INVALID_TARGET_PHASE"],player_id)
-      return
+  def handle_target(self,actor_id,target_id):
+    # Get target handled by subclass
+    try:
+      # If phase is dusk, assume this is an itarget?
+      if self.mstate.phase == MPhase.DUSK:
+        self.mstate.itarget(actor_id, target_id)
+        return True
+      else:
+        self.mstate.target(actor_id,target_id)
+        return True
+    except InvalidActionException as iae:
+      self.dms.send(iae.msg, actor_id)
+      return False
+    except EndGameException as ege:
+      self.end_game(ege.msg)
+      return False
 
+    """
     try:
       target_letter = self.getTarget(text)
       target_number = ord(target_letter.upper())-ord('A')
-      if self.state.phase == MPhase.DUSK:
-        player_order = self.state.vengeance.venges
+      if self.mstate.phase == MPhase.DUSK:
+        player_order = self.mstate.vengeance.venges
       else:
-        player_order = self.state.player_order
+        player_order = self.mstate.player_order
       if target_number == len(player_order):
-        if self.state.phase == MPhase.DUSK:
+        if self.mstate.phase == MPhase.DUSK:
           raise Exception("invalid target {}".format(target_letter))
         target_id = "NOTARGET"
       else:
@@ -189,137 +209,136 @@ class MGame:
     except Exception as e:
       self.send_dm(resp_lib["INVALID_TARGET"].format(text=text)+"{}".format(e),player_id)
       return
-    if (self.state.players[player_id].role == "MILKY" and 
-        self.state.rules["no_milk_self"] == "ON" and
+    if (self.mstate.players[player_id].role == "MILKY" and 
+        self.mstate.rules["no_milk_self"] == "ON" and
         target_id == player_id):
       self.send_dm(resp_lib["MILK_SELF"],player_id)
       return
-    self.state.target(player_id, target_id)
+    self.mstate.target(player_id, target_id)
+    """
 
-  def handle_mtarget(self, player_id, text):
-    if not (player_id in self.state.players and self.state.players[player_id].role in MAFIA_ROLES):
-      self.mafia_cast(resp_lib["INVALID_MTARGET_PLAYER"])
-      return
-
-    if not self.state.phase == MPhase.NIGHT:
-      self.mafia_cast(resp_lib["INVALID_MTARGET_PHASE"])
-      return
-    
+  def handle_mtarget(self, targeter_id, target_id):
+    try:
+      self.mstate.mtarget(targeter_id, target_id)
+      return True
+    except InvalidActionException as iae:
+      self.mafia_chat.cast(iae.msg)
+      return False
+    except EndGameException as ege:
+      self.end_game(ege.msg)
+ 
+    """
     try:
       target_letter = self.getTarget(text)
       target_number = ord(target_letter.upper())-ord('A')
-      if target_number == len(self.state.player_order):
+      if target_number == len(self.mstate.player_order):
         target_id = "NOTARGET"
       else:
-        target_id = self.state.player_order[target_number]
+        target_id = self.mstate.player_order[target_number]
     except Exception:
       self.mafia_cast(resp_lib["INVALID_MTARGET"].format(text=text))
       return
     
-    role = self.state.players[player_id].role
+    role = self.mstate.players[player_id].role
     if role == "GOON" and target_id != "NOTARGET":
       self.mafia_cast(resp_lib["INVALID_MTARGET_GOON"])
       return
 
-    self.state.mtarget(player_id, target_id)
+    self.mstate.mtarget(player_id, target_id)
+    """
 
-  def handle_reveal(self, player_id):
-    if not (player_id in self.state.players and self.state.players[player_id].role == "CELEB"):
-      self.send_dm(resp_lib["INVALID_REVEAL_PLAYER"],player_id)
-      return
+  def handle_reveal(self, reveal_id):
 
-    if not self.state.phase == MPhase.DAY:
-      self.send_dm(resp_lib["INVALID_REVEAL_PHASE"],player_id)
-      return
+    try:
+      self.mstate.reveal(reveal_id)
+      return True
+    except InvalidActionException as iae:
+      self.dms.send(iae.msg, reveal_id)
+      return False
+    except EndGameException as ege:
+      self.end_game(ege.msg)
+      return False
 
-    self.state.reveal(player_id)
+    # if not (player_id in self.mstate.players and self.mstate.players[player_id].role == "CELEB"):
+    #   self.send_dm(resp_lib["INVALID_REVEAL_PLAYER"],player_id)
+    #   return
+
+    # if not self.mstate.phase == MPhase.DAY:
+    #   self.send_dm(resp_lib["INVALID_REVEAL_PHASE"],player_id)
+    #   return
+
+    # self.mstate.reveal(player_id)
 
   def handle_timer(self, player_id):
-    self.main_cast("Timer not implemented yet")
+    self.main_chat.cast("Timer not implemented yet")
   
   def handle_untimer(self, player_id):
-    self.main_cast("Timer not implemented yet")
+    self.main_chat.cast("Timer not implemented yet")
 
   def handle_main_help(self, text):
-    self.main_cast("Help not implemented yet")
+    self.main_chat.cast("Help not implemented yet")
 
   def handle_mafia_help(self, text):
-    self.mafia_cast("Help not implemented yet")
+    self.mafia_chat.cast("Help not implemented yet")
     
   def handle_dm_help(self, player_id, text):
-    self.send_dm("Help not implemented yet",player_id)
+    self.dms.send("Help not implemented yet",player_id)
 
   def handle_main_status(self):
-    msg = self.state.main_status()
-    self.main_cast(msg)
+    msg = self.mstate.main_status()
+    self.main_chat.cast(msg)
 
   def handle_mafia_status(self):
-    msg = self.state.mafia_status()
-    self.mafia_cast(msg)
+    msg = self.mstate.mafia_status()
+    self.mafia_chat.cast(msg)
 
   def handle_dm_status(self, player_id):
-    msg = self.state.dm_status(player_id)
-    self.send_dm(msg,player_id)
+    msg = self.mstate.dm_status(player_id)
+    self.dms.send(msg,player_id)
 
   def handle_rule(self, sender, text):
     """ Return the rule for a specific rule or list of rules """
-    msg = ""
-    words = text.split()
-    if len(words) == 1:
-      msg = self.rules.describe(has_expl=False)
-    elif words[1] in MRules.RULE_BOOK:
-      rule = words[1]
-      msg = "{}:\n".format(rule)
-      msg += self.rules.explRule(rule, self.rules[rule])
-    elif words[1] == "long":
-      msg = self.rules.describe(has_expl=True)
+    pass
+    # msg = ""
+    # words = text.split()
+    # if len(words) == 1:
+    #   msg = self.mstate.rules.describe(has_expl=False)
+    # elif words[1] in MRules.RULE_BOOK:
+    #   rule = words[1]
+    #   msg = "{}:\n".format(rule)
+    #   msg += self.mstate.rules[rule].explRule()
+    # elif words[1] == "long":
+    #   msg = self.mstate.rules.describe(has_expl=True)
     
-    if sender == "MAIN":
-      self.main_cast(msg)
-    elif sender == "MAFIA":
-      self.mafia_cast(msg)
-    else:
-      self.send_dm(msg, sender)
+    # if sender == "MAIN":
+    #   self.main_cast(msg)
+    # elif sender == "MAFIA":
+    #   self.mafia_cast(msg)
+    # else:
+    #   self.send_dm(msg, sender)
 
   def save(self):
-    f = open("../data/game_{}.maf".format(self.state.id),"w")
-    self.writeGame(f)
+    f = open("../data/game_{}.maf".format(self.mstate.id),"w")
+    msave(self,f)
     f.close()
-
-  def writeGame(self, f):
-    json.dump(self.to_json(), f, indent=2)
-    print("wrote game")
 
   def to_json(self):
     d = {
-      "main_chat":self.main_chat.id,
-      "mafia_chat":self.mafia_chat.id,
-      "lobby_id":self.lobby_id,
-      "state":self.state,
+      "main_chat_id": self.main_chat.id,
+      "mafia_chat_id": self.mafia_chat.id,
+      "mstate":self.mstate,
     }
     return d
 
   @staticmethod
-  def from_json(f, MChatType, dms, end_callback):
-    d = json.load(f)
+  def load(lobby, f):
+    mgame = mload(f)
+    mgame.lobby = lobby
+    return mgame
 
-    g = MGame(MChatType(d["main_chat"]), MChatType(d["mafia_chat"]), dms, end_callback,d['lobby_id'])
-
-    g.state = MState.from_json(d["state"])
-
-    g.id = g.state.id
-    g.rules = g.state.rules
-
-    return g
-
-
-def createStartRoles(ids, roles, contracts):
-  msg = "Roles:"
-  players = list(zip(ids,roles))
-  for role in ALL_ROLES:
-    players_role = [(id,r) for (id,r) in players if r == role]
-    for (p_id,r) in players_role:
-      msg += "\n  [{}]: {}".format(p_id, r)
-      if p_id in contracts:
-        msg += " ([{}])".format(contracts[p_id][0])
-  return msg
+  @staticmethod
+  def from_json(d):
+    lobby = None
+    mgame = MGame(lobby, d["mstate"], 
+                  d["main_chat_id"], d["mafia_chat"])
+    return mgame

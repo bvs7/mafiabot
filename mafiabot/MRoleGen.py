@@ -1,13 +1,32 @@
 
 from .MInfo import *
+from .MPlayer import MPlayerID
+from .MRole import MRole, TOWN_ROLES, MAFIA_ROLES, ROGUE_ROLES, CONTRACT_ROLES
 
 import math
 import random
+from typing import Tuple, Set, Dict, NewType, Iterable, Union
+
+class MContract:
+  def __init__(self, role:MRole, charge:MPlayerID, success:bool):
+    self.role=role
+    self.charge=charge
+    self.success=success
+
+  def to_json(self):
+    return {'role':self.role, 'charge':self.charge, 'success':self.success}
+
+  @staticmethod
+  def from_json(d):
+    return MContract(d['role'],d['charge'],d['success'])
+
+MAssignment = NewType('Assignment', Tuple[MPlayerID,Union[MRole,str]])
+MRoleGenType = NewType('RoleGenType', Tuple[Iterable[MAssignment],Dict[MPlayerID,MContract]])
 
 class MRoleGen:
 
   @staticmethod
-  def roleGen(ids):
+  def roleGen(ids:MPlayerID) -> MRoleGenType:
     return MRoleGen.randomRoleGen(ids)
 
   @staticmethod
