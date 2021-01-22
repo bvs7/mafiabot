@@ -1,154 +1,223 @@
 # Recieve slightly processed request from Server, route to the correct MState/lobby, respond, etc.
 
-from typing import List
+from typing import List, Dict, Set
+from collections import deque
+import json
 
 from .MInfo import *
 from .MGame import MGame
 from .MRules import MRules
-from .MLobby import MLobby
 from .MRoleGen import MRoleGen
 from .MTimer import MTimer
+from .MChat import MChat, MDM
+from .MServer import MServer
+from .MPlayer import MPlayer
+from .MSave import mafia_hook, MSaveEncoder
 
-
-# TODO: make this a file we read in
-def getLobbies(ctrl, MChatType, dms, MRoleGenType, MTimerType):
-  lobbies = []
-  lobbies.append(MLobby(ctrl, '30021302', MChatType, dms, MRoleGenType, MTimerType))
-  lobbies.append(MLobby(ctrl, '60988610', MChatType, dms, MRoleGenType, MTimerType))
-  lobbies.append(MLobby(ctrl, '25833774', MChatType, dms, MRoleGenType, MTimerType))
-  return lobbies
-  
-def getGames(MChatType):
-  return []
-
-def getDMs(MDMType):
-  return MDMType()
-
-# TODO: Rule edits and checking
-# TODO: Save state and refreshing games
-# TODO: Database Recording and stats
+MIN_PLAYERS = 3
+TIMER_MINUTES = 10
 
 class MController:
+  
+  MChatType = MChat
+  MDMType = MDM
+  MServerType = MServer
+  MGameType = MGame
 
-  def __init__(self, MChatType, MDMType, MServerType, roleGen=MRoleGen.roleGen, MTimerType=MTimer):
-    self.MChatType = MChatType
-    self.MServerType = MServerType
-    self.dms = getDMs(MDMType)
-    self.roleGen = roleGen
-    self.MTimerType=MTimerType
-
-    self.lobbies = getLobbies(self, MChatType, self.dms, self.roleGen, self.MTimerType)
-    self.orphaned_chats = {} # Dict of chat_id => timer
-
-    # TODO: a set of rules for each dm/players
+  def __init__(self, lobby_id):
+    
+    self.lobbyChat = self.MChatType(lobby_id)
+    self.dms = self.MDMType(self.lobbyChat)
     self.rules = MRules()
-    self.activeGame = {} # Maps player id to their active game (or a list of active games)
-    self.rolegen_opine = {} # Maps player_id -> (roles,contracts)
-    self.ins = []
-    server = MServerType(self.handle_chat, self.handle_dm)
+    self.games:Dict[int,MGame] = {}
+    self.focusedGames = {}
+    self.in_list = [] # List of (id,minp)
+
+    # Check for active games?
+    f = open("../../data/lobbies/{}".format(lobby_id))
+    self.parse(f)
+    f.close()
+
+    server = self.MServerType(self.handle_chat, self.handle_dm)
+    server.run()
     
   # callback for Server
-  def handle_chat(self,  group_id, sender_id, command, text, data):
-    # Each lobby tries to handle
-    for lobby in self.lobbies:
-      if lobby.handle(group_id, sender_id, command, text, data):
+  def handle_chat(self, group_id, sender_id, cmd:MCmd, **kwargs):
+    # First check games
+    for g_id,g in self.games.items():
+      if g.handle_chat(group_id, sender_id, cmd, **kwargs):
         return True
-    # handle default mafia bot actions
-    if command == HELP_CMD:
-      words = text.split()
-      if len(words) > 0:
-        topic = words[1]
-        if topic in ROLE_EXPLAIN:
-          resp = self.MChatType(group_id)
-          resp.cast(ROLE_EXPLAIN[topic])
+    
+    if group_id == self.lobbyChat.id:
+      self.handle_lobby(group_id, sender_id, cmd, **kwargs)
 
-  def handle_dm(self, sender_id, command, text, data):
-    # check for this player's game?
-    if command in GAME_DM_COMMANDS:
-      if sender_id in self.activeGame:
+  def handle_lobby(self, group_id, sender_id, cmd, **kwargs):
+
+    text = kwargs["text"]
+    if cmd == MCmd.IN:
+      # Get param /in [min]
+      words = text.split()
+      if len(words) > 1:
         try:
-          game = self.activeGame[sender_id][0]
-          if not game == None:
-            game.handle_dm(sender_id, command, text, data)
-            return True
-        except (IndexError,KeyError):
-          pass
-
-    if command == 'rolegen':
-      try:
-        n = int(text.split()[1])
-        temp_ids = [i for i in range(n)]
-        ids,roles,contracts = MRoleGen.randomRoleGen(temp_ids)
-        role_disp = dispRoleFromDict(makeRoleDict(roles))
-        contracts_disp = []
-        for p_id in contracts:
-          (role,charge,success) = contracts[p_id]
-          contracts_disp.append("{}->{}".format(role,roles[charge]))
-        msg = "Roles:\n{}\nContracts: {}\n(Respond /opine [1-5] to give opinion on this rolegen (5-best, 1-worst))".format(role_disp,contracts_disp)
-        self.rolegen_opine[sender_id] = (roles,contracts)
-        self.dms.send(msg, sender_id)
-      except Exception as e:
-        msg = "Sorry, I had an error: {}".format(e)
-        self.dms.send(msg, sender_id)
-    elif command == 'opine':
-      try:
-        opinion = int(text.split()[1])
-        if not (opinion >= 1 and opinion <= 5):
-          raise IndexError("Opinion should be from 1 to 5")
-        if sender_id in self.rolegen_opine:
-          roles, contracts = self.rolegen_opine[sender_id]
-          with open("../data/rolegen_opinions", 'a') as rof:
-            rof.write("{}\n{}\n{}".format(roles,contracts,opinion))
-          msg = "Opinion noted, thank you!"
-          del self.rolegen_opine[sender_id]
-        else:
-          msg = "Nothing to opine upon"
-        self.dms.send(msg, sender_id)
-      except Exception as e:
-        msg = "Sorry, I had an error: {}".format(e)
-        self.dms.send(msg, sender_id)
-    elif command == RULE_CMD:
-      msg = ""
-      words = text.split()
-      if len(words) == 1:
-        msg = self.rules.describe(has_expl=False)
-      elif words[1] in MRules.RULE_BOOK:
-        rule = words[1]
-        msg = "{}:\n".format(rule)
-        msg += self.rules.explRule(rule, self.rules[rule])
-      elif words[1] == "long":
-        msg = self.rules.describe(has_expl=True)
-    
-      self.dms.send(msg, sender_id)
-
-  def end_game_callback(self, game_id, main_chat_id, mafia_chat_id):
-    # Orphan chats
-
-    def remove_main_orphan():
-      del self.orphaned_chats[main_chat_id]
-
-    def kill_main_chat():
-      chat = self.MChatType(main_chat_id)
-      chat.cast("Destroying Chat")
-      chat.destroy()
-
-    def remove_mafia_orphan():
-      del self.orphaned_chats[mafia_chat_id]
-
-    def kill_mafia_chat():
-      chat = self.MChatType(mafia_chat_id)
-      chat.cast("Destroying Chat")
-      chat.destroy()
+          min_players = int(words[1])
+        except ValueError:
+          min_players = MIN_PLAYERS
+      else:
+        min_players = MIN_PLAYERS
       
-    self.orphaned_chats[main_chat_id] = MTimer(30*60, {0:[remove_main_orphan, kill_main_chat]})
-    self.orphaned_chats[mafia_chat_id] = MTimer(30*60, {0:[remove_mafia_orphan, kill_mafia_chat]})
+      self.in_list.append(sender_id, min_players)
+
+      msg = "[{}] ready to join a game of at least {} players. ".format(sender_id, min_players)
+      msg += "{} ready to play.".format(len(self.in_list))
+      self.lobbyChat.cast(msg)
+      return True
+
+    if cmd == MCmd.OUT:
+      for (in_p,min_p) in self.in_list:
+        if sender_id == in_p:
+          break
+      else:
+        msg = "You weren't /in"
+        self.lobbyChat.cast(msg)
+        return True
+      del self.in_list[sender_id]
+      msg = "Removed [{}]".format(sender_id) # TODO: generalize text
+      self.lobbyChat.cast(msg)
+      return True
+
+    if cmd == MCmd.START:
+      words = text.split()
+      min_players = MIN_PLAYERS
+      timer_minutes = TIMER_MINUTES
+      if len(words) >= 3:
+        try:
+          min_players = int(words[2])
+        except ValueError:
+          self.lobbyChat.cast("Couldn't understand min player parameter: {}".format(words[2]))
+      if len(words) >= 2:
+        try:
+          timer_minutes = int(words[1])
+        except ValueError:
+          self.lobbyChat.cast("Couldn't understand minutes parameter: {}".format(words[1]))
+
+      # Send start msg and record message id
+      msg = "Game will start in {} minute{} if at least {} players are in. Like this message to join!".format(
+        timer_minutes, 's' if timer_minutes!=1 else '', min_players)
+      self.start_msg_id = self.lobbyChat.cast(msg)
+      self.start_min_players = min_players
+      self.start_timer = MTimer(timer_minutes*60, {0:[self.try_start_game]})
+      self.lobbyChat.cast(msg)
+
+    if cmd == MCmd.WATCH:
+      if len(self.games) == 1:
+        name = self.lobbyChat.getName(sender_id)
+        self.games[0].main_chat.add({sender_id:name})
+      elif len(self.games) == 0:
+        self.lobbyChat.cast("Failed to watch, no games")
+      else:
+        self.lobbyChat.cast("Failed to watch, can't tell which game...")
     
-    for player in self.activeGame:
-      games = self.activeGame[player]
-      for game in games:
-        if game_id == game.state.id:
-          self.activeGame[player].remove(game)
+    return False
 
+  def handle_dm(self, sender_id, cmd:MCmd, **kwargs):
+    # check for this player's game?
+    if cmd.is_game_dm():
+      if sender_id in self.focusedGames:
+        game = self.focusedGames[sender_id][0]
+        if not game == None:
+          game.handle_dm(sender_id, cmd, **kwargs)
+          return True
+    # Resolve any other dms we can?
+    if cmd == MCmd.FOCUS:
+      # Code to change the focused game of this player
+      if sender_id in self.focusedGames:
+        g_list = self.focusedGames[sender_id]
+        g = g_list.popLeft()
+        g_list.append(g)
+        g_id = self.games[g_list[0]]
+        self.dms.send("Focusing on Game {}".format(g_id), sender_id)
 
-    
+  def start_game(self, users, rules):
+    g = self.MGameType.new(rules)
+    self.games[g.id] = g
+    g.start(users, MRoleGen.roleGen)
+    for user_id in users:
+      if not user_id in self.focusedGames:
+        self.focusedGames[user_id] = deque()
+      self.focusedGames[user_id].appendleft(g.id)
 
+    g.start(users, MRoleGen.roleGen)
+
+  def try_start_game(self):
+
+    ack_in_list = [(p_id, self.start_min_players) for p_id in self.lobbyChat.getAcks(self.start_msg_id)]
+
+    for (p_id, min_p) in ack_in_list:
+      if not p_id in self.in_list:
+        self.in_list[p_id] = min_p
+
+    # Sort in_list from largest to smallest min_players
+    in_list = self.in_list.items()
+    in_list = sorted(in_list, key=lambda x: x[1])
+    in_list.reverse()
+    # While not done, test for a game, if not, remove largest min_players
+    done = False
+    users = {}
+    while len(in_list) > 0:
+      if len(in_list) >= in_list[0][1]:
+        for user_id,_ in in_list:
+          users[user_id] = self.lobbyChat.getName(user_id)
+        break
+      else:
+        in_list = in_list[1:]
+
+    if len(users) > MIN_PLAYERS:
+      self.lobbyChat.cast("Starting game")
+      self.start_game(self, users)
+      self.in_list = {}
+    else:
+      self.lobbyChat.cast("Could not start a game")
+
+  def destroy_game(self,game, id):
+    if id in self.games:
+      del self.games[id]
+
+    for p_id in self.focusedGames:
+      game_list = self.focusedGames[p_id]
+      if id in game_list:
+        game_list.remove(id)
+
+    for p_id in list(self.focusedGames.keys()):
+      if len(self.focusedGames[p_id]) == 0:
+        del self.focusedGames[p_id]
+  
+  def load_game(self, g_id):
+    f = open("../../data/games/game_{}.maf".format(g_id), 'r')
+    g = self.MGameType.load(f)
+    self.games[g.id] = g
+    f.close()
+
+  def save(self):
+    f = open("../../data/lobbies/{}".format(self.lobbyChat.id), 'w')
+    f.write("Rules: {}".format(json.dumps(self.rules, cls=MSaveEncoder)))
+    f.write("Games: {}".format(json.dumps(list(self.games.keys()))))
+    f.write("FocusedGames: {}".format(json.dumps(self.focusedGames)))
+    f.write("InList: {}".format(json.dumps(self.in_list)))
+
+  def parse(self,f):
+    lines = f.readlines()
+    for line in lines:
+      if line.startswith('Rules:'):
+        rule_str = line[len("Rules: "):]
+        self.rules = json.loads(rule_str, object_hook=mafia_hook)
+      elif line.startswith('Games: '):
+        games_str = line[len("Games: "):]
+        game_ids = json.loads(games_str)
+        for game_id in game_ids:
+          self.load_game(game_id)
+      elif line.startswith("FocusedGames: "):
+        fg_str = line[len("FocusedGames: "):]
+        self.focusedGames = json.loads(fg_str)
+      elif line.startswith("InList: "):
+        inl_str = line[len("InList: "):]
+        self.in_list = json.loads(inl_str)

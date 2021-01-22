@@ -2,7 +2,7 @@
 from typing import Tuple, Dict
 import time
 
-from .. import MChat, MDM, CastError
+from mafiabot import MChat, MDM, CastError
 
 GROUPME_KEYFILE = "../../.groupme.key"
 MODERATOR = "43040067"
@@ -22,9 +22,10 @@ CAST_DELAY = .1
 
 class GroupMeChat(MChat):
 
-  def __init__(self, group_id):
+  def __init__(self, group_id, name_reference:MChat = None):
     self.id = group_id
     self.group = client.groups.get(group_id)
+    self.setNameReference(name_reference)
     # Get member names
     self.names = {}
     for member in self.group.members:
@@ -41,7 +42,7 @@ class GroupMeChat(MChat):
     bot = g.create_bot("Mafia Bot", callback_url = "http://70.180.16.29:1121/", dm_notification=False)
     return GroupMeChat(g.id)
 
-  def format(self, msg):
+  def __format(self, msg): # Default format if no name_reference
     for id,name in self.names.items():
       msg = msg.replace("[{}]".format(id),name)
     return msg
@@ -86,13 +87,14 @@ class GroupMeChat(MChat):
 
   def cast(self, msg:str):
     try:
-      m_id = self.group.post(msg).id
+      formatted_msg = self.format(msg)
+      m_id = self.group.post(formatted_msg).id
       time.sleep(CAST_DELAY)
       print(m_id)
       return m_id
     except Exception as e:
       raise CastError(e)
-      return "-1"
+    return "-1"
 
   def ack(self, message_id):
     try:
@@ -116,15 +118,20 @@ class GroupMeChat(MChat):
 # Have all DMs in one object?
 class GroupMeDM(MDM):
 
-  def __init__(self):
+  def __init__(self, chat=None):
     self.client = client
     self.dms = {}
+    if chat == None:
+      self.format = lambda x:x
+    else:
+      self.format = chat.format
 
   def send(self, msg, user_id):
+    message = self.format(msg)
     if not user_id in self.dms:
       self.dms[user_id] = DirectMessages(self.client.session, user_id)
     try:
-      m_id = self.dms[user_id].create(msg).id
+      m_id = self.dms[user_id].create(message).id
       time.sleep(CAST_DELAY)
     except Exception as e:
       raise CastError(e)

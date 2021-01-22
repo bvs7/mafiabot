@@ -1,5 +1,5 @@
 from enum import Enum, auto
-from typing import List, Union, Optional, Dict, Callable, Any, Tuple, Set, Iterable
+from typing import * # pylint: disable
 from threading import Lock, Thread
 import json
 from collections import OrderedDict
@@ -70,9 +70,16 @@ class MVengeance:
   def from_json(d):
     return MVengeance(d['venges'], d['final_vote'], d['idiot'])
 
+def check_end(func):
+  def inner(self, *args):
+    if self.phase == MPhase.END:
+      raise InvalidActionException(resp_lib["INVALID_ACTION_END"])
+    return func(self, *args)
+  return inner
+
 class MState:
 
-  def __init__(self, id:int, rules:MRules=MRules(), cast_main=print, cast_mafia=print, send_dm=print):
+  def __init__(self, rules:MRules=MRules(), cast_main=print, cast_mafia=print, send_dm=print):
 
     self.cast_main = cast_main
     self.cast_mafia = cast_mafia
@@ -80,8 +87,8 @@ class MState:
     self.halt_timer = self.__halt_timer # Called when time progresses to stop timer?
 
     self.rules = rules
+    print("Rules", self.rules)
 
-    self.id = id
     self.day = 0
     self.phase = MPhase.INIT
 
@@ -95,6 +102,9 @@ class MState:
     self.vengeance : Optional[MVengeance] = None # Used when an IDIOT needs to get revenge.
 
     self.start_roles = "Init"
+
+  def destroy(self):
+    print("DEL MSTATE")
 
   def teststart(self, ids, roles, contracts):
     assignments = list(zip(ids,roles))
@@ -156,7 +166,7 @@ class MState:
 
     for p in self.players:
       msg += "\n" + ("[%s]"%p)
-
+    print("Rules", self.rules)
     known_roles = self.rules[MRules.known_roles]
     role_list = dispKnownRoles(makeRoleDict([r for p_id,r in assignments]), known_roles)
     msg += "\n" + role_list
@@ -186,6 +196,7 @@ class MState:
     else:
       self.halt_timer(*args)
 
+  @check_end
   def timer(self):
     # Timer triggers, forcing forward progress in the game state
     self.__timer()
@@ -205,6 +216,7 @@ class MState:
       self.__eliminate(self.vengeance.venges[-1], self.vengeance.idiot, main_msg)
       self.__night(main_msg, nokill=False)
 
+  @check_end
   def reveal(self, reveal_id : MPlayerID):
     if not reveal_id in self.players:
       raise InvalidActionException(resp_lib["INVALID_REVEAL_PLAYER"])
@@ -229,6 +241,7 @@ class MState:
       msg = resp_lib['REVEAL_REMINDER'].format(actor=reveal_id, role=p.role)
       self.cast_main(msg)
 
+  @check_end
   def vote(self, voter_id : MPlayerID, votee_id : Optional[MPlayerID]):
     if not self.phase == MPhase.DAY:
       raise InvalidActionException(resp_lib["INVALID_VOTE_PHASE"])
@@ -421,7 +434,7 @@ class MState:
       self.send_dm(resp_lib["STUN"], p)
 
     opts = resp_lib['NIGHT_OPTIONS']
-    opts += '\n'.join(listMenu(self.players))
+    opts += '\n'.join(self.listMenu(self.players.keys()))
     for t_p in [p for p in self.players if self.players[p].role.is_targeting()]:
       msg = opts
       if t_p in self.stunned:
@@ -432,9 +445,10 @@ class MState:
     self.phase = MPhase.NIGHT
     for player in self.players.values():
       player.vote = None
-    self.stripped = []
+    self.stripped = set()
     self.vengeance = None
 
+  @check_end
   def target(self, actor_id : MPlayerID, target_id : Optional[MPlayerID]):
     if not self.phase == MPhase.NIGHT:
       raise InvalidActionException(resp_lib["INVALID_TARGET_PHASE"])
@@ -462,10 +476,11 @@ class MState:
       msg = resp_lib["TARGET"].format(target=actor.target)
     self.send_dm(msg, actor_id)
 
-    if (self.mafia_target != None) and all([p.target != None for p in self.players.values() if p.role.is_targeting()]):
+    if (self.mafia_target[0] != None) and all([p.target != None for p in self.players.values() if p.role.is_targeting()]):
       self.__dawn()
     return
 
+  @check_end
   def mtarget(self, targeter_id : MPlayerID, target_id : Optional[MPlayerID]):
     if not self.phase == MPhase.NIGHT:
       raise InvalidActionException(resp_lib["INVALID_TARGET_PHASE"])
@@ -484,7 +499,7 @@ class MState:
     self.mafia_target = (target_id, targeter_id)
     msg = resp_lib["MTARGET"].format(actor=targeter_id, target=target_id)
     self.cast_mafia(msg)
-    if (self.mafia_target != None) and all([p.target != None for p in self.players.values() if p.role.is_targeting()]):
+    if (self.mafia_target[0] != None) and all([p.target != None for p in self.players.values() if p.role.is_targeting()]):
       self.__dawn()
     return
 
@@ -598,9 +613,10 @@ class MState:
     main_msg[0] += "\n" + resp_lib["DUSK"]
     self.cast_main(main_msg[0])
     opts = resp_lib["DUSK_OPTIONS"]
-    opts += "\n".join(listMenu(self.vengeance.venges, notarget=False))
+    opts += "\n".join(self.listMenu(self.vengeance.venges, notarget=False))
     self.send_dm(opts, self.vengeance.idiot)
 
+  @check_end
   def itarget(self, idiot_id : MPlayerID, target_id : Optional[MPlayerID]):
     if not self.phase == MPhase.DUSK:
       raise InvalidActionException(resp_lib["INVALID_ITARGET_PHASE"])
@@ -665,6 +681,25 @@ class MState:
   def dm_status(self, player_id):
     return "TODO" # TODO
 
+  @staticmethod
+  def listMenu(players, notarget=True):
+    p_ids = list(players)
+    if notarget:
+      p_ids.append("NOTARGET")
+    p_lists = []
+    while len(p_ids) > 0:
+      l = min(len(p_ids),26)
+      p_lists.append(p_ids[:l])
+      p_ids = p_ids[l:]
+    ps = []
+    for i,p_list in enumerate(p_lists):
+      prefix = "" if i==0 else chr(ord('A')+i-1)
+      c = 'A'
+      for p_id in p_list:
+        ps.append("{}{}: [{}]".format(prefix,c,p_id))
+        c = chr(ord(c)+1)
+    return ps
+
   def __str__(self):
     """Status request?"""
     msg = "{} {}:\n".format(self.phase, self.day)
@@ -681,14 +716,14 @@ class MState:
 
   def to_json(self):
     d = {}
-    for name in ["id","day","phase","players","contracts","start_roles","rules"]:
+    for name in ["day","phase","players","contracts","start_roles","rules"]:
       d[name] = self.__dict__[name]
     return d
 
   # NOTE: User must reinit cast_main, cast_mafia, send_dm, halt_timer hooks!
   @staticmethod
   def from_json(d):
-    mstate = MState(d['id'],d['rules'])
+    mstate = MState(d['rules'])
     mstate.day = d['day']
     mstate.phase = d['phase']
     mstate.players = d['players']

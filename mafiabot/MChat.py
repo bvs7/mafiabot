@@ -4,26 +4,37 @@ class CastError(Exception):
 
 class MChat:
 
-  def __init__(self, group_id):
+  def __init__(self, group_id, name_reference=None):
     self.id = group_id
+    if name_reference == None:
+      self.format = self.__format
+    else:
+      self.format = name_reference.format
     self.names = {}
+
+  def setNameReference(self, name_reference):
+    if name_reference == None:
+      self.format = self.__format
+    else:
+      self.format = name_reference.format
 
   def destroy(self):
     print("DEL {}".format(self.id))
 
   @staticmethod
-  def new(name):
-    return MChat
+  def new(name,): # Just return id?
+    return MChat(name).id
 
-  def format(self, msg):
+  def getName(self,user_id):
+    return self.names[user_id]
+
+  def __format(self, msg):
     for id,name in self.names.items():
       msg = msg.replace("[{}]".format(id),name)
     return msg
 
-  def getName(self, user_id):
-    return "Name of {}".format(user_id)
-
   def remove(self, user_id):
+    del self.names[user_id]
     print("REMOVE: {}".format(user_id))
 
   def refill(self, users):
@@ -38,6 +49,7 @@ class MChat:
 
   def cast(self, msg):
     print("CAST {}: {}".format(self.id, self.format(msg)))
+    return "-1"
 
   def ack(self, message_id):
     print("ACK: {}".format(message_id))
@@ -46,21 +58,15 @@ class MChat:
     return []
 
 class MDM:
-# No, MDM isn't singleton, it is based on a game?
-# We need to somehow generally link chats to get names well.
-  def __init__(self):
-    if not "instance" in self.__class__.__dict__:
-      self.__class__.instance = self
+  # dms are based on another (main chat)
+  def __init__(self, chat:MChat=None):
+    if chat == None:
+      self.format = lambda x: x
     else:
-      raise Exception("MDM is singleton")
+      self.format = chat.format
 
   def send(self,msg,user_id):
-    print("SEND {}: {}".format(user_id,msg))
+    print("SEND {}: {}".format(user_id, self.format(msg)))
 
-  @staticmethod
-  def get_dms():
-    if not "instance" in MDM.__dict__:
-      MDM.instance = MDM()
-    return MDM.instance
 
 

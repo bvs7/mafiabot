@@ -2,19 +2,17 @@
 from flask import Flask, request
 import json
 
-from .. import ACCESS_KW, MServer
+from mafiabot import ACCESS_KW, MServer
 
 class GroupMeServer(MServer):
 
   def __init__(self, handle_chat, handle_dm):
     self.handle_chat = handle_chat
     self.handle_dm = handle_dm
-    app = Flask('mafiabot')
+    self.__app = Flask('mafiabot')
 
-    app.add_url_rule('/', 'chat', self.chat, methods=['POST'])
-    app.add_url_rule('/dm', 'dm', self.dm, methods=['POST'])
-
-    app.run(host="0.0.0.0",port=1121)
+    self.__app.add_url_rule('/', 'chat', self.chat, methods=['POST'])
+    self.__app.add_url_rule('/dm', 'dm', self.dm, methods=['POST'])
 
   def chat(self):
     print(request.data)
@@ -35,3 +33,6 @@ class GroupMeServer(MServer):
       command = text.split()[0][len(ACCESS_KW):]
       self.handle_dm(sender_id, command, text, data)
     return "ok"
+
+  def run(self):
+    self.__app.run(host="0.0.0.0",port=1121)

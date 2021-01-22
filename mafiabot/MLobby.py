@@ -5,49 +5,32 @@ from .MInfo import *
 from .MRules import MRules
 from .MGame import MGame
 from .MTimer import MTimer
+from .MChat import MChat, MDM
 
 MIN_PLAYERS = 3
 TIMER_MINUTES = 10
 
+# Eh for now have controller and lobby be the same
+
 class MLobby:
 
-  def __init__(self, ctrl, group_id, MChatType, dms, roleGen, MTimerType):
-    self.MChatType = MChatType
-    self.lobbyChat = MChatType(group_id)
-    self.dms = dms
+  def __init__(self, ctrl, lobby_chat):
     self.ctrl = ctrl
-    self.roleGen = roleGen
-    self.MTimerType = MTimerType
-
-    def lobby_cast(msg):
-      return self.lobbyChat.cast(self.lobbyChat.format(msg))
-
-    self.lobby_cast = lobby_cast
+    self.chat = lobby_chat
+    self.lobby_cast = self.chat.cast
 
     self.in_list = {}
     self.start_timer = None
     self.start_msg_id = None
     self.rules = MRules()
 
-    self.games = []
 
-  def handle(self, group_id, sender_id, command, text, data):
-    if command in GAME_MAIN_COMMANDS:
-      for game in self.games:
-        if game.active() and group_id == game.main_id():
-          return game.handle_main(sender_id, command, text, data)
-    if command in GAME_MAFIA_COMMANDS:
-      for game in self.games:
-        if game.active() and group_id == game.mafia_id():
-          return game.handle_mafia(sender_id, command, text, data)
-    if command in LOBBY_COMMANDS:
-      if self.group_id() == group_id:
-        if self.handle_lobby(sender_id, command, text, data):
-          return True
+  def handle(self, group_id, sender_id, cmd, **kwargs):
+    if group_id == self.chat.id:
+      return False
 
-  def handle_lobby(self, sender_id, command, text, data):
-
-    if command == IN_CMD:
+    text = kwargs["text"]
+    if cmd == MCmd.IN:
       # Get param /in [min]
       words = text.split()
       if len(words) > 1:
@@ -62,10 +45,10 @@ class MLobby:
 
       msg = "[{}] ready to join a game of at least {} players. ".format(sender_id, min_players)
       msg += "{} ready to play.".format(len(self.in_list))
-      self.lobby_cast(self.lobbyChat.format(msg))
+      self.lobby_cast(msg)
       return True
 
-    if command == OUT_CMD:
+    if cmd == MCmd.OUT:
       for (in_p,min_p) in self.in_list.items():
         if sender_id == in_p:
           break
@@ -78,7 +61,7 @@ class MLobby:
       self.lobby_cast(msg)
       return True
 
-    if command == START_CMD:
+    if cmd == MCmd.START:
       words = text.split()
       min_players = MIN_PLAYERS
       timer_minutes = TIMER_MINUTES
@@ -98,34 +81,24 @@ class MLobby:
         timer_minutes, 's' if timer_minutes!=1 else '', min_players)
       self.start_msg_id = self.lobby_cast(msg)
       self.start_min_players = min_players
-      self.start_timer = self.MTimerType(timer_minutes*60, {0:[self.try_start_game]})
+      self.start_timer = MTimer(timer_minutes*60, {0:[self.try_start_game]})
+      self.lobby_cast(msg)
 
-    if command == WATCH_CMD:
-      if len(self.games) == 1:
-        name = self.lobbyChat.getName(sender_id)
-        self.games[0].main_chat.add({sender_id:name})
-      elif len(self.games) == 0:
+    if cmd == MCmd.WATCH:
+      if len(self.ctrl.games) == 1:
+        name = self.chat.getName(sender_id)
+        self.ctrl.games[0].main_chat.add({sender_id:name})
+      elif len(self.ctrl.games) == 0:
         self.lobby_cast("Failed to watch, no games")
       else:
         self.lobby_cast("Failed to watch, can't tell which game...")
-
-    if command == RULE_CMD:
-      msg = ""
-      words = text.split()
-      if len(words) == 1:
-        msg = self.rules.describe(has_expl=False)
-      elif words[1] in MRules.RULE_BOOK:
-        rule = words[1]
-        msg = "{}:\n".format(rule)
-        msg += self.rules.explRule(rule, self.rules[rule])
-      elif words[1] == "long":
-        msg = self.rules.describe(has_expl=True)
     
-      self.lobby_cast(msg)
+    return False
+
 
   def try_start_game(self):
 
-    ack_in_list = [(p_id, self.start_min_players) for p_id in self.lobbyChat.getAcks(self.start_msg_id)]
+    ack_in_list = [(p_id, self.start_min_players) for p_id in self.chat.getAcks(self.start_msg_id)]
 
     for (p_id, min_p) in ack_in_list:
       if not p_id in self.in_list:
@@ -141,31 +114,17 @@ class MLobby:
     while len(in_list) > 0:
       if len(in_list) >= in_list[0][1]:
         for user_id,_ in in_list:
-          users[user_id] = self.lobbyChat.getName(user_id)
+          users[user_id] = self.chat.getName(user_id)
         break
       else:
         in_list = in_list[1:]
 
-    def end_game_callback(game, e):
-      self.ctrl.end_game_callback(game.state.id, game.main_chat.id, game.mafia_chat.id)
-      msg = "Game {} ended: {}\n".format(game.state.id, e)
-      msg += game.main_chat.format("") # TODO: fix start roles disp
-      self.lobby_cast(msg)
-      game.main_cast(msg)
-      self.start_timer = None
-
     if len(users) > MIN_PLAYERS:
       self.lobby_cast("Starting game")
-      game = MGame.new(self.MChatType, self.dms, self.rules, end_game_callback, users, self.roleGen, self.group_id())
-      self.games.append(game)
-
-      for user in users:
-        if not user in self.ctrl.activeGame:
-          self.ctrl.activeGame[user] = []
-        self.ctrl.activeGame[user].append(game)
+      self.ctrl.start_game(self, users, self.rules)
       self.in_list = {}
     else:
       self.lobby_cast("Could not start a game")
 
-  def group_id(self):
-    return self.lobbyChat.id
+    def destroy_game(self, game, id):
+      self.ctrl.destroy_game(game, id)

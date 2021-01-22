@@ -1,6 +1,7 @@
 # Encoder for saving mafia states, and hooks for decoding them.
 
 import json
+from mafiabot import *
 
 __all__ = ['msave','mload']
 

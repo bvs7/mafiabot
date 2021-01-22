@@ -6,9 +6,9 @@ from .MPlayer import MPlayer, MPlayerID, NOTARGET
 from .MRules import MRules
 from .MChat import MChat, MDM, CastError
 from .MServer import MServer, TestMServer
-from .MGame import MGame
+from .MGame import MGame, DeleteGameException
 from .MController import MController
 from .MRoleGen import MRoleGen
 from .MTimer import MTimer, FastMTimer
 from .MVengeance import MVengeance
-from .MSave import MSaveEncoder, mload
+from .MSave import MSaveEncoder, msave, mload, mafia_hook

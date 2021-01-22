@@ -18,6 +18,9 @@ class MServer:
   def dm(self):
     pass
 
+  def run(self):
+    raise NotImplementedError("Default MServer")
+
 class TestMServer(MServer):
 
   def __init__(self, handle_chat, handle_dm):
@@ -58,7 +61,7 @@ class TestMServer(MServer):
         data = json.loads(j)
       self.handle_dm(sender_id, command, text, data)
 
-  def loop(self):
+  def run(self):
     while self.active:
       chat_dm = input("Chat/DM, [c]/d: ")
       if chat_dm in ["", "c", "chat"]:

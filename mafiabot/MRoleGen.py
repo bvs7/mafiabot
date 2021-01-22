@@ -286,7 +286,9 @@ class MRoleGen:
     # Should shuffle roles into ids, then decide rogue contracts based on rogues info
     roles,contracts = MRoleGen.decideContracts(roles, rogues, ids)
 
-    return ids, roles, contracts
+    assignments = list(zip(ids,roles))
+
+    return assignments, contracts
 
 
 """

@@ -4,11 +4,15 @@ from .MInfo import MRole
 # from enum import Enum
 from typing import Optional, NewType
 
+# TODO: how to generalize this to a subclass? or subsystem?
 MPlayerID = NewType('MPlayerID', str)
 
 NOTARGET : MPlayerID = "NOTARGET"
 
 class MPlayer:
+  MPlayerID = MPlayerID
+  NOTARGET : MPlayerID = "NOTARGET"
+
   def __init__(self, 
       id : MPlayerID, 
       role : MRole, 
