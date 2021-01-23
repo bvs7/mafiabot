@@ -4,6 +4,8 @@ from typing import List, Dict, Set
 from collections import deque
 import json
 
+import mafiabot
+
 from .MInfo import *
 from .MGame import MGame
 from .MRules import MRules
@@ -31,18 +33,23 @@ class MController:
     self.rules = MRules()
     self.games:Dict[int,MGame] = {}
     self.focusedGames = {}
-    self.in_list = [] # List of (id,minp)
+    self.in_list = {} # maps id to min_p
 
     # Check for active games?
-    f = open("../../data/lobbies/{}".format(lobby_id))
-    self.parse(f)
-    f.close()
+    try:
+      f = open("./data/lobbies/{}".format(lobby_id))
+      self.parse(f)
+      f.close()
+    except FileNotFoundError:
+      pass
 
+  def run(self):
     server = self.MServerType(self.handle_chat, self.handle_dm)
     server.run()
     
   # callback for Server
   def handle_chat(self, group_id, sender_id, cmd:MCmd, **kwargs):
+    cmd = MCmd(cmd)
     # First check games
     for g_id,g in self.games.items():
       if g.handle_chat(group_id, sender_id, cmd, **kwargs):
@@ -65,7 +72,7 @@ class MController:
       else:
         min_players = MIN_PLAYERS
       
-      self.in_list.append(sender_id, min_players)
+      self.in_list[sender_id] = min_players
 
       msg = "[{}] ready to join a game of at least {} players. ".format(sender_id, min_players)
       msg += "{} ready to play.".format(len(self.in_list))
@@ -73,7 +80,7 @@ class MController:
       return True
 
     if cmd == MCmd.OUT:
-      for (in_p,min_p) in self.in_list:
+      for in_p in self.in_list:
         if sender_id == in_p:
           break
       else:
@@ -105,8 +112,7 @@ class MController:
         timer_minutes, 's' if timer_minutes!=1 else '', min_players)
       self.start_msg_id = self.lobbyChat.cast(msg)
       self.start_min_players = min_players
-      self.start_timer = MTimer(timer_minutes*60, {0:[self.try_start_game]})
-      self.lobbyChat.cast(msg)
+      self.start_timer = MTimer(timer_minutes*5, {0:[self.try_start_game]})
 
     if cmd == MCmd.WATCH:
       if len(self.games) == 1:
@@ -116,10 +122,14 @@ class MController:
         self.lobbyChat.cast("Failed to watch, no games")
       else:
         self.lobbyChat.cast("Failed to watch, can't tell which game...")
+
+    if cmd == MCmd.STATUS:
+      self.lobbyChat.cast("Status not implemented yet")
     
     return False
 
-  def handle_dm(self, sender_id, cmd:MCmd, **kwargs):
+  def handle_dm(self, sender_id, cmd, **kwargs):
+    cmd = MCmd(cmd)
     # check for this player's game?
     if cmd.is_game_dm():
       if sender_id in self.focusedGames:
@@ -140,12 +150,10 @@ class MController:
   def start_game(self, users, rules):
     g = self.MGameType.new(rules)
     self.games[g.id] = g
-    g.start(users, MRoleGen.roleGen)
     for user_id in users:
       if not user_id in self.focusedGames:
         self.focusedGames[user_id] = deque()
       self.focusedGames[user_id].appendleft(g.id)
-
     g.start(users, MRoleGen.roleGen)
 
   def try_start_game(self):
@@ -171,9 +179,9 @@ class MController:
       else:
         in_list = in_list[1:]
 
-    if len(users) > MIN_PLAYERS:
+    if len(users) >= MIN_PLAYERS:
       self.lobbyChat.cast("Starting game")
-      self.start_game(self, users)
+      self.start_game(users, MRules(self.rules))
       self.in_list = {}
     else:
       self.lobbyChat.cast("Could not start a game")
@@ -192,13 +200,13 @@ class MController:
         del self.focusedGames[p_id]
   
   def load_game(self, g_id):
-    f = open("../../data/games/game_{}.maf".format(g_id), 'r')
+    f = open("./data/games/game_{}.maf".format(g_id), 'r')
     g = self.MGameType.load(f)
     self.games[g.id] = g
     f.close()
 
   def save(self):
-    f = open("../../data/lobbies/{}".format(self.lobbyChat.id), 'w')
+    f = open("./data/lobbies/{}".format(self.lobbyChat.id), 'w')
     f.write("Rules: {}".format(json.dumps(self.rules, cls=MSaveEncoder)))
     f.write("Games: {}".format(json.dumps(list(self.games.keys()))))
     f.write("FocusedGames: {}".format(json.dumps(self.focusedGames)))

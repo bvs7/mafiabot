@@ -1,4 +1,5 @@
 #!/usr/bin/python3
+import logging
 from flask import Flask, request
 import json
 
@@ -10,19 +11,20 @@ class GroupMeServer(MServer):
     self.handle_chat = handle_chat
     self.handle_dm = handle_dm
     self.__app = Flask('mafiabot')
+    self.__app.debug = True
 
     self.__app.add_url_rule('/', 'chat', self.chat, methods=['POST'])
     self.__app.add_url_rule('/dm', 'dm', self.dm, methods=['POST'])
 
   def chat(self):
-    print(request.data)
     data = json.loads(request.data.decode('utf-8'))
+    print(data)
     text = data['text']
     if text[0:len(ACCESS_KW)] == ACCESS_KW:
       group_id = data['group_id']
       sender_id = data['sender_id']
       command = text.split()[0][len(ACCESS_KW):]
-      self.handle_chat(group_id, sender_id, command, text, data)
+      self.handle_chat(group_id, sender_id, command, text=text, data=data)
     return "ok"
 
   def dm(self):
@@ -31,8 +33,8 @@ class GroupMeServer(MServer):
     if text[0:len(ACCESS_KW)] == ACCESS_KW:
       sender_id = data['sender_id']
       command = text.split()[0][len(ACCESS_KW):]
-      self.handle_dm(sender_id, command, text, data)
+      self.handle_dm(sender_id, command, text=text, data=data)
     return "ok"
 
-  def run(self):
-    self.__app.run(host="0.0.0.0",port=1121)
+  def run(self, **kwargs):
+    self.__app.run(host="0.0.0.0",port=1121, **kwargs)

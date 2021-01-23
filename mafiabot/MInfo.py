@@ -218,11 +218,11 @@ def createStartRolesMsg(players,contracts):
 
 def getNewGameID():
   try:
-    f = open("../data/game_id", 'r')
+    f = open("./data/game_id", 'r')
     i = int(f.read().strip())
     f.close()
-    f = open("../data/game_id", 'w')
-    f.write(str(id+1))
+    f = open("./data/game_id", 'w')
+    f.write(str(i+1))
     f.close()
   except Exception as e:
     print("Failed to make game id: {}".format(e))

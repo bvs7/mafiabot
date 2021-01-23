@@ -27,6 +27,9 @@ class MRoleGen:
 
   @staticmethod
   def roleGen(ids:MPlayerID) -> MRoleGenType:
+    if len(ids) == 3:
+      assign = list(zip(ids, ['TOWN','TOWN','MAFIA']))
+      return assign,{}
     return MRoleGen.randomRoleGen(ids)
 
   @staticmethod

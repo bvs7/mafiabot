@@ -35,6 +35,7 @@ class MGame:
   def __init__(self, game_id, mstate:MState,
                main_chat_id=None, mafia_chat_id=None):
     # Search for saved game?
+    print("New MGame", flush = True)
     self.id = game_id
     self.mstate = mstate
     if main_chat_id == None:
@@ -57,32 +58,41 @@ class MGame:
   @classmethod
   def new(cls, rules:MRules=MRules()): 
 
-    game_id = getNewGameID()
+    game_id = 1#getNewGameID()
     mstate = MState(rules)
 
     g = cls(game_id, mstate)
+    print("Return: ", g, flush = True)
     return g
 
   def start(self, users, roleGen):
     """ Inputs, roleGen is a roleGen fn, users is... user ids and nicknames?
     Should we import user nicknames? Yes, eventually have MUser! for generality
     """
+    print("START1",flush=True)
     ids = list(users.keys())
     (assignments, contracts) = roleGen(ids)
+    print("START2",flush=True)
     ids = [p_id for p_id,r in assignments]
+    print("START3",flush=True)
     roles = [MRole(r) for p_id,r in assignments]
+    print("START4",flush=True)
     assignments = list(zip(ids,roles))
-    print(assignments)
+    print("START",flush=True)
+    print(assignments, flush=True)
     # Should roleGen do a better job of returning things?
     mafia_users = {}
     for p_id, role in assignments:
-      if role.is_mafia():
+      if MRole(role).is_mafia():
         mafia_users[p_id] = users[p_id]
 
     self.main_chat.add(users)
     self.mafia_chat.add(mafia_users)
 
-    self.mstate.start(assignments, contracts)
+    try:
+      self.mstate.start(assignments, contracts)
+    except Exception as e:
+      print(e, flush=True)
 
   def active(self):
     return self.mstate != None and self.mstate.phase.active()
@@ -305,9 +315,10 @@ class MGame:
       self.destroy()
 
   def save(self):
-    f = open("game_{}.maf".format(self.id),"w")
-    msave(self,f)
-    f.close()
+    # f = open("game_{}.maf".format(self.id),"w")
+    # msave(self,f)
+    # f.close()
+    pass
 
   def to_json(self):
     d = {

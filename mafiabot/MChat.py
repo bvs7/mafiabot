@@ -5,6 +5,7 @@ class CastError(Exception):
 class MChat:
 
   def __init__(self, group_id, name_reference=None):
+    print("New MChat %s"%group_id, flush=True)
     self.id = group_id
     if name_reference == None:
       self.format = self.__format
@@ -23,10 +24,10 @@ class MChat:
 
   @staticmethod
   def new(name,): # Just return id?
-    return MChat(name).id
+    return name
 
   def getName(self,user_id):
-    return self.names[user_id]
+    return "Name of %s"%user_id
 
   def __format(self, msg):
     for id,name in self.names.items():
@@ -48,7 +49,7 @@ class MChat:
     print("ADD: {}".format(users))
 
   def cast(self, msg):
-    print("CAST {}: {}".format(self.id, self.format(msg)))
+    print("CAST {}: {}".format(self.id, self.format(msg)), flush=True)
     return "-1"
 
   def ack(self, message_id):
@@ -66,7 +67,7 @@ class MDM:
       self.format = chat.format
 
   def send(self,msg,user_id):
-    print("SEND {}: {}".format(user_id, self.format(msg)))
+    print("SEND {}: {}".format(user_id, self.format(msg)), flush=True)
 
 
 

@@ -130,8 +130,11 @@ class MRules:
     "AGENT" : [charge_refocus_agent]
   }
 
-  def __init__(self):
-    self.rules = self.default_rules.copy()
+  def __init__(self, rules=None):
+    if rules:
+      self.rules = rules.rules.copy()
+    else:
+      self.rules = self.default_rules.copy()
 
 
   def __getitem__(self, item):

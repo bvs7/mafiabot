@@ -87,7 +87,6 @@ class MState:
     self.halt_timer = self.__halt_timer # Called when time progresses to stop timer?
 
     self.rules = rules
-    print("Rules", self.rules)
 
     self.day = 0
     self.phase = MPhase.INIT
@@ -166,7 +165,6 @@ class MState:
 
     for p in self.players:
       msg += "\n" + ("[%s]"%p)
-    print("Rules", self.rules)
     known_roles = self.rules[MRules.known_roles]
     role_list = dispKnownRoles(makeRoleDict([r for p_id,r in assignments]), known_roles)
     msg += "\n" + role_list

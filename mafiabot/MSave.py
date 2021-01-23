@@ -1,9 +1,7 @@
 # Encoder for saving mafia states, and hooks for decoding them.
 
 import json
-from mafiabot import *
-
-__all__ = ['msave','mload']
+import mafiabot
 
 class MSaveEncoder(json.JSONEncoder):
   def default(self, obj):
@@ -39,7 +37,7 @@ def mafia_hook(d):
   for hook in hooks:
     if "__{}__".format(hook) in d:
       try:
-        result = globals()[hook].from_json(d)
+        result = getattr(mafiabot,hook).from_json(d)
       except Exception as e:
         print("MAFIA JSON ERROR reading {}: {}".format(str(d),str(e)))
         raise e

@@ -23,6 +23,7 @@ CAST_DELAY = .1
 class GroupMeChat(MChat):
 
   def __init__(self, group_id, name_reference:MChat = None):
+    print("GroupMeChat",flush=True)
     self.id = group_id
     self.group = client.groups.get(group_id)
     self.setNameReference(name_reference)
