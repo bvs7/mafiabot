@@ -29,7 +29,7 @@ class TestMServer(MServer):
 
     self.active = True
 
-    thread = threading.Thread(target=self.loop)
+    thread = threading.Thread(target=self.run)
     thread.start()
 
 

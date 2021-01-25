@@ -23,7 +23,7 @@ class MChat:
     print("DEL {}".format(self.id))
 
   @staticmethod
-  def new(name,): # Just return id?
+  def new(name): # Just return id?
     return name
 
   def getName(self,user_id):
