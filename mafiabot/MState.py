@@ -106,6 +106,7 @@ class MState:
     print("DEL MSTATE")
 
   def teststart(self, ids, roles, contracts):
+    print(ids,roles,contracts)
     assignments = list(zip(ids,roles))
     self.start(assignments,contracts)
 
@@ -119,9 +120,11 @@ class MState:
     assert isinstance(assignments[0][1], MRole) or isinstance(assignments[0][1],str)
     ids = [p_id for p_id,r in assignments]
     roles = [MRole(r) for p_id,r in assignments]
+    print(ids,roles,contracts)
     assignments = list(zip(ids,roles))
     # Ensure starting roles are valid?
     maf = [m for m in roles if m.is_mafia()]
+    print(maf)
     n_players = len(roles)
     n_mafia = len(maf)
     assert not (n_mafia >= (n_players+1) // 2)

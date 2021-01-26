@@ -32,10 +32,11 @@ class VEnum(Enum, metaclass=VEnumMeta):
     return "<%s.%s>" % (self.__class__.__name__, self.name)
   
   def __eq__(self, other):
+    name = self._name_
     if isinstance(other, str):
-      return self.name == other
+      return name.upper() == other.upper()
     if isinstance(other, self.__class__):
-      return self.name == other.name
+      return name == other.name
     return False
 
   def __hash__(self):

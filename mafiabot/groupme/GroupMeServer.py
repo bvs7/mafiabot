@@ -3,18 +3,18 @@ import logging
 from flask import Flask, request
 import json
 
-from mafiabot import ACCESS_KW, MServer
+from mafiabot import ACCESS_KW, MServer, MPlayerID
 
 class GroupMeServer(MServer):
 
   def __init__(self, handle_chat, handle_dm):
     self.handle_chat = handle_chat
     self.handle_dm = handle_dm
-    self.__app = Flask('mafiabot')
-    self.__app.debug = True
+    self.app = Flask('mafiabot')
+    self.app.debug = True
 
-    self.__app.add_url_rule('/', 'chat', self.chat, methods=['POST'])
-    self.__app.add_url_rule('/dm', 'dm', self.dm, methods=['POST'])
+    self.app.add_url_rule('/', 'chat', self.chat, methods=['POST'])
+    self.app.add_url_rule('/dm', 'dm', self.dm, methods=['POST'])
 
   def chat(self):
     data = json.loads(request.data.decode('utf-8'))
@@ -29,6 +29,7 @@ class GroupMeServer(MServer):
 
   def dm(self):
     data = json.loads(request.data.decode('utf-8'))
+    print(data)
     text = data['text']
     if text[0:len(ACCESS_KW)] == ACCESS_KW:
       sender_id = data['sender_id']
@@ -37,4 +38,4 @@ class GroupMeServer(MServer):
     return "ok"
 
   def run(self, **kwargs):
-    self.__app.run(host="0.0.0.0",port=1121, **kwargs)
+    self.app.run(host="0.0.0.0",port=1121, **kwargs)

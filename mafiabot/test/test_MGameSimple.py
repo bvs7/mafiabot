@@ -1,6 +1,6 @@
 
 from mafiabot import *
-from .test_util import *
+from mafiabot.test.test_util import *
 
 
 def default_roleGen(ids):
@@ -18,13 +18,11 @@ class TestMGameSimple(unittest.TestCase):
     mgame.start({'1':'ONE','2':'TWO','3':'THREE'}, default_roleGen)
 
     mgame.handle_vote('1','1')
-    mgame.save()
-    with open("game_-1.maf","r") as f:
-      mgame2 = MGame.load(f)
-    mgame2.handle_vote('2','1')
 
-    self.assertEqual(mgame2.mstate.phase, MPhase.END)
+    mgame.handle_vote('2','1')
 
-    self.assertRaises(DeleteGameException, mgame2.handle_end, '1')
+    self.assertEqual(mgame.mstate.phase, MPhase.END)
+
+    self.assertRaises(DeleteGameException, mgame.handle_end, '1')
 
     print("Done...")

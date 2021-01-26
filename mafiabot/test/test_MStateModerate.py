@@ -1,6 +1,6 @@
 
 from mafiabot import *
-from .test_util import *
+from mafiabot.test.test_util import *
 
 class TestMStateModerate(unittest.TestCase):
 

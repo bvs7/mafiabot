@@ -19,10 +19,10 @@ class TestGroupMeController(mafiabot.MController):
   MGameType = GroupMeGame
   MServerType = GroupMeServer
 
-  def __init__(self, lobby_id):
+  def __init__(self, lobby_id, MChatType, MDMType):
     super().__init__(lobby_id)
-    self.MGameType.MChatType = self.MChatType
-    self.MGameType.MDMType = self.MDMType
+    self.MGameType.MChatType = MChatType
+    self.MGameType.MDMType = MDMType
 
   def run(self):
     server = self.MServerType(self.handle_chat, self.handle_dm)
