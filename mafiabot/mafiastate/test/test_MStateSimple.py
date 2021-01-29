@@ -348,7 +348,7 @@ class TestMStateSimple(unittest.TestCase):
     mstate.reveal('1')
 
   def test_mason(self):
-    test_dm, add_dm = create_dm_tester(print_mode)
+    test_dm, _ = create_dm_tester(print_mode)
     mstate = standardState()
     mstate.send_dm = test_dm
 
@@ -356,7 +356,6 @@ class TestMStateSimple(unittest.TestCase):
       ['1','2','3','4','5'], 
       ['TOWN','MASON','MASON','MASON','MAFIA'])), 
       {})
-
 
   def test_goon(self):
     test_dm, add_dm = create_dm_tester(print_mode)
