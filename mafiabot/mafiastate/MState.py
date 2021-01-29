@@ -1,5 +1,5 @@
 from enum import Enum, auto
-from typing import *
+from typing import List, Dict, Optional, Set, Iterable, Tuple
 from threading import Lock, Thread
 import json
 from collections import OrderedDict

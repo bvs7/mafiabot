@@ -1,6 +1,6 @@
 
-from .. import *
-from ..test.test_util import *
+from .. import * # pylint: disable=W0614
+from ..test.test_util import * # pylint: disable=W0614
 
 class TestMStateSimple(unittest.TestCase):
 
@@ -168,7 +168,7 @@ class TestMStateSimple(unittest.TestCase):
       self.assertEqual(e.msg, resp_lib["INVALID_VOTE_PHASE"])
 
   def all_roles(self, rules=MRules()):
-    test_dm, add_dm = create_dm_tester(print_mode)
+    test_dm, _ = create_dm_tester(print_mode)
     mstate = standardState(rules)
     mstate.send_dm = test_dm
     ns = [str(n) for n in range(len(MRole.__members__))]
@@ -351,9 +351,6 @@ class TestMStateSimple(unittest.TestCase):
     test_dm, add_dm = create_dm_tester(print_mode)
     mstate = standardState()
     mstate.send_dm = test_dm
-    expected1 = MRole.MASON.expl()
-    add_dm(expected1,'3')
-    add_dm(expected1,'4')
 
     mstate.start(list(zip(
       ['1','2','3','4','5'], 

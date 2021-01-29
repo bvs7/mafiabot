@@ -1,7 +1,7 @@
 # Encoder for saving mafia states, and hooks for decoding them.
 
 import json
-from .. import mafiastate # pylint: disable
+from .. import mafiastate
 
 class MSaveEncoder(json.JSONEncoder):
   def default(self, obj):

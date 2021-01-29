@@ -3,8 +3,8 @@ import json
 
 from typing import NewType
 
-from ..mafiastate import *
-from ..chatinterface import *
+from ..mafiastate import MState, MRules, MRole, MPlayerID, InvalidActionException, EndGameException, MPhase, mload 
+from ..chatinterface import MChat, MDM, MCmd
 
 # Starts game, creates chats?
 # Sticks around after the game to manage chats?
@@ -113,72 +113,14 @@ class MGame:
 
   # A message sent to main chat, decide signature?
   def handle_main(self, sender_id:MPlayerID, cmd:MCmd, **kwargs):
-    """ This function should be implemented by subclass!
-    """
     raise NotImplementedError("Default MGame")
-    """
-    if command == VOTE_CMD:
-      words = text.split()
-      voter = sender_id
-      votee = None
-      if len(words) >= 2:
-        # TODO: Generalize language
-        if words[1].lower() == "me":
-          votee = sender_id
-        elif words[1].lower() == "none":
-          votee = None
-        elif words[1].lower() == "nokill":
-          votee = "NOTARGET"
-        elif 'attachments' in data:
-          mentions = [a for a in data['attachments'] if a['type'] == 'mentions']
-          if len(mentions) > 0 and 'user_ids' in mentions[0] and len(mentions[0]['user_ids']) >= 1:
-            votee = mentions[0]['user_ids'][0]
-      self.handle_vote(voter,votee)
-    elif command == STATUS_CMD:
-      self.handle_main_status()
-    elif command == HELP_CMD:
-      self.handle_main_help(text)
-    elif command == TIMER_CMD:
-      self.handle_timer(sender_id)
-    elif command == UNTIMER_CMD:
-      self.handle_untimer(sender_id)
-    elif command == RULE_CMD:
-      self.handle_rule("MAIN", text)
-
-    self.save()
-    """
 
   def handle_mafia(self, sender_id:MPlayerID, cmd:MCmd, **kwargs):
     raise NotImplementedError("Default MGame")
-  """
-    if command == TARGET_CMD:
-      self.handle_mtarget(sender_id, text)
-    elif command == STATUS_CMD:
-      self.handle_mafia_status()
-    elif command == HELP_CMD:
-      self.handle_mafia_help(text)
-    elif command == RULE_CMD:
-      self.handle_rule("MAFIA",text)
-
-    self.save()
-    """
 
   def handle_dm(self, sender_id, cmd:MCmd, **kwargs):
     raise NotImplementedError("Default MGame")
-  """
-    if command == TARGET_CMD:
-      self.handle_target(sender_id, text)
-    elif command == REVEAL_CMD:
-      self.handle_reveal(sender_id)
-    elif command == STATUS_CMD:
-      self.handle_dm_status(sender_id)
-    elif command == HELP_CMD:
-      self.handle_dm_help(sender_id, text)
-    elif command == RULE_CMD:
-      self.handle_rule(sender_id,text)
 
-    self.save()
-    """
 
   def handle_vote(self,voter_id,votee_id):
     try:
@@ -237,16 +179,6 @@ class MGame:
     except EndGameException as ege:
       self.end_game(ege.msg)
       return False
-
-    # if not (player_id in self.mstate.players and self.mstate.players[player_id].role == "CELEB"):
-    #   self.send_dm(resp_lib["INVALID_REVEAL_PLAYER"],player_id)
-    #   return
-
-    # if not self.mstate.phase == MPhase.DAY:
-    #   self.send_dm(resp_lib["INVALID_REVEAL_PHASE"],player_id)
-    #   return
-
-    # self.mstate.reveal(player_id)
     
   def halt_timer(self):
     print("Halt timer for MGame {}".format(self))

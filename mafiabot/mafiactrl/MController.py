@@ -6,8 +6,8 @@ import json
 
 from . import MGame, MTimer
 
-from ..mafiastate import *
-from ..chatinterface import *
+from ..mafiastate import MRules, MRoleGen, mafia_hook, MSaveEncoder
+from ..chatinterface import MChat, MDM, MServer, MCmd
 
 MIN_PLAYERS = 3
 TIMER_MINUTES = 10
@@ -44,7 +44,7 @@ class MController:
   def handle_chat(self, group_id, sender_id, cmd:MCmd, **kwargs):
     cmd = MCmd(cmd)
     # First check games
-    for g_id,g in self.games.items():
+    for g in self.games.values():
       if g.handle_chat(group_id, sender_id, cmd, **kwargs):
         return True
     
@@ -162,7 +162,6 @@ class MController:
     in_list = sorted(in_list, key=lambda x: x[1])
     in_list.reverse()
     # While not done, test for a game, if not, remove largest min_players
-    done = False
     users = {}
     while len(in_list) > 0:
       if len(in_list) >= in_list[0][1]:

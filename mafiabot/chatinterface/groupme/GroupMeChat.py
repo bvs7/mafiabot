@@ -40,7 +40,7 @@ class GroupMeChat(MChat):
   def new(name):
     g = client.groups.create(name)
     time.sleep(.5)
-    bot = g.create_bot("Mafia Bot", callback_url = "http://70.180.16.29:1121/", dm_notification=False)
+    g.create_bot("Mafia Bot", callback_url = "http://70.180.16.29:1121/", dm_notification=False)
     return GroupMeChat(g.id)
 
   def __format(self, msg): # Default format if no name_reference

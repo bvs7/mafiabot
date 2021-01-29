@@ -1,4 +1,4 @@
-from mafiabot import MChat, MDM
+from . import MChat, MDM
 import re
 from collections import deque
 
