@@ -1,7 +1,7 @@
 import unittest
 from collections import deque
 
-from mafiabot import MState, MRules, MPhase
+from mafiastate import MState, MRules, MPhase
 
 def verbose(*args):
   print(*args)

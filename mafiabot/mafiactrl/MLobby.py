@@ -1,11 +1,10 @@
 import threading
 import time
 
-from .MInfo import *
-from .MRules import MRules
-from .MGame import MGame
-from .MTimer import MTimer
-from .MChat import MChat, MDM
+from . import MTimer
+
+from ..mafiastate import *
+from ..chatinterface import *
 
 MIN_PLAYERS = 3
 TIMER_MINUTES = 10

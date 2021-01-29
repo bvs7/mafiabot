@@ -3,7 +3,7 @@ import logging
 from flask import Flask, request
 import json
 
-from mafiabot import ACCESS_KW, MServer, MPlayerID
+from .. import MServer, ACCESS_KW, MCmd
 
 class GroupMeServer(MServer):
 

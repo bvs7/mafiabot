@@ -1,5 +1,4 @@
 
-from .MInfo import *
 from .MPlayer import MPlayerID
 from .MRole import MRole, TOWN_ROLES, MAFIA_ROLES, ROGUE_ROLES, CONTRACT_ROLES
 
@@ -20,8 +19,9 @@ class MContract:
   def from_json(d):
     return MContract(d['role'],d['charge'],d['success'])
 
+  
 MAssignment = NewType('Assignment', Tuple[MPlayerID,Union[MRole,str]])
-MRoleGenType = NewType('RoleGenType', Tuple[Iterable[MAssignment],Dict[MPlayerID,MContract]])
+MRoleGenType = NewType('RoleGenType', Tuple[Iterable[MAssignment],Dict[MPlayerID,MContract]]) 
 
 class MRoleGen:
 

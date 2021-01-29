@@ -4,17 +4,10 @@ from typing import List, Dict, Set
 from collections import deque
 import json
 
-import mafiabot
+from . import MGame, MTimer
 
-from .MInfo import *
-from .MGame import MGame
-from .MRules import MRules
-from .MRoleGen import MRoleGen
-from .MTimer import MTimer
-from .MChat import MChat, MDM
-from .MServer import MServer
-from .MPlayer import MPlayer
-from .MSave import mafia_hook, MSaveEncoder
+from ..mafiastate import *
+from ..chatinterface import *
 
 MIN_PLAYERS = 3
 TIMER_MINUTES = 10

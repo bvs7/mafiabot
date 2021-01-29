@@ -66,6 +66,7 @@ class MDM:
     else:
       self.format = chat.format
 
+  # TODO: also take an iterable as msg, then send those in chunks based on max msg size
   def send(self,msg,user_id):
     print("SEND {}: {}".format(user_id, self.format(msg)), flush=True)
 

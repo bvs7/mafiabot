@@ -1,21 +1,21 @@
-import mafiabot
 
-from .GroupMeChat import GroupMeChat, GroupMeDM
-from .GroupMeGame import GroupMeGame
-from .GroupMeServer import GroupMeServer
+from . import MController
+
+from ..chatinterface import MChat, MDM
+from ..chatinterface.groupme import GroupMeChat, GroupMeDM, GroupMeServer, GroupMeGame
 
 
-class GroupMeController(mafiabot.MController):
+class GroupMeController(MController):
 
   MChatType = GroupMeChat
   MDMType = GroupMeDM
   MGameType = GroupMeGame
   MServerType = GroupMeServer
 
-class TestGroupMeController(mafiabot.MController):
+class TestGroupMeController(MController):
 
-  MChatType = mafiabot.MChat
-  MDMType = mafiabot.MDM
+  MChatType = MChat
+  MDMType = MDM
   MGameType = GroupMeGame
   MServerType = GroupMeServer
 

@@ -1,17 +1,17 @@
 from enum import Enum, auto
-from typing import * # pylint: disable
+from typing import *
 from threading import Lock, Thread
 import json
 from collections import OrderedDict
 
-from .MInfo import *
+from .MInfo import resp_lib, dispKnownRoles, makeRoleDict, createStartRolesMsg, dispRole
 from .MRole import MRole, MTeam
 from .MPlayer import MPlayer, MPlayerID, NOTARGET
 from .MRules import MRules
 from .util import VEnum
 from .MRoleGen import MAssignment, MRoleGenType, MContract
 
-__all__ = ['MState','MPhase','MVengeance','EndGameException','IdiotWinException','TeamWinException']
+__all__ = ['MState','MPhase', 'InvalidActionException', 'EndGameException','IdiotWinException','TeamWinException']
 
 # TODO: Generalize listMenu? Make that a DM option?
 
@@ -43,7 +43,6 @@ class EndGameException(Exception):
     super().__init__(self)
 
 class IdiotWinException(EndGameException):
-
   def __init__(self, idiot_id, msg=None):
     self.idiot_id = idiot_id
     if msg == None:
@@ -70,12 +69,14 @@ class MVengeance:
   def from_json(d):
     return MVengeance(d['venges'], d['final_vote'], d['idiot'])
 
+
 def check_end(func):
   def inner(self, *args):
     if self.phase == MPhase.END:
       raise InvalidActionException(resp_lib["INVALID_ACTION_END"])
     return func(self, *args)
   return inner
+
 
 class MState:
 
@@ -105,81 +106,38 @@ class MState:
   def destroy(self):
     print("DEL MSTATE")
 
-  def teststart(self, ids, roles, contracts):
-    print(ids,roles,contracts)
-    assignments = list(zip(ids,roles))
-    self.start(assignments,contracts)
-
   # Is Iterable what we want? or would some other base class be better?
   def start(self, assignments:Iterable[MAssignment], 
                   contracts:Dict[MPlayerID, MContract]):
     # Check inputs for validity...
+    
     assert isinstance(assignments, Iterable)
     assert len(assignments) >= 3
     assert isinstance(assignments[0][0],type(NOTARGET))
     assert isinstance(assignments[0][1], MRole) or isinstance(assignments[0][1],str)
-    ids = [p_id for p_id,r in assignments]
-    roles = [MRole(r) for p_id,r in assignments]
-    print(ids,roles,contracts)
-    assignments = list(zip(ids,roles))
+
+    assignments = [(i,MRole(r)) for i,r in assignments]
     # Ensure starting roles are valid?
-    maf = [m for m in roles if m.is_mafia()]
-    print(maf)
-    n_players = len(roles)
+    maf = [m for (i,m) in assignments if m.is_mafia()]
+    n_players = len(assignments)
     n_mafia = len(maf)
     assert not (n_mafia >= (n_players+1) // 2)
     assert not (n_mafia == 0)
     # Ensure starting contracts are valid
     for p_id, contract in contracts.items():
-      assert p_id in ids
-      assert roles[ids.index(p_id)] == contract.role
-      assert contract.charge in ids
+      assert (p_id, contract.role) in assignments
+      assert contract.charge in [i for (i,r) in assignments]
       assert contract.success == (contract.role in {MRole.SURVIVOR, MRole.GUARD})
+
     self.__start(assignments, contracts)
 
   def __start(self, assignments:Iterable[MAssignment],
                     contracts:Dict[MPlayerID, MContract]):
-    # Do start things
     self.contracts = contracts
-    for p_id,role in assignments:
-      p = MPlayer(p_id, role)
-      self.players[p_id] = p
-      # Send role explain
-      msg = p.role.expl()
-      if p.role in {MRole.GUARD,MRole.AGENT}:
-        msg += " " + resp_lib["CHARGE_ASSIGN"].format(charge=self.contracts[p_id].charge)
-      
-      for rule in MRules.relevant_rules[p.role]:
-        sett = self.rules[rule]
-        msg += "\n{}|{}: {}".format(rule,sett, MRules.RULE_BOOK[rule][sett])
-      
-      self.send_dm(msg, p_id)
-    masons = set([p_id for p_id in self.players if self.players[p_id].role == MRole.MASON])
+    self.players_init(assignments)
+    self.send_role_expl()
+    self.cast_start_msgs()
     
-    for mason in masons:
-      if len(masons) > 1:
-        masons_str = ["[{}]".format(mason) for mason in (masons - {mason})]
-        msg = resp_lib["MASON_REVEAL"].format("\n".join(masons_str))
-        self.send_dm(msg, mason)
-    self.start_roles = createStartRolesMsg(self.players,self.contracts)
-
-
-    msg = resp_lib["START"]
-
-    for p in self.players:
-      msg += "\n" + ("[%s]"%p)
-    known_roles = self.rules[MRules.known_roles]
-    role_list = dispKnownRoles(makeRoleDict([r for p_id,r in assignments]), known_roles)
-    msg += "\n" + role_list
-
-    maf_msg = resp_lib["START_MAFIA"]
-    maf_players = [p for p in self.players if self.players[p].role.is_mafia()]
-    if len(maf_players) > 1:
-      for p in maf_players:
-        maf_msg += "\n" + "[{}]: {}".format(p, self.players[p].role)
-
-    self.cast_main(msg)
-    self.cast_mafia(maf_msg)
     self.day = 1
     start_night = self.rules[MRules.start_night]
     even = len(self.players) % 2 == 0
@@ -681,6 +639,46 @@ class MState:
 
   def dm_status(self, player_id):
     return "TODO" # TODO
+
+  def players_init(self, assignments):
+    for p_id,role in assignments:
+      p = MPlayer(p_id, role)
+      self.players[p_id] = p
+
+  def send_role_expl(self):
+    mason_strs = set(["[{}]".format(p_id) for p_id in \
+      self.players if self.players[p_id].role == MRole.MASON])
+    mason_msg = resp_lib["MASON_REVEAL"].format("\n".join(mason_strs))
+
+    for p_id,p in self.players.items():
+      msg = p.role.expl()
+      if p.role in {MRole.GUARD,MRole.AGENT}:
+        msg += " " + resp_lib["CHARGE_ASSIGN"].format(charge=self.contracts[p_id].charge)
+      if p.role in {MRole.MASON}:
+        msg += "\n" + mason_msg
+      for rule in MRules.relevant_rules[p.role]:
+        sett = self.rules[rule]
+        msg += "\n{}|{}: {}".format(rule,sett, MRules.RULE_BOOK[rule][sett])
+      self.send_dm(msg, p_id)
+    self.start_roles = createStartRolesMsg(self.players,self.contracts)
+
+  def cast_start_msgs(self):
+    msg = resp_lib["START"]
+
+    for p in self.players:
+      msg += "\n" + ("[%s]"%p)
+    known_roles = self.rules[MRules.known_roles]
+    role_list = dispKnownRoles(makeRoleDict([p.role for p in self.players.values()]), known_roles)
+    msg += "\n" + role_list
+
+    maf_msg = resp_lib["START_MAFIA"]
+    maf_players = [p for p in self.players if self.players[p].role.is_mafia()]
+    if len(maf_players) > 1:
+      for p in maf_players:
+        maf_msg += "\n" + "[{}]: {}".format(p, self.players[p].role)
+
+    self.cast_main(msg)
+    self.cast_mafia(maf_msg)
 
   @staticmethod
   def listMenu(players, notarget=True):

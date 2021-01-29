@@ -5,7 +5,69 @@ import threading
 import time
 import json
 
-from .MInfo import *
+from ..mafiastate.util import VEnum
+
+class MCmd(VEnum):
+  VOTE = "vote"
+  TARGET = "target"
+  REVEAL = "reveal"
+  TIMER = "timer"
+  UNTIMER = "untimer"
+  HELP = "help"
+  STATUS = "status"
+  START = "start"
+  IN = "in"
+  OUT = "out"
+  RULE = "rule"
+  WATCH = "watch"
+  FOCUS = "focus"
+  END = "end"
+
+  @staticmethod
+  def parseCmd(s):
+    m = MCmd.__members__
+    for k,v in m:
+      if v == s:
+        return k
+    return None
+
+  def is_main(self):
+    return self in {
+      MCmd.VOTE,
+      MCmd.TIMER,
+      MCmd.UNTIMER,
+      MCmd.STATUS,
+      MCmd.HELP,
+      MCmd.END
+    }
+
+  def is_mafia(self):
+    return self in {
+      MCmd.TARGET,
+      MCmd.STATUS,
+      MCmd.HELP,
+    }
+  
+  def is_game_dm(self):
+    return self in {
+      MCmd.TARGET,
+      MCmd.REVEAL,
+      MCmd.STATUS,
+      MCmd.HELP
+    }
+
+  def is_lobby(self):
+    return self in {
+      MCmd.START,
+      MCmd.IN,
+      MCmd.OUT,
+      MCmd.WATCH,
+      MCmd.STATUS,
+      MCmd.HELP,
+    }
+      
+
+ACCESS_KW = "/"
 
 class MServer:
 

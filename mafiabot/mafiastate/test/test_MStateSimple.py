@@ -1,12 +1,12 @@
 
-from mafiabot import *
-from mafiabot.test.test_util import *
+from .. import *
+from ..test.test_util import *
 
 class TestMStateSimple(unittest.TestCase):
 
   def test_end(self):
     mstate = standardState()
-    mstate.teststart(['1','2','3'], ['TOWN','TOWN','MAFIA'],{})
+    mstate.start(list(zip(['1','2','3'], ['TOWN','TOWN','MAFIA'])),{})
     mstate.vote('1','3')
     self.assertRaises(TeamWinException, mstate.vote, '2','3')
     self.assertEqual(mstate.phase, MPhase.END)
@@ -31,7 +31,7 @@ class TestMStateSimple(unittest.TestCase):
   def test_3p_day1win(self):
 
     mstate = standardState()
-    mstate.teststart(['1','2','3'], ['TOWN','TOWN','MAFIA'],{})
+    mstate.start(list(zip(['1','2','3'], ['TOWN','TOWN','MAFIA'])),{})
     assertDayPhasePlayers(self,mstate,MPhase.DAY,1,3)
 
     mstate.vote('1','3')
@@ -42,7 +42,7 @@ class TestMStateSimple(unittest.TestCase):
 
   def test_3p_night1win(self):
     mstate = standardState()
-    mstate.teststart(['1','2','3'], ['TOWN','TOWN','MAFIA'],{})
+    mstate.start(list(zip(['1','2','3'], ['TOWN','TOWN','MAFIA'])),{})
     assertDayPhasePlayers(self,mstate,MPhase.DAY,1,3)
 
     mstate.vote('1','3')
@@ -61,7 +61,7 @@ class TestMStateSimple(unittest.TestCase):
 
   def test_4p_nokills(self):
     mstate = standardState()
-    mstate.teststart(['1','2','3','4'], ['TOWN','TOWN','MAFIA','TOWN'],{})
+    mstate.start(list(zip(['1','2','3','4'], ['TOWN','TOWN','MAFIA','TOWN'])),{})
     # start night
     assertDayPhasePlayers(self,mstate,MPhase.NIGHT,1,4)
     mstate.mtarget('3',NOTARGET)
@@ -79,7 +79,7 @@ class TestMStateSimple(unittest.TestCase):
 
   def test_10p_mafiawin(self):
     mstate = standardState()
-    mstate.teststart(['1','2','3','4','5','6','7','8','9','10'], ['TOWN']*7 + ['MAFIA']*3, {})
+    mstate.start(list(zip(['1','2','3','4','5','6','7','8','9','10'], ['TOWN']*7 + ['MAFIA']*3)), {})
     assertDayPhasePlayers(self,mstate,MPhase.NIGHT,1,10)
     mstate.mtarget('8','1')
     assertDayPhasePlayers(self,mstate,MPhase.DAY,2,9)
@@ -99,7 +99,7 @@ class TestMStateSimple(unittest.TestCase):
 
   def test_10p_townwin(self):
     mstate = standardState()
-    mstate.teststart(['1','2','3','4','5','6','7','8','9','10'], ['TOWN']*7 + ['MAFIA']*3, {})
+    mstate.start(list(zip(['1','2','3','4','5','6','7','8','9','10'], ['TOWN']*7 + ['MAFIA']*3)), {})
     assertDayPhasePlayers(self,mstate,MPhase.NIGHT,1,10)
     mstate.mtarget('10','9')
     assertDayPhasePlayers(self,mstate,MPhase.DAY,2,9)
@@ -119,7 +119,7 @@ class TestMStateSimple(unittest.TestCase):
   
   def test_invalid_votes(self):
     mstate = standardState()
-    mstate.teststart(['1','2','3','4'], ['TOWN']*3 + ['MAFIA'], {})
+    mstate.start(list(zip(['1','2','3','4'], ['TOWN']*3 + ['MAFIA'])), {})
 
     assertDayPhasePlayers(self,mstate,MPhase.NIGHT,1,4)
 
@@ -188,7 +188,7 @@ class TestMStateSimple(unittest.TestCase):
       guard_id:guard_contract,
       agent_id:agent_contract,
     }
-    mstate.teststart(ns, roles, contracts)
+    mstate.start(list(zip(ns, roles)), contracts)
 
   def test_many_rules(self):
     rules = MRules()
@@ -211,7 +211,7 @@ class TestMStateSimple(unittest.TestCase):
     test_dm, add_dm = create_dm_tester(print_mode)
     mstate = standardState()
     mstate.send_dm = test_dm
-    mstate.teststart(['1','2','3','4','5'], ['COP', 'TOWN','MILLER','MAFIA','GODFATHER'], {})
+    mstate.start(list(zip(['1','2','3','4','5'], ['COP', 'TOWN','MILLER','MAFIA','GODFATHER'])), {})
     assertDayPhasePlayers(self,mstate,MPhase.DAY,1,5)
     mstate.vote('1',NOTARGET)
     mstate.vote('2',NOTARGET)
@@ -286,7 +286,7 @@ class TestMStateSimple(unittest.TestCase):
 
   def test_doctor(self):
     mstate = standardState()
-    mstate.teststart(['1','2','3','4'], ['DOCTOR', 'TOWN','TOWN','MAFIA'], {})
+    mstate.start(list(zip(['1','2','3','4'], ['DOCTOR', 'TOWN','TOWN','MAFIA'])), {})
 
     assertDayPhasePlayers(self,mstate,MPhase.NIGHT,1,4)
 
@@ -314,7 +314,7 @@ class TestMStateSimple(unittest.TestCase):
     mstate = standardState()
     mstate.cast_main = c_main
     mstate.send_dm = s_dm
-    mstate.teststart(['1','2','3','4'], ['CELEB', 'CELEB','TOWN','STRIPPER'], {})
+    mstate.start(list(zip(['1','2','3','4'], ['CELEB', 'CELEB','TOWN','STRIPPER'])), {})
 
     try:
       mstate.reveal('1')
@@ -355,9 +355,9 @@ class TestMStateSimple(unittest.TestCase):
     add_dm(expected1,'3')
     add_dm(expected1,'4')
 
-    mstate.teststart(
+    mstate.start(list(zip(
       ['1','2','3','4','5'], 
-      ['TOWN','MASON','MASON','MASON','MAFIA'], 
+      ['TOWN','MASON','MASON','MASON','MAFIA'])), 
       {})
 
 
@@ -365,7 +365,7 @@ class TestMStateSimple(unittest.TestCase):
     test_dm, add_dm = create_dm_tester(print_mode)
     mstate = standardState()
     mstate.send_dm = test_dm
-    mstate.teststart(['1','2','3','4','5','6'], ['TOWN', 'TOWN','TOWN','GOON', 'TOWN','TOWN'], {})
+    mstate.start(list(zip(['1','2','3','4','5','6'], ['TOWN', 'TOWN','TOWN','GOON', 'TOWN','TOWN'])), {})
     with self.assertRaises(InvalidActionException) as iae:
       mstate.mtarget('4','1')
     self.assertEqual(iae.exception.msg, resp_lib["INVALID_TARGET_STUNNED"])
@@ -392,7 +392,7 @@ class TestMStateSimple(unittest.TestCase):
 
   def test_milky(self):
     mstate = standardState()
-    mstate.teststart(['1','2','3','4','5'], ['TOWN','TOWN','MILKY','MAFIA','TOWN'], {})
+    mstate.start(list(zip(['1','2','3','4','5'], ['TOWN','TOWN','MILKY','MAFIA','TOWN'])), {})
     mstate.vote('5',NOTARGET)
     mstate.vote('1',NOTARGET)
     mstate.vote('4',NOTARGET)
@@ -418,7 +418,7 @@ class TestMStateSimple(unittest.TestCase):
 
   def test_timer(self):
     mstate = standardState()
-    mstate.teststart(['1','2','3','4','5'], ['TOWN','DOCTOR','COP','MAFIA','GOON'], {})
+    mstate.start(list(zip(['1','2','3','4','5'], ['TOWN','DOCTOR','COP','MAFIA','GOON'])), {})
 
     assertDayPhasePlayers(self,mstate,MPhase.DAY,1,5)
 

@@ -1,5 +1,5 @@
 # from MTarget import NullTarget, NoTarget, PlayerTarget
-from .MInfo import MRole
+from .MRole import MRole
 
 # from enum import Enum
 from typing import Optional, NewType

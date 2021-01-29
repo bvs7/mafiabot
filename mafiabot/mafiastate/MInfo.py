@@ -2,68 +2,6 @@
 from .MRole import MRole, MTeam
 from .util import VEnum, auto
 
-class MCmd(VEnum):
-  VOTE = "vote"
-  TARGET = "target"
-  REVEAL = "reveal"
-  TIMER = "timer"
-  UNTIMER = "untimer"
-  HELP = "help"
-  STATUS = "status"
-  START = "start"
-  IN = "in"
-  OUT = "out"
-  RULE = "rule"
-  WATCH = "watch"
-  FOCUS = "focus"
-  END = "end"
-
-  @staticmethod
-  def parseCmd(s):
-    m = MCmd.__members__
-    for k,v in m:
-      if v == s:
-        return k
-    return None
-
-  def is_main(self):
-    return self in {
-      MCmd.VOTE,
-      MCmd.TIMER,
-      MCmd.UNTIMER,
-      MCmd.STATUS,
-      MCmd.HELP,
-      MCmd.END
-    }
-
-  def is_mafia(self):
-    return self in {
-      MCmd.TARGET,
-      MCmd.STATUS,
-      MCmd.HELP,
-    }
-  
-  def is_game_dm(self):
-    return self in {
-      MCmd.TARGET,
-      MCmd.REVEAL,
-      MCmd.STATUS,
-      MCmd.HELP
-    }
-
-  def is_lobby(self):
-    return self in {
-      MCmd.START,
-      MCmd.IN,
-      MCmd.OUT,
-      MCmd.WATCH,
-      MCmd.STATUS,
-      MCmd.HELP,
-    }
-      
-
-ACCESS_KW = "/"
-
 resp_lib = {
   "VOTE_CHANGE": "[{voter}] retracts vote for [{f_votee}] and votes for [{votee}]",
   "VOTE_RETRACT": "[{voter}] retracted vote for [{f_votee}]",
@@ -92,7 +30,7 @@ resp_lib = {
   "SURVIVOR_DIE": "Oh no! You died at the hands of [{aggressor}]! As SURVIVOR, you have lost!",
   "REFOCUS" : "You have been refocused to {new_role}",
   "CHARGE_ASSIGN":"Your charge is [{charge}]",
-  "MASON_REVEAL": "Your fellow MASONs are:\n{}",
+  "MASON_REVEAL": "The MASONIC ORDER includes:\n{}",
   "STRIPPED":   "You were distracted...",
   "STUN":       "You are stunned until next morning",
   "STUNNED":    "While stunned you can only target NOTARGET",

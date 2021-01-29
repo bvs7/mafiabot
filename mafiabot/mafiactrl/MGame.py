@@ -3,12 +3,8 @@ import json
 
 from typing import NewType
 
-from .MInfo import *
-from .MState import MState, InvalidActionException, EndGameException, MPhase
-from .MRules import MRules
-from .MSave import mload, msave
-from .MChat import MChat, MDM
-from .MPlayer import MPlayerID
+from ..mafiastate import *
+from ..chatinterface import *
 
 # Starts game, creates chats?
 # Sticks around after the game to manage chats?

@@ -1,7 +1,7 @@
 # Encoder for saving mafia states, and hooks for decoding them.
 
 import json
-import mafiabot
+from .. import mafiastate # pylint: disable
 
 class MSaveEncoder(json.JSONEncoder):
   def default(self, obj):
@@ -21,7 +21,6 @@ class MSaveEncoder(json.JSONEncoder):
 #  That fn sets its attributes based on entries in d[].
 
 hooks=[
-  'MGame',
   'MState',
   'MPlayer',
   'MVengeance',
@@ -37,7 +36,7 @@ def mafia_hook(d):
   for hook in hooks:
     if "__{}__".format(hook) in d:
       try:
-        result = getattr(mafiabot,hook).from_json(d)
+        result = getattr(mafiastate,hook).from_json(d)
       except Exception as e:
         print("MAFIA JSON ERROR reading {}: {}".format(str(d),str(e)))
         raise e
