@@ -307,7 +307,7 @@ class MState:
     main_msg[0] += '\n'
     self.__night(main_msg, nokill)
 
-  @could_end # team_win
+  @could_end #team_win
   def __eliminate(self, actor_id, target_id, main_msg:List[str]) -> str:
     role = self.players[target_id].role
     reveal = dispRole(role, self.rules[MRules.reveal_on_death])
