@@ -53,7 +53,7 @@ class MChat:
     print("CAST {}: {}".format(self.id, self.format(msg)), flush=True)
     return "-1"
 
-  def castresp(self, resp, **locs):
+  def cast_resp(self, resp, **locs):
     return self.cast(get_resp(resp, **locs))
 
   def ack(self, message_id):

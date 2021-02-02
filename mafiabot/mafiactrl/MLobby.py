@@ -54,25 +54,25 @@ class MLobby:
 
   def handle_in(self, sender_id, min_p):
     self.in_list[sender_id] = min_p
-    self.chat.castresp("IN",**locals())
+    self.chat.cast_resp("IN",**locals())
     return True
     
   def handle_out(self, sender_id):
     if sender_id in self.in_list:
       del self.in_list[sender_id]
-      self.chat.castresp("OUT",**locals())
+      self.chat.cast_resp("OUT",**locals())
     else:
-      self.chat.castresp("OUT_NOT_IN",**locals())
+      self.chat.cast_resp("OUT_NOT_IN",**locals())
     return True
 
   def handle_start(self, minutes, min_p):
-    self.start_msg_id = self.chat.castresp("START_TIMER",**locals())
+    self.start_msg_id = self.chat.cast_resp("START_TIMER",**locals())
     self.start_min_players = min_p
     self.start_timer = self.ctrl.MTimerType(minutes*60, {0:[self.try_start_game]})
 
   def handle_watch(self, sender_id, g_id=None):
     if len(self.game_ids) == 0:
-      self.chat.castresp("WATCH_NO_GAMES")
+      self.chat.cast_resp("WATCH_NO_GAMES")
       return True
     if not g_id:
       g_id = self.game_ids[0]
@@ -100,11 +100,11 @@ class MLobby:
     
     if len(users) >= self.DEFAULT_MIN_PLAYERS:
       player_list = "\n".join(["[{}]".format(u) for u in users])
-      self.chat.castresp("START_GAME", **locals())
+      self.chat.cast_resp("START_GAME", **locals())
       g_id = self.ctrl.start_game(users, MRules(self.rules), lobby=self)
       self.game_ids.appendleft(g_id)
     else:
-      self.chat.castresp("FAILED_START_GAME")
+      self.chat.cast_resp("FAILED_START_GAME")
 
 
     
