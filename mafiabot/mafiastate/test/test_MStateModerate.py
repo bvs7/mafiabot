@@ -1,6 +1,6 @@
 
 from .. import * # pylint: disable=W0614
-from ..test.test_util import * # pylint: disable=W0614
+from ...test.test_util import * # pylint: disable=W0614
 
 class TestMStateModerate(unittest.TestCase):
 

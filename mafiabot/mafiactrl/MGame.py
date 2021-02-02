@@ -25,22 +25,21 @@ class DeleteGameException(Exception):
 
 # Contains MState, checks inputs, fulfills non-event actions
 class MGame:
-  MChatType = MChat
-  MDMType = MDM
 
-  def __init__(self, game_id, mstate:MState,
+  def __init__(self, ctrl, game_id, mstate:MState, lobby=None,
                main_chat_id=None, mafia_chat_id=None):
     # Search for saved game?
     print("New MGame", flush = True)
+    self.ctrl = ctrl
     self.id = game_id
     self.mstate = mstate
     if main_chat_id == None:
-      main_chat_id = self.MChatType.new("MAIN CHAT {}".format(self.id))
-    self.main_chat = self.MChatType(main_chat_id)
+      main_chat_id = self.ctrl.MChatType.new("MAIN CHAT {}".format(self.id))
+    self.main_chat = self.ctrl.MChatType(main_chat_id)
     if mafia_chat_id == None:
-      mafia_chat_id = self.MChatType.new("MAFIA CHAT {}".format(self.id))
-    self.mafia_chat = self.MChatType(mafia_chat_id, name_reference=self.main_chat)
-    self.dms = self.MDMType(self.main_chat)
+      mafia_chat_id = self.ctrl.MChatType.new("MAFIA CHAT {}".format(self.id))
+    self.mafia_chat = self.ctrl.MChatType(mafia_chat_id, name_reference=self.main_chat)
+    self.dms = self.ctrl.MDMType(self.main_chat)
 
     self.hook_up()
   
@@ -52,12 +51,12 @@ class MGame:
 
 
   @classmethod
-  def new(cls, rules:MRules=MRules()): 
+  def new(cls, ctrl, rules:MRules=MRules(), lobby=None): 
 
     game_id = 1#getNewGameID()
     mstate = MState(rules)
 
-    g = cls(game_id, mstate)
+    g = cls(ctrl, game_id, mstate, lobby)
     print("Return: ", g, flush = True)
     return g
 
@@ -65,17 +64,11 @@ class MGame:
     """ Inputs, roleGen is a roleGen fn, users is... user ids and nicknames?
     Should we import user nicknames? Yes, eventually have MUser! for generality
     """
-    print("START1",flush=True)
     ids = list(users.keys())
     (assignments, contracts) = roleGen(ids)
-    print("START2",flush=True)
     ids = [p_id for p_id,r in assignments]
-    print("START3",flush=True)
     roles = [MRole(r) for p_id,r in assignments]
-    print("START4",flush=True)
     assignments = list(zip(ids,roles))
-    print("START",flush=True)
-    print(assignments, flush=True)
     # Should roleGen do a better job of returning things?
     mafia_users = {}
     for p_id, role in assignments:
@@ -97,6 +90,7 @@ class MGame:
     # TODO: how to handle this?
     print("END_GAME: ", msg)
 
+  # decorator for end of game or invalid action
   def handle_chat(self, group_id, sender_id:MPlayerID, cmd:MCmd, **kwargs):
     if group_id == self.main_chat.id and cmd.is_main():
       try:

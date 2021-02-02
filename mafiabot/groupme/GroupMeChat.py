@@ -2,7 +2,7 @@
 from typing import Tuple, Dict
 import time
 
-from .. import MChat, MDM, CastError
+from ..chatinterface import MChat, MDM, CastError
 
 GROUPME_KEYFILE = "../../.groupme.key"
 MODERATOR = "43040067"
@@ -23,6 +23,7 @@ CAST_DELAY = .1
 class GroupMeChat(MChat):
 
   def __init__(self, group_id, name_reference:MChat = None):
+    # TODO: automatically make a new chat if this one doesn't exist
     print("GroupMeChat",flush=True)
     self.id = group_id
     self.group = client.groups.get(group_id)
@@ -127,8 +128,11 @@ class GroupMeDM(MDM):
     else:
       self.format = chat.format
 
-  def send(self, msg, user_id):
-    message = self.format(msg)
+  def send(self, msg, user_id, name_reference=None):
+    if not name_reference == None:
+      message = name_reference.format(msg)
+    else:
+      message = self.format(msg)
     if not user_id in self.dms:
       self.dms[user_id] = DirectMessages(self.client.session, user_id)
     try:

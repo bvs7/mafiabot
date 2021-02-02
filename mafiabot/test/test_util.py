@@ -1,7 +1,7 @@
 import unittest
 from collections import deque
 
-from .. import MState, MRules, MPhase
+from ..mafiastate import MState, MRules, MPhase
 
 def verbose(*args):
   print(*args)
@@ -58,3 +58,37 @@ def create_dm_tester(p_mode):
       nextMsgs[p_id] = deque([])
     nextMsgs[p_id].append(msg)
   return dm_tester, add_dm
+
+def create_handle_chat_tester(p_mode):
+  nextCmd = deque()
+  def handle_chat(group_id, sender_id, cmd, **kwargs):
+    m = nextCmd.popleft()
+    kwargs["group_id"] = group_id
+    kwargs["sender_id"] = sender_id
+    kwargs["cmd"] = cmd
+    for k in m:
+      if not (k in kwargs and m[k] == kwargs[k]):
+        raise Exception(m,kwargs)
+    p_mode(kwargs)
+  def add_chat(group_id, sender_id, cmd, **kwargs):
+    kwargs["group_id"] = group_id
+    kwargs["sender_id"] = sender_id
+    kwargs["cmd"] = cmd
+    nextCmd.append(kwargs)
+  return handle_chat, add_chat
+
+def create_handle_dm_tester(p_mode):
+  nextCmd = deque()
+  def handle_dm(sender_id, cmd, **kwargs):
+    m = nextCmd.popleft()
+    kwargs["sender_id"] = sender_id
+    kwargs["cmd"] = cmd
+    for k in m:
+      if not (k in kwargs and m[k] == kwargs[k]):
+        raise Exception(m,kwargs)
+    p_mode(kwargs)
+  def add_dm(sender_id, cmd, **kwargs):
+    kwargs["sender_id"] = sender_id
+    kwargs["cmd"] = cmd
+    nextCmd.append(kwargs)
+  return handle_dm, add_dm

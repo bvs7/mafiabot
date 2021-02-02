@@ -1,4 +1,4 @@
-from .util import VEnum, auto
+from ..util import VEnum, auto
 
 class MTeam(VEnum):
   Town = auto()

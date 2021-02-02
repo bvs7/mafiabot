@@ -1,8 +1,8 @@
 
-from . import MController
+from ..mafiactrl import MController
 
 from ..chatinterface import MChat, MDM
-from ..chatinterface.groupme import GroupMeChat, GroupMeDM, GroupMeServer, GroupMeGame
+from . import GroupMeChat, GroupMeDM, GroupMeServer, GroupMeGame
 
 
 class GroupMeController(MController):

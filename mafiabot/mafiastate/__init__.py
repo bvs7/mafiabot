@@ -1,4 +1,3 @@
-from .util import *
 from .MInfo import *
 from .MRole import MRole, MTeam
 from .MState import MPhase, InvalidActionException, EndGameException, InvalidActionException, TeamWinException, MVengeance, MState

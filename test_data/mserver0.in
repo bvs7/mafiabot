@@ -1,0 +1,7 @@
+/status LOBBY 1
+/help LOBBY 2
+/start LOBBY 3
+/status MAIN 1
+dm /help 3
+dm /help 4
+/status MAFIA 4

@@ -3,7 +3,7 @@ import logging
 from flask import Flask, request
 import json
 
-from .. import MServer, ACCESS_KW, MCmd
+from ..chatinterface import MServer, TestMServer, ACCESS_KW, MCmd
 
 class GroupMeServer(MServer):
 
@@ -16,8 +16,9 @@ class GroupMeServer(MServer):
     self.app.add_url_rule('/', 'chat', self.chat, methods=['POST'])
     self.app.add_url_rule('/dm', 'dm', self.dm, methods=['POST'])
 
-  def chat(self):
-    data = json.loads(request.data.decode('utf-8'))
+  def chat(self, data=None):
+    if not data:
+      data = json.loads(request.data.decode('utf-8'))
     print(data)
     text = data['text']
     if text[0:len(ACCESS_KW)] == ACCESS_KW:
@@ -27,8 +28,9 @@ class GroupMeServer(MServer):
       self.handle_chat(group_id, sender_id, command, text=text, data=data)
     return "ok"
 
-  def dm(self):
-    data = json.loads(request.data.decode('utf-8'))
+  def dm(self, data=None):
+    if not data:
+      data = json.loads(request.data.decode('utf-8'))
     print(data)
     text = data['text']
     if text[0:len(ACCESS_KW)] == ACCESS_KW:
@@ -39,3 +41,4 @@ class GroupMeServer(MServer):
 
   def run(self, **kwargs):
     self.app.run(host="0.0.0.0",port=1121, **kwargs)
+

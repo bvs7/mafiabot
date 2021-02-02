@@ -1,3 +1,4 @@
+from ..resp_lib import get_resp
 
 class CastError(Exception):
   pass
@@ -51,6 +52,9 @@ class MChat:
   def cast(self, msg):
     print("CAST {}: {}".format(self.id, self.format(msg)), flush=True)
     return "-1"
+
+  def castresp(self, resp, **locs):
+    return self.cast(get_resp(resp, **locs))
 
   def ack(self, message_id):
     print("ACK: {}".format(message_id))

@@ -4,8 +4,9 @@ from http.server import BaseHTTPRequestHandler as BaseHandler,HTTPServer
 import threading
 import time
 import json
+from collections import deque
 
-from ..mafiastate.util import VEnum
+from ..util import VEnum
 
 class MCmd(VEnum):
   VOTE = "vote"
@@ -85,51 +86,114 @@ class MServer:
 
 class TestMServer(MServer):
 
-  def __init__(self, handle_chat, handle_dm):
+  def __init__(self, handle_chat, handle_dm, lines:deque=None):
     self.handle_chat = handle_chat
     self.handle_dm = handle_dm
 
     self.active = True
+    self.lines = lines
 
-    thread = threading.Thread(target=self.run)
-    thread.start()
+  @staticmethod
+  def from_file(handle_chat, handle_dm, input_fname):
+    with open(input_fname, 'r') as f:
+      lines = deque(f.readlines())
+    return TestMServer(handle_chat, handle_dm, lines)
 
-
-  def chat(self):
-    text = input("Text: ")
+  def append(self, line):
+    if not self.lines:
+      self.lines = deque()
+    self.lines.append(line)
+      
+  def chat(self, line=None):
+    if not line:
+      text = input("Text: ")
+    else:
+      words = deque(line.split())
+      text = words.popleft()
     if text[0:len(ACCESS_KW)] == ACCESS_KW:
-      group_id = input("Group_id: ")
-      sender_id = input("Sender_id: ")
+      if not line:
+        group_id = input("Group_id: ")
+        sender_id = input("Sender_id: ")
+      else:
+        group_id = words.popleft()
+        sender_id = words.popleft()
       command = text.split()[0][len(ACCESS_KW):]
-      j = input("Data (json): ")
-      if j == "":
+      if not line:
+        j = input("Data (json): ")
+      else:
+        if len(words) == 0:
+          j = ""
+        else:
+          j = words.popleft()
+      if j in "":
         data = {}
       elif j[0:len('vote')] == 'vote':
         votee = j.split()[1]
         data = {'attachments':[{'type':'mentions','user_ids':[votee]}]}
       else:
         data = json.loads(j)
-      self.handle_chat(group_id, sender_id, command, text, data)
+      self.handle_chat(group_id, sender_id, command, text=text, data=data)
 
-  def dm(self):
-    text = input("Text: ")
+  def dm(self, line=None):
+    if not line:
+      text = input("Text: ")
+    else:
+      words = deque(line.split())
+      text = words.popleft()
     if text[0:len(ACCESS_KW)] == ACCESS_KW:
-      sender_id = input("Sender_id: ")
+      if not line:
+        sender_id = input("Sender_id: ")
+      else:
+        sender_id = words.popleft()
       command = text.split()[0][len(ACCESS_KW):]
-      j = input("Data (json): ")
+      if not line:
+        j = input("Data (json): ")
+      else:
+        if len(words) == 0:
+          j = ""
+        else:
+          j = words.popleft()
       if j == "":
         data = {}
       else:
         data = json.loads(j)
-      self.handle_dm(sender_id, command, text, data)
+      self.handle_dm(sender_id, command, text=text, data=data)
+
+  def parse_lines(self) -> bool:
+    if self.lines:
+      line = self.lines.popleft()
+      self.parse(line)
+      return len(self.lines) != 0
+    return False
+
+  def parse(self, line=None):
+    if not line:
+      chat_dm = input("Chat/DM, [c]/d: ")
+      rest_line = None
+    else:
+      words = line.split()
+      chat_dm = words[0]
+      rest_line = " ".join(words[1:])
+      if chat_dm == ACCESS_KW:
+        chat_dm = ""
+    if chat_dm == "quit":
+      self.active = False
+    if chat_dm[0] == "#":
+      return
+    if chat_dm in ["", "c", "chat"]:
+      self.chat(rest_line)
+    else:
+      self.dm(rest_line)
+
+  def start(self):
+    thread = threading.Thread(target=self.run)
+    thread.start()
 
   def run(self):
-    while self.active:
-      chat_dm = input("Chat/DM, [c]/d: ")
-      if chat_dm in ["", "c", "chat"]:
-        self.chat()
-      else:
-        self.dm()
-      if chat_dm == "quit":
-        self.active = False
-      time.sleep(.5)
+    if not self.lines:
+      while self.active:
+        self.parse()
+        time.sleep(.5)
+    else:
+      while self.active:
+        self.active = self.parse_lines()

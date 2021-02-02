@@ -1,8 +1,8 @@
 
-from . import MGame
-
-from ..mafiastate import resp_lib, MRole, MPlayer, MPlayerID, MPhase, MCmd
-from ..chatinterface.groupme import GroupMeChat, GroupMeDM
+from ..chatinterface import MCmd
+from ..mafiactrl import MGame
+from ..mafiastate import resp_lib, MRole, MPlayer, MPlayerID, MPhase
+from . import GroupMeChat, GroupMeDM
 
 
 class GroupMeGame(MGame):

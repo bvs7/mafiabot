@@ -8,7 +8,7 @@ from .MInfo import resp_lib, dispKnownRoles, makeRoleDict, createStartRolesMsg, 
 from .MRole import MRole, MTeam
 from .MPlayer import MPlayer, MPlayerID, NOTARGET
 from .MRules import MRules
-from .util import VEnum
+from ..util import VEnum
 from .MRoleGen import MAssignment, MRoleGenType, MContract
 
 __all__ = ['MState','MPhase', 'InvalidActionException', 'EndGameException','IdiotWinException','TeamWinException']
@@ -77,6 +77,16 @@ def check_end(func):
     return func(self, *args)
   return inner
 
+def could_end(func):
+  """Wrap helper functions that could return EndGameException?"""
+  def f(self, *args, **kwargs):
+    try:
+      result = func(self,*args, **kwargs)
+    except EndGameException as e:
+      self.cast_main(e.msg)
+      raise e
+    return result
+  return f
 
 class MState:
 
@@ -255,52 +265,49 @@ class MState:
       self.__elect(voter_id, votee_id)
       return
   
+  @could_end # idiot_win
   def __elect(self, actor_id, target_id):
-    try:
-      main_msg = [""]
-      nokill = False
-      if not target_id == NOTARGET:
-        target = self.players[target_id]
+    main_msg = [""]
+    nokill = False
+    if not target_id == NOTARGET:
+      target = self.players[target_id]
 
-        main_msg[0] += resp_lib['ELECT'].format(target=target_id)
+      main_msg[0] += resp_lib['ELECT'].format(target=target_id)
 
-        if target.role == "IDIOT":
-          self.contracts[target_id].success = True
-          voters = [p_id for (p_id,p) in self.players.items() if (
-            p.vote == target_id and p_id != target_id)]
-          self.vengeance = MVengeance(voters, actor_id, target_id)
+      if target.role == "IDIOT":
+        self.contracts[target_id].success = True
+        voters = [p_id for (p_id,p) in self.players.items() if (
+          p.vote == target_id and p_id != target_id)]
+        self.vengeance = MVengeance(voters, actor_id, target_id)
 
-          idiot_vengeance = self.rules[MRules.idiot_vengeance]
-          if not idiot_vengeance == "OFF":
-            main_msg[0] += resp_lib["ELECT_IDIOT"]
+        idiot_vengeance = self.rules[MRules.idiot_vengeance]
+        if not idiot_vengeance == "OFF":
+          main_msg[0] += resp_lib["ELECT_IDIOT"]
 
-            if idiot_vengeance == "DAY":
-              main_msg[0] += resp_lib["ELECT_DAY"]
-              self.cast_main(main_msg[0])
-              return self.__day()
+          if idiot_vengeance == "DAY":
+            main_msg[0] += resp_lib["ELECT_DAY"]
+            self.cast_main(main_msg[0])
+            return self.__day()
 
-            elif idiot_vengeance == "STUN":
-              main_msg[0] += resp_lib["ELECT_STUN"]
-              self.stunned |= set(self.vengeance.venges)
+          elif idiot_vengeance == "STUN":
+            main_msg[0] += resp_lib["ELECT_STUN"]
+            self.stunned |= set(self.vengeance.venges)
 
-            elif idiot_vengeance == "KILL":
-              return self.__dusk(target_id, main_msg) # Go to dusk, don't kill idiot yet
-            elif idiot_vengeance == "WIN":
-              return self.__idiot_win(target_id, main_msg)
+          elif idiot_vengeance == "KILL":
+            return self.__dusk(target_id, main_msg) # Go to dusk, don't kill idiot yet
+          elif idiot_vengeance == "WIN":
+            return self.__idiot_win(target_id, main_msg)
 
-        self.__eliminate(actor_id, target_id, main_msg)
+      self.__eliminate(actor_id, target_id, main_msg)
 
-      else:
-        main_msg[0] += resp_lib['ELECT_NOKILL']
-        nokill = True
-
-    except EndGameException as e:
-      self.cast_main(main_msg[0])
-      raise e
+    else:
+      main_msg[0] += resp_lib['ELECT_NOKILL']
+      nokill = True
 
     main_msg[0] += '\n'
     self.__night(main_msg, nokill)
 
+  @could_end # team_win
   def __eliminate(self, actor_id, target_id, main_msg:List[str]) -> str:
     role = self.players[target_id].role
     reveal = dispRole(role, self.rules[MRules.reveal_on_death])
@@ -525,11 +532,7 @@ class MState:
           self.send_dm(resp_lib["SAVE_SELF"],self.mafia_target[0])
       else:
         main_msg[0] += "\n" + resp_lib["KILL"].format(target=self.mafia_target[0])
-        try: # TODO: how to structure this better?
-          self.__eliminate(self.mafia_target[1], self.mafia_target[0], main_msg)
-        except EndGameException as e:
-          self.cast_main(main_msg[0])
-          raise e
+        self.__eliminate(self.mafia_target[1], self.mafia_target[0], main_msg)
 
   def __dawn_milk(self, main_msg:List[str]) -> str:
     for milky_id in [p for p in self.players if self.players[p].role == "MILKY"]:
@@ -590,12 +593,8 @@ class MState:
 
   def __vengeance(self, idiot_id : MPlayerID, target_id : Optional[MPlayerID]):
     main_msg = [resp_lib['VENGEANCE'].format(actor=idiot_id, target=target_id)]
-    try: # how to structure better?
-      self.__eliminate(idiot_id, target_id, main_msg) # Eliminate target before idiot
-      self.__eliminate(self.vengeance.final_vote, idiot_id, main_msg)
-    except EndGameException as e:
-      self.cast_main(main_msg[0])
-      raise e
+    self.__eliminate(idiot_id, target_id, main_msg) # Eliminate target before idiot
+    self.__eliminate(self.vengeance.final_vote, idiot_id, main_msg)
     self.cast_main(main_msg[0])
     self.__night()
 
