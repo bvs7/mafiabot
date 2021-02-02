@@ -4,9 +4,10 @@ class CastError(Exception):
   pass
 
 class MChat:
+  # TODO: Consider cast_resp, and even prep_resp which will load in a str and wait to cast it until next cast?
 
   def __init__(self, group_id, name_reference=None):
-    print("New MChat %s"%group_id, flush=True)
+    print("MChat %s"%group_id, flush=True)
     self.id = group_id
     if name_reference == None:
       self.format = self.__format
@@ -23,9 +24,9 @@ class MChat:
   def destroy(self):
     print("DEL {}".format(self.id))
 
-  @staticmethod
-  def new(name): # Just return id?
-    return name
+  @classmethod
+  def new(cls, name, name_reference=None): # Just return id?
+    return cls(name, name_reference)
 
   def getName(self,user_id):
     return "Name of %s"%user_id

@@ -4,12 +4,15 @@ from threading import Lock, Thread
 import json
 from collections import OrderedDict
 
-from .MInfo import resp_lib, dispKnownRoles, makeRoleDict, createStartRolesMsg, dispRole
+from ..resp_lib import get_resp, resp_lib
+from .MInfo import dispKnownRoles, makeRoleDict, createStartRolesMsg, dispRole
 from .MRole import MRole, MTeam
 from .MPlayer import MPlayer, MPlayerID, NOTARGET
 from .MRules import MRules
 from ..util import VEnum
 from .MRoleGen import MAssignment, MRoleGenType, MContract
+
+from ..chatinterface import MChat, MDM, TestMChat
 
 __all__ = ['MState','MPhase', 'InvalidActionException', 'EndGameException','IdiotWinException','TeamWinException']
 
@@ -46,14 +49,14 @@ class IdiotWinException(EndGameException):
   def __init__(self, idiot_id, msg=None):
     self.idiot_id = idiot_id
     if msg == None:
-      msg = resp_lib["IDIOT_WIN"].format(idiot=idiot_id)
+      msg = get_resp('IDIOT_WIN',idiot=idiot_id)
     super().__init__(msg)
 
 class TeamWinException(EndGameException):
   def __init__(self, team, msg=None):
     self.team = team
     if msg == None:
-      msg = resp_lib["WIN"].format(winning_team=team)
+      msg = get_resp('WIN', winning_team=team)
     super().__init__(msg)
 
 class MVengeance:
@@ -69,7 +72,6 @@ class MVengeance:
   def from_json(d):
     return MVengeance(d['venges'], d['final_vote'], d['idiot'])
 
-
 def check_end(func):
   def inner(self, *args):
     if self.phase == MPhase.END:
@@ -77,24 +79,17 @@ def check_end(func):
     return func(self, *args)
   return inner
 
-def could_end(func):
-  """Wrap helper functions that could return EndGameException?"""
-  def f(self, *args, **kwargs):
-    try:
-      result = func(self,*args, **kwargs)
-    except EndGameException as e:
-      self.cast_main(e.msg)
-      raise e
-    return result
-  return f
-
 class MState:
 
-  def __init__(self, rules:MRules=MRules(), cast_main=print, cast_mafia=print, send_dm=print):
+  def __init__(self, main_chat, mafia_chat, dms, rules:MRules=MRules()):
 
-    self.cast_main = cast_main
-    self.cast_mafia = cast_mafia
-    self.send_dm = send_dm
+    self.main_chat = main_chat
+    #self.cast_main = self.main_chat.cast
+    self.mafia_chat = mafia_chat
+    self.cast_mafia = self.mafia_chat.cast
+    self.dms = dms
+    self.send_dm = self.dms.send
+
     self.halt_timer = self.__halt_timer # Called when time progresses to stop timer?
 
     self.rules = rules
@@ -110,6 +105,8 @@ class MState:
     self.stunned : Set[MPlayerID] = set() # Keep track of who is stunned (GOON, or by IDIOT) at night.
     self.revealed : Set[MPlayerID] = set() # Keep track of which CELEBs have revealed.
     self.vengeance : Optional[MVengeance] = None # Used when an IDIOT needs to get revenge.
+
+    self.main_msg = ""
 
     self.start_roles = "Init"
 
@@ -173,17 +170,17 @@ class MState:
     # Right now, with halt_timer callback. Or have MState handle timers? nah
   
   def __timer(self): # TODO: Testing
-    main_msg = [""]
+    self.main_msg = ""
     if self.phase == MPhase.DAY:
-      main_msg[0] += resp_lib["TIMER_DAY"] + "\n"
-      self.__night(main_msg, nokill=True)
+      self.main_msg += resp_lib["TIMER_DAY"] + "\n"
+      self.__night(nokill=True)
     elif self.phase == MPhase.NIGHT:
-      main_msg[0] += resp_lib["TIMER_NIGHT"] + "\n"
-      self.__dawn(main_msg)
+      self.main_msg += resp_lib["TIMER_NIGHT"] + "\n"
+      self.__dawn()
     elif self.phase == MPhase.DUSK:
-      main_msg[0] += resp_lib["TIMER_DUSK"] + "\n"
-      self.__eliminate(self.vengeance.venges[-1], self.vengeance.idiot, main_msg)
-      self.__night(main_msg, nokill=False)
+      self.main_msg += resp_lib["TIMER_DUSK"] + "\n"
+      self.__eliminate(self.vengeance.venges[-1], self.vengeance.idiot)
+      self.__night(nokill=False)
 
   @check_end
   def reveal(self, reveal_id : MPlayerID):
@@ -204,21 +201,19 @@ class MState:
           self.send_dm(resp_lib["STRIPPED"], reveal_id)
       else:
         self.revealed.add(reveal_id)
-        msg = resp_lib['REVEAL'].format(actor=reveal_id, role=p.role)
-        self.cast_main(msg)
+        self.main_chat.cast_resp('REVEAL',actor=reveal_id, role=p.role)
     else:
-      msg = resp_lib['REVEAL_REMINDER'].format(actor=reveal_id, role=p.role)
-      self.cast_main(msg)
+      self.main_chat.cast_resp('REVEAL REMINDER',actor=reveal_id, role=p.role)
 
   @check_end
   def vote(self, voter_id : MPlayerID, votee_id : Optional[MPlayerID]):
     if not self.phase == MPhase.DAY:
       raise InvalidActionException(resp_lib["INVALID_VOTE_PHASE"])
     if not voter_id in self.players:
-      msg = resp_lib["INVALID_VOTER"].format(player_id=voter_id)
+      msg = get_resp("INVALID_VOTER", player_id=voter_id)
       raise InvalidActionException(msg)
     if not (votee_id in self.players or votee_id in (NOTARGET, None)):
-      msg = resp_lib["INVALID_VOTEE"].format(player_id=votee_id)
+      msg = get_resp("INVALID_VOTEE", player_id=votee_id)
       raise InvalidActionException(msg)
     return self.__vote(voter_id, votee_id)
 
@@ -240,19 +235,19 @@ class MState:
     # Send update
     msg = ""
     if f_votee_id == None:
-      msg += resp_lib['VOTE'].format(voter=voter_id, votee=votee_id)
+      msg += get_resp('VOTE', voter=voter_id, votee=votee_id)
     else:
       if votee_id == None:
-        msg += resp_lib['VOTE_RETRACT'].format(voter=voter_id, f_votee=f_votee_id)
+        msg += get_resp('VOTE_RETRACT', voter=voter_id, f_votee=f_votee_id)
       else:
-        msg += resp_lib['VOTE_CHANGE'].format(voter=voter_id, votee=votee_id, f_votee=f_votee_id)
+        msg += get_resp('VOTE_CHANGE', voter=voter_id, votee=votee_id, f_votee=f_votee_id)
 
     if votee_id in players:
-      msg += resp_lib['VOTE_UPDATE'].format(votee=votee_id, n_voters=n_voters, thresh=thresh)
+      msg += get_resp('VOTE_UPDATE', votee=votee_id, n_voters=n_voters, thresh=thresh)
     elif votee_id == NOTARGET:
-      msg += resp_lib['VOTE_UPDATE_NOKILL'].format(n_voters=n_voters, nokill_thresh=nokill_thresh)
+      msg += get_resp('VOTE_UPDATE_NOKILL', n_voters=n_voters, nokill_thresh=nokill_thresh)
 
-    self.cast_main(msg)
+    self.main_chat.cast(msg)
 
     # Check for end of DAY
     if votee_id == None:
@@ -265,14 +260,13 @@ class MState:
       self.__elect(voter_id, votee_id)
       return
   
-  @could_end # idiot_win
   def __elect(self, actor_id, target_id):
-    main_msg = [""]
+    self.main_msg = ""
     nokill = False
     if not target_id == NOTARGET:
       target = self.players[target_id]
 
-      main_msg[0] += resp_lib['ELECT'].format(target=target_id)
+      self.main_msg += get_resp('ELECT',target=target_id)
 
       if target.role == "IDIOT":
         self.contracts[target_id].success = True
@@ -282,38 +276,37 @@ class MState:
 
         idiot_vengeance = self.rules[MRules.idiot_vengeance]
         if not idiot_vengeance == "OFF":
-          main_msg[0] += resp_lib["ELECT_IDIOT"]
+          self.main_msg += resp_lib["ELECT_IDIOT"]
 
           if idiot_vengeance == "DAY":
-            main_msg[0] += resp_lib["ELECT_DAY"]
-            self.cast_main(main_msg[0])
+            self.main_msg += resp_lib["ELECT_DAY"]
+            self.main_chat.cast(self.main_msg)
             return self.__day()
 
           elif idiot_vengeance == "STUN":
-            main_msg[0] += resp_lib["ELECT_STUN"]
+            self.main_msg += resp_lib["ELECT_STUN"]
             self.stunned |= set(self.vengeance.venges)
 
           elif idiot_vengeance == "KILL":
-            return self.__dusk(target_id, main_msg) # Go to dusk, don't kill idiot yet
+            return self.__dusk(target_id) # Go to dusk, don't kill idiot yet
           elif idiot_vengeance == "WIN":
-            return self.__idiot_win(target_id, main_msg)
+            return self.__idiot_win(target_id)
 
-      self.__eliminate(actor_id, target_id, main_msg)
+      self.__eliminate(actor_id, target_id)
 
     else:
-      main_msg[0] += resp_lib['ELECT_NOKILL']
+      self.main_msg += resp_lib['ELECT_NOKILL']
       nokill = True
 
-    main_msg[0] += '\n'
-    self.__night(main_msg, nokill)
+    self.main_msg += '\n'
+    self.__night(nokill)
 
-  @could_end #team_win
-  def __eliminate(self, actor_id, target_id, main_msg:List[str]) -> str:
+  def __eliminate(self, actor_id, target_id) -> str:
     role = self.players[target_id].role
     reveal = dispRole(role, self.rules[MRules.reveal_on_death])
 
-    main_msg[0] += "\n"
-    main_msg[0] += resp_lib["ELIMINATE"].format(target=target_id, role=reveal)
+    self.main_msg += "\n"
+    self.main_msg += get_resp("ELIMINATE",target=target_id, role=reveal)
 
     del self.players[target_id]
 
@@ -322,13 +315,13 @@ class MState:
         # charge has died
         dm_msg = [""]
         if contract.role == "AGENT":
-          dm_msg[0] += resp_lib["CHARGE_DIE_AGENT"].format(charge=target_id, aggressor=actor_id)
+          dm_msg[0] += get_resp("CHARGE_DIE_AGENT",charge=target_id, aggressor=actor_id)
           contract.success = True
         elif contract.role =="GUARD":
-          dm_msg[0] += resp_lib["CHARGE_DIE_GUARD"].format(charge=target_id, aggressor=actor_id)
+          dm_msg[0] += get_resp("CHARGE_DIE_GUARD",charge=target_id, aggressor=actor_id)
           contract.success = False
         elif contract.role == "SURVIVOR":
-          dm_msg[0] += resp_lib["SURVIVOR_DIE"].format(aggressor=actor_id)
+          dm_msg[0] += get_resp("SURVIVOR_DIE",aggressor=actor_id)
           contract.success = False
         # Refocus if charge role is still alive
         if p in self.players and (
@@ -341,11 +334,11 @@ class MState:
     n_players = len(self.players)
     n_mafia = len([p for p in self.players.values() if p.role.is_mafia()])
     if n_mafia == 0:
-      self.__team_win(MTeam.Town, main_msg)
+      self.__team_win(MTeam.Town)
     elif n_mafia>= (n_players+1) // 2:
-      self.__team_win(MTeam.Mafia, main_msg)
+      self.__team_win(MTeam.Mafia)
 
-    role_msg = resp_lib["SHOW_ROLES"].format(self.start_roles)
+    role_msg = get_resp("SHOW_ROLES",start_roles=self.start_roles)
     self.send_dm(role_msg, target_id)
 
   # TODO: when the game is over, don't refocus?
@@ -364,9 +357,9 @@ class MState:
       else:
         new_role = MRole.GUARD
 
-    dm_msg[0] += "\n" + resp_lib["REFOCUS"].format(new_role=new_role)
+    dm_msg[0] += "\n" + get_resp("REFOCUS",new_role=new_role)
     if new_role in (MRole.GUARD, MRole.AGENT):
-       dm_msg[0] += "\n" + resp_lib["CHARGE_ASSIGN"].format(charge=new_charge)
+       dm_msg[0] += "\n" + get_resp("CHARGE_ASSIGN",charge=new_charge)
 
     self.players[actor].role = new_role
     contract = self.contracts[actor]
@@ -384,11 +377,11 @@ class MState:
           srs[i] += "([{charge}])".format(charge=new_charge)
     self.start_roles = "\n".join(srs)
 
-  def __night(self, main_msg:List[str]=[""], nokill=False):
+  def __night(self, nokill=False):
     self.__halt_timer()
 
-    main_msg[0] += resp_lib['NIGHT']
-    self.cast_main(main_msg[0])
+    self.main_msg += resp_lib['NIGHT']
+    self.main_chat.cast(self.main_msg)
 
     # Check if goons should be stunned
     if (self.rules[MRules.goon_potence] == "OFF" or 
@@ -425,7 +418,7 @@ class MState:
     if actor_id in self.stunned and not target_id == NOTARGET:
       raise InvalidActionException(resp_lib["INVALID_TARGET_STUNNED"])
     if not (target_id in self.players or target_id == NOTARGET):
-      msg = resp_lib["INVALID_TARGETED"].format(target_id=target_id)
+      msg = get_resp("INVALID_TARGETED",target_id=target_id)
       raise InvalidActionException(msg)
     if (self.rules[MRules.no_milk_self] == "ON" and 
         self.players[actor_id].role == MRole.MILKY and actor_id==target_id):
@@ -439,7 +432,7 @@ class MState:
     if actor.target == NOTARGET:
       msg = resp_lib["NOTARGET"]
     else:
-      msg = resp_lib["TARGET"].format(target=actor.target)
+      msg = get_resp("TARGET",target=actor.target)
     self.send_dm(msg, actor_id)
 
     if (self.mafia_target[0] != None) and all([p.target != None for p in self.players.values() if p.role.is_targeting()]):
@@ -457,29 +450,29 @@ class MState:
     if targeter_id in self.stunned and not target_id == NOTARGET:
       raise InvalidActionException(resp_lib["INVALID_TARGET_STUNNED"])
     if not (target_id in self.players or target_id == NOTARGET):
-      msg = resp_lib["INVALID_TARGETED"].format(target_id=target_id)
+      msg = get_resp("INVALID_TARGETED",target_id=target_id)
       raise InvalidActionException(msg)
     return self.__mtarget(targeter_id, target_id)
 
   def __mtarget(self, targeter_id : MPlayerID, target_id : Optional[MPlayerID]):
     self.mafia_target = (target_id, targeter_id)
-    msg = resp_lib["MTARGET"].format(actor=targeter_id, target=target_id)
+    msg = get_resp("MTARGET",actor=targeter_id, target=target_id)
     self.cast_mafia(msg)
     if (self.mafia_target[0] != None) and all([p.target != None for p in self.players.values() if p.role.is_targeting()]):
       self.__dawn()
     return
 
-  def __dawn(self, main_msg=[""]):
+  def __dawn(self):
     self.__halt_timer()
-    main_msg[0] += resp_lib['DAWN']
+    self.main_msg += resp_lib['DAWN']
 
     self.__dawn_strip()
     target_saved = self.__dawn_save()
-    self.__kill(main_msg, target_saved)
-    self.__dawn_milk(main_msg)
+    self.__kill(target_saved)
+    self.__dawn_milk()
     self.__dawn_investigate()
 
-    self.cast_main(main_msg[0])
+    self.main_chat.cast(self.main_msg)
 
     self.day += 1
     return self.__day()
@@ -517,24 +510,24 @@ class MState:
               self.send_dm(resp_lib["SAVE_DOC"], doctor_id)
     return target_saved
 
-  def __kill(self, main_msg:List[str], target_saved:bool) -> str:
+  def __kill(self, target_saved:bool) -> str:
     if self.mafia_target[0] in (NOTARGET, None):
-      main_msg[0] += "\n" + resp_lib["KILL_FAIL_QUIET"]
+      self.main_msg += "\n" + resp_lib["KILL_FAIL_QUIET"]
     else:
       if target_saved:
         if self.rules[MRules.know_if_saved] == "OFF":
-          main_msg[0] += "\n" + resp_lib["KILL_FAIL_QUIET"]
+          self.main_msg += "\n" + resp_lib["KILL_FAIL_QUIET"]
         elif self.rules[MRules.know_if_saved] == "SECRET":
-          main_msg[0] += "\n" + resp_lib["SAVE_SECRET"]
+          self.main_msg += "\n" + resp_lib["SAVE_SECRET"]
         elif self.rules[MRules.know_if_saved] == "SAVED":
-          main_msg[0] += "\n" + resp_lib["SAVE"].format(target=self.mafia_target[0])
+          self.main_msg += "\n" + get_resp("SAVE",target=self.mafia_target[0])
         if self.rules[MRules.know_if_saved_self] == "ON":
           self.send_dm(resp_lib["SAVE_SELF"],self.mafia_target[0])
       else:
-        main_msg[0] += "\n" + resp_lib["KILL"].format(target=self.mafia_target[0])
-        self.__eliminate(self.mafia_target[1], self.mafia_target[0], main_msg)
+        self.main_msg += "\n" + get_resp("KILL",target=self.mafia_target[0])
+        self.__eliminate(self.mafia_target[1], self.mafia_target[0])
 
-  def __dawn_milk(self, main_msg:List[str]) -> str:
+  def __dawn_milk(self) -> str:
     for milky_id in [p for p in self.players if self.players[p].role == "MILKY"]:
       milky = self.players[milky_id]
       if not milky.target in (NOTARGET, None):
@@ -545,7 +538,7 @@ class MState:
           self.send_dm(resp_lib["STRIPPED"], milky_id)
 
         if not is_stripped and success:
-          main_msg[0] += "\n" + resp_lib["MILK"].format(target=milky.target)
+          self.main_msg += "\n" + get_resp("MILK",target=milky.target)
 
   def __dawn_investigate(self):
     for cop_id in [p for p in self.players if self.players[p].role == "COP"]:
@@ -559,7 +552,7 @@ class MState:
         
         if not is_stripped and success:
           investigation = self.players[cop.target].role.investigate(self.rules[MRules.cop_strength])
-          self.send_dm(resp_lib["INVESTIGATE"].format(target=cop.target, role=investigation), cop_id)
+          self.send_dm(get_resp("INVESTIGATE",target=cop.target, role=investigation), cop_id)
   
   def __day(self):
     self.__halt_timer()
@@ -569,11 +562,11 @@ class MState:
       p.target = None
     self.stunned = set()
 
-  def __dusk(self, idiot_id, main_msg=[""]):
+  def __dusk(self, idiot_id):
     self.__halt_timer()
     self.phase = MPhase.DUSK
-    main_msg[0] += "\n" + resp_lib["DUSK"]
-    self.cast_main(main_msg[0])
+    self.main_msg += "\n" + resp_lib["DUSK"]
+    self.main_chat.cast(self.main_msg)
     opts = resp_lib["DUSK_OPTIONS"]
     opts += "\n".join(self.listMenu(self.vengeance.venges, notarget=False))
     self.send_dm(opts, self.vengeance.idiot)
@@ -592,42 +585,44 @@ class MState:
     self.__vengeance(idiot_id, target_id)
 
   def __vengeance(self, idiot_id : MPlayerID, target_id : Optional[MPlayerID]):
-    main_msg = [resp_lib['VENGEANCE'].format(actor=idiot_id, target=target_id)]
-    self.__eliminate(idiot_id, target_id, main_msg) # Eliminate target before idiot
-    self.__eliminate(self.vengeance.final_vote, idiot_id, main_msg)
-    self.cast_main(main_msg[0])
+    self.main_msg = get_resp('VENGEANCE',actor=idiot_id, target=target_id)
+    self.__eliminate(idiot_id, target_id) # Eliminate target before idiot
+    self.__eliminate(self.vengeance.final_vote, idiot_id)
+    self.main_chat.cast(self.main_msg)
     self.__night()
 
   def __contract_result(self, contractor_id:MPlayerID, contract:MContract):
     if contract.success:
-      msg = resp_lib["CONTRACT_WIN"].format(role=contract.role, player=contractor_id)
+      msg = get_resp("CONTRACT_WIN",role=contract.role, player=contractor_id)
     else:
-      msg = resp_lib["CONTRACT_LOSE"].format(role=contract.role, player=contractor_id, charge=contract.charge)
+      msg = get_resp("CONTRACT_LOSE",role=contract.role, player=contractor_id, charge=contract.charge)
     if contract.role in {MRole.AGENT, MRole.GUARD}:
-      msg += " " + resp_lib["CHARGE_REVEAL"].format(charge=contract.charge)
+      msg += " " + get_resp("CHARGE_REVEAL",charge=contract.charge)
     return msg
 
 
-  def __team_win(self, team, main_msg:List[str]):
+  def __team_win(self, team):
     self.phase = MPhase.END
     self.halt_timer()
-    msg = "\n" + resp_lib["WIN"].format(winning_team=team)
+    msg = "\n" + get_resp("WIN",winning_team=team)
     for p_id,contract in self.contracts.items():
       msg += "\n" + self.__contract_result(p_id, contract)
 
-    msg += "\n" + resp_lib["SHOW_ROLES"].format(self.start_roles)
-    main_msg[0] += msg
+    msg += "\n" + get_resp("SHOW_ROLES",start_roles=self.start_roles)
+    self.main_msg += msg
+    self.main_chat.cast(self.main_msg)
     raise TeamWinException(team, msg)
 
-  def __idiot_win(self, idiot, main_msg:List[str]):
+  def __idiot_win(self, idiot):
     self.phase = MPhase.END
     self.halt_timer()
-    msg = "\n" + resp_lib["IDIOT_WIN"].format(idiot)
+    msg = "\n" + get_resp("IDIOT_WIN",idiot=idiot)
     for p_id,contract in self.contracts.items():
       msg += "\n" + self.__contract_result(p_id, contract)
 
-    msg += resp_lib["SHOW_ROLES"].format(self.start_roles)
-    main_msg[0] += msg
+    msg += get_resp("SHOW_ROLES",start_roles=self.start_roles)
+    self.main_msg += msg
+    self.main_chat.cast(self.main_msg)
     raise IdiotWinException(idiot, msg)
 
   def main_status(self):
@@ -647,12 +642,12 @@ class MState:
   def send_role_expl(self):
     mason_strs = set(["[{}]".format(p_id) for p_id in \
       self.players if self.players[p_id].role == MRole.MASON])
-    mason_msg = resp_lib["MASON_REVEAL"].format("\n".join(mason_strs))
+    mason_msg = get_resp("MASON_REVEAL",mason_str="\n".join(mason_strs))
 
     for p_id,p in self.players.items():
       msg = p.role.expl()
       if p.role in {MRole.GUARD,MRole.AGENT}:
-        msg += " " + resp_lib["CHARGE_ASSIGN"].format(charge=self.contracts[p_id].charge)
+        msg += " " + get_resp("CHARGE_ASSIGN",charge=self.contracts[p_id].charge)
       if p.role in {MRole.MASON}:
         msg += "\n" + mason_msg
       for rule in MRules.relevant_rules[p.role]:
@@ -676,7 +671,7 @@ class MState:
       for p in maf_players:
         maf_msg += "\n" + "[{}]: {}".format(p, self.players[p].role)
 
-    self.cast_main(msg)
+    self.main_chat.cast(msg)
     self.cast_mafia(maf_msg)
 
   @staticmethod
@@ -721,7 +716,7 @@ class MState:
   # NOTE: User must reinit cast_main, cast_mafia, send_dm, halt_timer hooks!
   @staticmethod
   def from_json(d):
-    mstate = MState(d['rules'])
+    mstate = MState(MChat("0"), MChat("0"), MDM(), d['rules'])
     mstate.day = d['day']
     mstate.phase = d['phase']
     mstate.players = d['players']

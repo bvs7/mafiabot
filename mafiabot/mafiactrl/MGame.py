@@ -2,7 +2,7 @@ import time
 import json
 
 from typing import NewType
-
+from . import MTimer
 from ..mafiastate import MState, MRules, MRole, MPlayerID, InvalidActionException, EndGameException, MPhase, mload 
 from ..chatinterface import MChat, MDM, MCmd
 
@@ -23,6 +23,15 @@ from ..chatinterface import MChat, MDM, MCmd
 class DeleteGameException(Exception):
   pass
 
+def wrap_end(func):
+  def f(self, *args, **kwargs):
+    try:
+      result = func(self, *args,**kwargs)
+    except EndGameException as ege:
+      self.end_game(ege.msg)
+    return result
+  return f
+
 # Contains MState, checks inputs, fulfills non-event actions
 class MGame:
 
@@ -34,11 +43,13 @@ class MGame:
     self.id = game_id
     self.mstate = mstate
     if main_chat_id == None:
-      main_chat_id = self.ctrl.MChatType.new("MAIN CHAT {}".format(self.id))
-    self.main_chat = self.ctrl.MChatType(main_chat_id)
+      self.main_chat = self.ctrl.MChatType.new("MAIN CHAT {}".format(self.id))
+    else:
+      self.main_chat = self.ctrl.MChatType(main_chat_id)
     if mafia_chat_id == None:
-      mafia_chat_id = self.ctrl.MChatType.new("MAFIA CHAT {}".format(self.id))
-    self.mafia_chat = self.ctrl.MChatType(mafia_chat_id, name_reference=self.main_chat)
+      self.mafia_chat = self.ctrl.MChatType.new("MAFIA CHAT {}".format(self.id))
+    else:
+      self.mafia_chat = self.ctrl.MChatType(mafia_chat_id, name_reference=self.main_chat)
     self.dms = self.ctrl.MDMType(self.main_chat)
 
     self.hook_up()
@@ -48,7 +59,6 @@ class MGame:
     self.mstate.cast_mafia= self.mafia_chat.cast
     self.mstate.send_dm   = self.dms.send
     self.mstate.halt_timer = self.halt_timer
-
 
   @classmethod
   def new(cls, ctrl, rules:MRules=MRules(), lobby=None): 
@@ -62,7 +72,7 @@ class MGame:
 
   def start(self, users, roleGen):
     """ Inputs, roleGen is a roleGen fn, users is... user ids and nicknames?
-    Should we import user nicknames? Yes, eventually have MUser! for generality
+    Should we import user nicknames? Yes, eventually have MUser!?? for generality
     """
     ids = list(users.keys())
     (assignments, contracts) = roleGen(ids)
@@ -90,7 +100,7 @@ class MGame:
     # TODO: how to handle this?
     print("END_GAME: ", msg)
 
-  # decorator for end of game or invalid action
+  # decorator for end of game or invalid action?
   def handle_chat(self, group_id, sender_id:MPlayerID, cmd:MCmd, **kwargs):
     if group_id == self.main_chat.id and cmd.is_main():
       try:

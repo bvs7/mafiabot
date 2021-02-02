@@ -26,7 +26,7 @@ resp_lib = {
   "SURVIVOR_DIE": "Oh no! You died at the hands of [{aggressor}]! As SURVIVOR, you have lost!",
   "REFOCUS" : "You have been refocused to {new_role}",
   "CHARGE_ASSIGN":"Your charge is [{charge}]",
-  "MASON_REVEAL": "The MASONIC ORDER includes:\n{}",
+  "MASON_REVEAL": "The MASONIC ORDER includes:\n{mason_str}",
   "STRIPPED":   "You were distracted...",
   "STUN":       "You are stunned until next morning",
   "STUNNED":    "While stunned you can only target NOTARGET",
@@ -50,7 +50,7 @@ resp_lib = {
   "CONTRACT_WIN":"{role} [{player}] won!",
   "CONTRACT_LOSE":"{role} [{player}] lost!",
   "CHARGE_REVEAL":"Charge: [{charge}]",
-  "SHOW_ROLES": "Roles:{}",
+  "SHOW_ROLES": "Roles:{start_roles}",
 
   "INVALID_VOTER": "[{player_id}] cannot vote, not playing",
   "INVALID_VOTEE": "Cannot vote for [{player_id}], they are not playing",
@@ -81,7 +81,8 @@ resp_lib = {
   "FAILED_START_GAME" : "Failed to start a game",
   "WATCH_NO_GAMES" : "Failed to watch, no games",
   "WATCH" : "Watching game #{g_id}",
+  "STATUS_NO_GAMES" : "No games",
 }
 
 def get_resp(resp, **locs):
-  resp = resp_lib[resp].format(**locs)
+  return resp_lib[resp].format(**locs)

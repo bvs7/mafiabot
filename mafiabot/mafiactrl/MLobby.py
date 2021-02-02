@@ -30,21 +30,12 @@ class MLobby:
 
     if cmd == MCmd.IN:
       self.handle_in(sender_id, **kwargs)
-
     if cmd == MCmd.OUT:
-      # remove sender from in_list
-      pass
-
+      self.handle_out(sender_id)
     if cmd == MCmd.START:
-      # Start game or start timer.
-      # call self.ctrl.start_game when ready, put resulting id in self.game_ids
-      pass
-
+      self.handle_start(**kwargs)
     if cmd == MCmd.WATCH:
-      # Check game_ids for desired target game
-      # Add sender to watchable game
-      pass
-
+      self.handle_watch(sender_id, **kwargs)
     if cmd == MCmd.STATUS:
       # Check game_ids for desired target game
       # Return status of desired game
@@ -52,7 +43,7 @@ class MLobby:
 
     return False
 
-  def handle_in(self, sender_id, min_p):
+  def handle_in(self, sender_id, min_p=DEFAULT_MIN_PLAYERS):
     self.in_list[sender_id] = min_p
     self.chat.cast_resp("IN",**locals())
     return True
@@ -65,7 +56,7 @@ class MLobby:
       self.chat.cast_resp("OUT_NOT_IN",**locals())
     return True
 
-  def handle_start(self, minutes, min_p):
+  def handle_start(self, minutes=DEFAULT_TIMER_MINUTES, min_p=DEFAULT_MIN_PLAYERS):
     self.start_msg_id = self.chat.cast_resp("START_TIMER",**locals())
     self.start_min_players = min_p
     self.start_timer = self.ctrl.MTimerType(minutes*60, {0:[self.try_start_game]})
@@ -77,6 +68,15 @@ class MLobby:
     if not g_id:
       g_id = self.game_ids[0]
     self.ctrl.watch(sender_id, g_id)
+
+  def handle_status(self, g_id=None):
+    if len(self.game_ids) == 0:
+      self.chat.cast_resp("STATUS_NO_GAMES")
+      return True
+    if not g_id:
+      g_id = self.game_ids[0]
+    game = self.ctrl.games[g_id]
+    self.chat.cast(game.mstate.main_status())
 
   def try_start_game(self):
 
