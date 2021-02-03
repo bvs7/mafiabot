@@ -81,14 +81,11 @@ def check_end(func):
 
 class MState:
 
-  def __init__(self, main_chat, mafia_chat, dms, rules:MRules=MRules()):
+  def __init__(self, main_chat=MChat(), mafia_chat=MChat(), dms=MDM(), rules:MRules=MRules()):
 
     self.main_chat = main_chat
-    #self.cast_main = self.main_chat.cast
     self.mafia_chat = mafia_chat
-    self.cast_mafia = self.mafia_chat.cast
     self.dms = dms
-    self.send_dm = self.dms.send
 
     self.halt_timer = self.__halt_timer # Called when time progresses to stop timer?
 
@@ -198,12 +195,12 @@ class MState:
     if not reveal_id in self.revealed:
       if reveal_id in self.stripped:
         if self.rules[MRules.know_if_stripped] == "USEFUL": 
-          self.send_dm(resp_lib["STRIPPED"], reveal_id)
+          self.dms.send(resp_lib["STRIPPED"], reveal_id)
       else:
         self.revealed.add(reveal_id)
         self.main_chat.cast_resp('REVEAL',actor=reveal_id, role=p.role)
     else:
-      self.main_chat.cast_resp('REVEAL REMINDER',actor=reveal_id, role=p.role)
+      self.main_chat.cast_resp('REVEAL_REMINDER',actor=reveal_id, role=p.role)
 
   @check_end
   def vote(self, voter_id : MPlayerID, votee_id : Optional[MPlayerID]):
@@ -329,7 +326,7 @@ class MState:
           (contract.role == "AGENT" and self.rules[MRules.charge_refocus_agent])):
           self.__refocus(p, target_id, actor_id, contract.role, dm_msg)
         if not dm_msg[0] == "":
-          self.send_dm(dm_msg[0], p)
+          self.dms.send(dm_msg[0], p)
 
     n_players = len(self.players)
     n_mafia = len([p for p in self.players.values() if p.role.is_mafia()])
@@ -339,7 +336,7 @@ class MState:
       self.__team_win(MTeam.Mafia)
 
     role_msg = get_resp("SHOW_ROLES",start_roles=self.start_roles)
-    self.send_dm(role_msg, target_id)
+    self.dms.send(role_msg, target_id)
 
   # TODO: when the game is over, don't refocus?
   def __refocus(self, actor, target, aggressor, role, dm_msg:List[str]=[""]):
@@ -390,7 +387,7 @@ class MState:
         self.stunned |= {goon_id}
 
     for p in self.stunned:
-      self.send_dm(resp_lib["STUN"], p)
+      self.dms.send(resp_lib["STUN"], p)
 
     opts = resp_lib['NIGHT_OPTIONS']
     opts += '\n'.join(self.listMenu(self.players.keys()))
@@ -398,8 +395,8 @@ class MState:
       msg = opts
       if t_p in self.stunned:
         msg = resp_lib["STUNNED"] + "\n" + opts
-      self.send_dm(msg, t_p)
-    self.cast_mafia(opts)
+      self.dms.send(msg, t_p)
+    self.mafia_chat.cast(opts)
 
     self.phase = MPhase.NIGHT
     for player in self.players.values():
@@ -433,7 +430,7 @@ class MState:
       msg = resp_lib["NOTARGET"]
     else:
       msg = get_resp("TARGET",target=actor.target)
-    self.send_dm(msg, actor_id)
+    self.dms.send(msg, actor_id)
 
     if (self.mafia_target[0] != None) and all([p.target != None for p in self.players.values() if p.role.is_targeting()]):
       self.__dawn()
@@ -457,7 +454,7 @@ class MState:
   def __mtarget(self, targeter_id : MPlayerID, target_id : Optional[MPlayerID]):
     self.mafia_target = (target_id, targeter_id)
     msg = get_resp("MTARGET",actor=targeter_id, target=target_id)
-    self.cast_mafia(msg)
+    self.mafia_chat.cast(msg)
     if (self.mafia_target[0] != None) and all([p.target != None for p in self.players.values() if p.role.is_targeting()]):
       self.__dawn()
     return
@@ -487,10 +484,10 @@ class MState:
         target = self.players[target_id]
         msg = resp_lib["STRIPPED"]
         if _know_if_stripped == "ON":
-          self.send_dm(msg, target_id)
+          self.dms.send(msg, target_id)
         elif _know_if_stripped == "TARGET":
           if target.role.is_targeting() or target.role == "CELEB":
-            self.send_dm(msg, target_id)
+            self.dms.send(msg, target_id)
 
   def __dawn_save(self) -> bool:
     target_saved = False
@@ -502,12 +499,12 @@ class MState:
           is_stripped = doctor_id in self.stripped
 
           if self.rules[MRules.know_if_stripped] == "USEFUL" and success and is_stripped:
-            self.send_dm(resp_lib["STRIPPED"], doctor_id)
+            self.dms.send(resp_lib["STRIPPED"], doctor_id)
 
           if success and not is_stripped:
             target_saved = True
             if self.rules[MRules.know_if_saved_doc] == "ON":
-              self.send_dm(resp_lib["SAVE_DOC"], doctor_id)
+              self.dms.send(resp_lib["SAVE_DOC"], doctor_id)
     return target_saved
 
   def __kill(self, target_saved:bool) -> str:
@@ -522,7 +519,7 @@ class MState:
         elif self.rules[MRules.know_if_saved] == "SAVED":
           self.main_msg += "\n" + get_resp("SAVE",target=self.mafia_target[0])
         if self.rules[MRules.know_if_saved_self] == "ON":
-          self.send_dm(resp_lib["SAVE_SELF"],self.mafia_target[0])
+          self.dms.send(resp_lib["SAVE_SELF"],self.mafia_target[0])
       else:
         self.main_msg += "\n" + get_resp("KILL",target=self.mafia_target[0])
         self.__eliminate(self.mafia_target[1], self.mafia_target[0])
@@ -535,7 +532,7 @@ class MState:
         success = milky.target in self.players
 
         if self.rules[MRules.know_if_stripped] == "USEFUL" and success and is_stripped:
-          self.send_dm(resp_lib["STRIPPED"], milky_id)
+          self.dms.send(resp_lib["STRIPPED"], milky_id)
 
         if not is_stripped and success:
           self.main_msg += "\n" + get_resp("MILK",target=milky.target)
@@ -548,11 +545,11 @@ class MState:
         success = cop.target in self.players
 
         if self.rules[MRules.know_if_stripped] == "USEFUL" and success and is_stripped:
-          self.send_dm(resp_lib["STRIPPED"], cop_id)
+          self.dms.send(resp_lib["STRIPPED"], cop_id)
         
         if not is_stripped and success:
           investigation = self.players[cop.target].role.investigate(self.rules[MRules.cop_strength])
-          self.send_dm(get_resp("INVESTIGATE",target=cop.target, role=investigation), cop_id)
+          self.dms.send(get_resp("INVESTIGATE",target=cop.target, role=investigation), cop_id)
   
   def __day(self):
     self.__halt_timer()
@@ -569,7 +566,7 @@ class MState:
     self.main_chat.cast(self.main_msg)
     opts = resp_lib["DUSK_OPTIONS"]
     opts += "\n".join(self.listMenu(self.vengeance.venges, notarget=False))
-    self.send_dm(opts, self.vengeance.idiot)
+    self.dms.send(opts, self.vengeance.idiot)
 
   @check_end
   def itarget(self, idiot_id : MPlayerID, target_id : Optional[MPlayerID]):
@@ -653,7 +650,7 @@ class MState:
       for rule in MRules.relevant_rules[p.role]:
         sett = self.rules[rule]
         msg += "\n{}|{}: {}".format(rule,sett, MRules.RULE_BOOK[rule][sett])
-      self.send_dm(msg, p_id)
+      self.dms.send(msg, p_id)
     self.start_roles = createStartRolesMsg(self.players,self.contracts)
 
   def cast_start_msgs(self):
@@ -672,7 +669,7 @@ class MState:
         maf_msg += "\n" + "[{}]: {}".format(p, self.players[p].role)
 
     self.main_chat.cast(msg)
-    self.cast_mafia(maf_msg)
+    self.mafia_chat.cast(maf_msg)
 
   @staticmethod
   def listMenu(players, notarget=True):
@@ -709,17 +706,35 @@ class MState:
 
   def to_json(self):
     d = {}
-    for name in ["day","phase","players","contracts","start_roles","rules"]:
+    for name in ["day","phase","players","contracts","start_roles","rules",
+      "stripped", "stunned", "revealed", "vengeance"]:
       d[name] = self.__dict__[name]
+    d = {
+      "day": self.day,
+      "phase": self.phase,
+      "players": self.players,
+      "contracts": self.contracts,
+      "start_roles": self.start_roles,
+      "rules" : self.rules,
+      "stripped": list(self.stripped),
+      "stunned": list(self.stunned),
+      "revealed": list(self.revealed),
+      "vengeance": self.vengeance,
+    }
     return d
 
   # NOTE: User must reinit cast_main, cast_mafia, send_dm, halt_timer hooks!
   @staticmethod
   def from_json(d):
-    mstate = MState(MChat("0"), MChat("0"), MDM(), d['rules'])
+    mstate = MState(rules=d['rules'])
     mstate.day = d['day']
     mstate.phase = d['phase']
-    mstate.players = d['players']
+    mstate.players = OrderedDict(d['players'])
     mstate.contracts = d['contracts']
     mstate.start_roles = d['start_roles']
+    mstate.rules = d['rules']
+    mstate.stripped = set(d['stripped'])
+    mstate.stunned = set(d['stunned'])
+    mstate.revealed = set(d['revealed'])
+    mstate.vengeance = d['vengeance']
     return mstate

@@ -1,6 +1,7 @@
 import unittest
 from collections import deque
 
+from ..chatinterface import MChat, MDM
 from ..mafiastate import MState, MRules, MPhase
 
 def verbose(*args):
@@ -20,7 +21,7 @@ def halt_timer(*args):
   print_mode("Halt Timer!")
 
 def standardState(rules=MRules()):
-  mstate = MState(rules,cast_main=print_mode,cast_mafia=print_mode,send_dm=print_mode)
+  mstate = MState(rules=rules)
   mstate.halt_timer = halt_timer
   return mstate
 
@@ -31,33 +32,35 @@ def assertDayPhasePlayers(testCase, mstate:MState, phase:MPhase, day:int, nplaye
 
 def create_chat_tester(p_mode):
   nextMsg = deque([])
-  def chat_tester(msg):
-    if not len(nextMsg) == 0:
-      m = nextMsg.popleft()
-      if not msg == m:
-        raise Exception(msg,m)
-      else:
-        msg = "Successful Chat!: " + msg
-    p_mode(msg)
+  class ChatTester(MChat):
+    def chat(self, msg):
+      if not len(nextMsg) == 0:
+        m = nextMsg.popleft()
+        if not msg == m:
+          raise Exception(msg,m)
+        else:
+          msg = "Successful Chat!: " + msg
+      p_mode(msg)
   def queue_to_chat(msg):
     nextMsg.append(msg)
-  return chat_tester,queue_to_chat
+  return ChatTester(),queue_to_chat
 
 def create_dm_tester(p_mode):
   nextMsgs = {}
-  def dm_tester(msg, p_id):
-    if p_id in nextMsgs and not len(nextMsgs[p_id]) == 0:
-      m = nextMsgs[p_id].popleft()
-      if not m ==  msg:
-        raise Exception(msg,m)
-      else:
-        msg = "Successful DM! [{}]: ".format(p_id) + msg
-    p_mode(msg,p_id)
+  class DMTester(MDM):
+    def send(self, msg, p_id):
+      if p_id in nextMsgs and not len(nextMsgs[p_id]) == 0:
+        m = nextMsgs[p_id].popleft()
+        if not m ==  msg:
+          raise Exception(msg,m)
+        else:
+          msg = "Successful DM! [{}]: ".format(p_id) + msg
+      p_mode(msg,p_id)
   def add_dm(msg, p_id):
     if not p_id in nextMsgs:
       nextMsgs[p_id] = deque([])
     nextMsgs[p_id].append(msg)
-  return dm_tester, add_dm
+  return DMTester(), add_dm
 
 def create_handle_chat_tester(p_mode):
   nextCmd = deque()

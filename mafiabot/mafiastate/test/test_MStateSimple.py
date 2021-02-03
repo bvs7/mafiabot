@@ -170,7 +170,7 @@ class TestMStateSimple(unittest.TestCase):
   def all_roles(self, rules=MRules()):
     test_dm, _ = create_dm_tester(print_mode)
     mstate = standardState(rules)
-    mstate.send_dm = test_dm
+    mstate.dms = test_dm
     ns = [str(n) for n in range(len(MRole.__members__))]
     roles = list(MRole.__members__.values())
     idiot_id = str(roles.index(MRole.IDIOT))
@@ -210,7 +210,7 @@ class TestMStateSimple(unittest.TestCase):
   def test_cop(self):
     test_dm, add_dm = create_dm_tester(print_mode)
     mstate = standardState()
-    mstate.send_dm = test_dm
+    mstate.dms = test_dm
     mstate.start(list(zip(['1','2','3','4','5'], ['COP', 'TOWN','MILLER','MAFIA','GODFATHER'])), {})
     assertDayPhasePlayers(self,mstate,MPhase.DAY,1,5)
     mstate.vote('1',NOTARGET)
@@ -312,8 +312,8 @@ class TestMStateSimple(unittest.TestCase):
     c_main, add_to_c_main = create_chat_tester(print_mode)
     s_dm, add_dm = create_dm_tester(print_mode)
     mstate = standardState()
-    mstate.cast_main = c_main
-    mstate.send_dm = s_dm
+    mstate.main_chat = c_main
+    mstate.main_chatdms = s_dm
     mstate.start(list(zip(['1','2','3','4'], ['CELEB', 'CELEB','TOWN','STRIPPER'])), {})
 
     try:
@@ -350,7 +350,7 @@ class TestMStateSimple(unittest.TestCase):
   def test_mason(self):
     test_dm, _ = create_dm_tester(print_mode)
     mstate = standardState()
-    mstate.send_dm = test_dm
+    mstate.dms = test_dm
 
     mstate.start(list(zip(
       ['1','2','3','4','5'], 
@@ -360,7 +360,7 @@ class TestMStateSimple(unittest.TestCase):
   def test_goon(self):
     test_dm, add_dm = create_dm_tester(print_mode)
     mstate = standardState()
-    mstate.send_dm = test_dm
+    mstate.dms = test_dm
     mstate.start(list(zip(['1','2','3','4','5','6'], ['TOWN', 'TOWN','TOWN','GOON', 'TOWN','TOWN'])), {})
     with self.assertRaises(InvalidActionException) as iae:
       mstate.mtarget('4','1')

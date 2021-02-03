@@ -1,15 +1,24 @@
 import time
 import threading
+from typing import Iterable,Tuple,Callable,Optional, Mapping
 
 class MTimer:
   """Used to create a timer object and bind functions to specific times for it"""
   
-  def __init__(self, value, alarms, low_set_lim=0):
+  def __init__(self, value:int, alarms:Mapping[int,Iterable[Callable]],
+    exception_callback = None,low_set_lim=0):
     """ value is the starting time value in seconds
     alarms is a dict mapping a second value to a list of alarm functions
     id is to help with debugging """
+    assert isinstance(value, int)
+    assert isinstance(alarms, Mapping)
+    for k in alarms:
+      assert isinstance(k, int)
+      assert isinstance(alarms[k], Iterable)
+      break
     self.value = max(value, low_set_lim)
     self.alarms = alarms
+    self.exception_callback = exception_callback
     self.active = True
     self.low_set_lim = low_set_lim
     
@@ -24,25 +33,31 @@ class MTimer:
     """ Internal function to count time """
     last_time = time.perf_counter()
     offset = 0
-    while self.active:
-      self.lock.acquire()
-      for value,actions in self.alarms.items():
-        if self.value == value:
+    try:
+      while self.active:
+        self.lock.acquire()
+        for value,actions in self.alarms.items():
+          if self.value == value:
+            self.lock.release()
+            for action in actions:
+              action()
+            self.lock.acquire()
+        if self.value == 0:
           self.lock.release()
-          for action in actions:
-            action()
-          self.lock.acquire()
-      if self.value == 0:
-        self.lock.release()
-        self.active = False
-        return
-      self.value -= 1
+          self.active = False
+          return
+        self.value -= 1
 
-      current_time = time.perf_counter()
-      offset = (self.tick_time + offset) - (current_time - last_time)
-      last_time = current_time
-      self.lock.release()
-      time.sleep(max([self.tick_time + offset, 0]))
+        current_time = time.perf_counter()
+        offset = (self.tick_time + offset) - (current_time - last_time)
+        last_time = current_time
+        self.lock.release()
+        time.sleep(max([self.tick_time + offset, 0]))
+    except Exception as e:
+      if not self.exception_callback == None:
+        self.exception_callback(e)
+      else:
+        raise e
       
   def addAlarms(self, alarms):
     with self.lock:
@@ -71,7 +86,6 @@ class MTimer:
       self.active = False
       self.alarms = {}
       self.value = 0
-      
   
   def __str__(self):
     return time.strftime("%H:%M:%S",time.gmtime(self.value))
@@ -79,4 +93,4 @@ class MTimer:
 class FastMTimer(MTimer):
   def __init__(self, value, alarms, low_set_lim=0):
     super().__init__(value,alarms,low_set_lim)
-    self.tick_time = .01
+    self.tick_time = .001

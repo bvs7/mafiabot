@@ -4,4 +4,3 @@ from .MState import MPhase, InvalidActionException, EndGameException, InvalidAct
 from .MPlayer import MPlayer, MPlayerID, NOTARGET
 from .MRules import MRules
 from .MRoleGen import MRoleGen, MContract
-from .MSave import MSaveEncoder, msave, mload, mafia_hook

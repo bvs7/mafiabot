@@ -7,7 +7,7 @@ from . import MTimer
 
 from ..mafiastate import MRules
 from ..chatinterface import MCmd
-from .. import resp_lib
+from ..resp_lib import get_resp
 
 # Eh for now have controller and lobby be the same
 
@@ -77,6 +77,11 @@ class MLobby:
       g_id = self.game_ids[0]
     game = self.ctrl.games[g_id]
     self.chat.cast(game.mstate.main_status())
+
+  def handle_end(self, g_id, msg):
+    self.game_ids.remove(g_id)
+    msg = get_resp("LOBBY_END_GAME", g_id=g_id) + msg
+    self.chat.cast(msg)
 
   def try_start_game(self):
 

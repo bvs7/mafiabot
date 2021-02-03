@@ -4,7 +4,7 @@ from collections import deque
 import json
 from . import MGame, MTimer, MLobby
 from ..resp_lib import get_resp
-from ..mafiastate import MRules, MRoleGen, mafia_hook, MSaveEncoder
+from ..mafiastate import MRules, MRoleGen, EndGameException
 from ..chatinterface import MChat, MDM, MServer, MCmd
 
 MIN_PLAYERS = 3
@@ -43,8 +43,19 @@ class MController:
     cmd = MCmd(cmd)
     # First check games
     for g in self.games.values():
-      if g.handle_chat(group_id, sender_id, cmd, **kwargs):
-        return True
+      try:
+        if g.handle_chat(group_id, sender_id, cmd, **kwargs):
+          return True
+      except EndGameException as ege:
+        # Game ended, find lobby associated with it.
+        ## WHAT ABOUT TIMER ENDS???
+        # Ok we actually need to pass a callback into MGame?
+        # On game end, it is called and does this. When a game is created, set callback
+        for l in self.lobbies.values():
+          if g.id in l.game_ids:
+            l.handle_end(g.id, ege.msg)
+
+          
     
     for l in self.lobbies.values():
       if l.handle_chat(group_id, sender_id, cmd, **kwargs):
@@ -72,7 +83,9 @@ class MController:
         self.dms.send("Focusing on Game {}".format(g_id), sender_id)
 
   def start_game(self, users, rules, lobby=None):
-    g = self.MGameType.new(self, rules, lobby)
+    g = self.MGameType.new()
+    g.end_game = self.end_game
+    g.destroy_callback = self.destroy_callback
     self.games[g.id] = g
     for user_id in users:
       if not user_id in self.focusedGames:
@@ -80,6 +93,15 @@ class MController:
       self.focusedGames[user_id].appendleft(g.id)
     g.start(users, MRoleGen.roleGen)
     return g.id
+
+  def end_game(self, g_id, msg):
+    for l in self.lobbies.values():
+      if g_id in l.game_ids:
+        l.handle_end(g_id, msg)
+    
+  def destroy_callback(self, g_id):
+    if g_id in self.games:
+      del self.games[g_id]
 
   def watch(self, sender_id, g_id):
     game = self.games[g_id]

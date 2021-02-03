@@ -6,7 +6,7 @@ class CastError(Exception):
 class MChat:
   # TODO: Consider cast_resp, and even prep_resp which will load in a str and wait to cast it until next cast?
   # prep_resp and flush? or does any cast flush?
-  def __init__(self, group_id, name_reference=None):
+  def __init__(self, group_id=None, name_reference=None):
     print("MChat %s"%group_id, flush=True)
     self.id = group_id
     if name_reference == None:
@@ -51,7 +51,7 @@ class MChat:
     print("ADD: {}".format(users))
 
   def cast(self, msg):
-    print("CAST {}: {}".format(self.id, self.format(msg)), flush=True)
+    print("CAST {}: {}".format(self.id, self.format(msg)))
     return "-1"
 
   def cast_resp(self, resp, **locs):

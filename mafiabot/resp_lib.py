@@ -73,15 +73,16 @@ resp_lib = {
   "INVALID_REVEAL_PHASE": "Can only reveal during Day",
   "INVALID_ACTION_END": "Game has ended, gg no re",
 
-  "IN": "[{sender_id}] ready to join a game of at least {min_p} players.",
+  "IN": "[{sender_id}] ready to join a Game of at least {min_p} players.",
   "OUT": "Removed [{sender_id}]",
   "OUT_NOT_IN" : "You weren't /in",
   "START_TIMER" : "Game will start in {minutes} min if at least {min_p} players are in. Like this message to join!",
   "START_GAME" : "Starting Game:\n{player_list}",
-  "FAILED_START_GAME" : "Failed to start a game",
-  "WATCH_NO_GAMES" : "Failed to watch, no games",
-  "WATCH" : "Watching game #{g_id}",
-  "STATUS_NO_GAMES" : "No games",
+  "FAILED_START_GAME" : "Failed to start a Game",
+  "WATCH_NO_GAMES" : "Failed to watch, no Games",
+  "WATCH" : "Watching Game #{g_id}",
+  "STATUS_NO_GAMES" : "No Games",
+  "LOBBY_GAME_END" : "Game #{g_id} Ended:\n"
 }
 
 def get_resp(resp, **locs):
