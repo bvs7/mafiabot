@@ -175,8 +175,16 @@ class MState:
       self.main_msg += resp_lib["TIMER_NIGHT"] + "\n"
       self.__dawn()
     elif self.phase == MPhase.DUSK:
-      self.main_msg += resp_lib["TIMER_DUSK"] + "\n"
+      idiot_id=self.vengeance.idiot
+      if not self.vengeance.final_vote == self.vengeance.idiot:
+        other_id = self.vengeance.final_vote
+      else:
+        other_id = None
+      self.main_msg += resp_lib["TIMER_DUSK"].format(**locals())
+      if not other_id == None:
+        self.__eliminate(idiot_id, other_id)
       self.__eliminate(self.vengeance.venges[-1], self.vengeance.idiot)
+      self.main_msg += "\n"
       self.__night(nokill=False)
 
   @check_end
@@ -218,7 +226,7 @@ class MState:
     players = self.players
     voter = players[voter_id]
     f_votee_id = voter.vote
-
+    # TODO: Confirm vote if it is the same?
     # Change vote
     if voter_id in players or voter_id in (NOTARGET, None):
       voter.vote = votee_id
@@ -278,6 +286,7 @@ class MState:
           if idiot_vengeance == "DAY":
             self.main_msg += resp_lib["ELECT_DAY"]
             self.main_chat.cast(self.main_msg)
+            self.main_msg = ""
             return self.__day()
 
           elif idiot_vengeance == "STUN":
@@ -302,8 +311,7 @@ class MState:
     role = self.players[target_id].role
     reveal = dispRole(role, self.rules[MRules.reveal_on_death])
 
-    self.main_msg += "\n"
-    self.main_msg += get_resp("ELIMINATE",target=target_id, role=reveal)
+    self.main_msg += "\n" + get_resp("ELIMINATE",target=target_id, role=reveal)
 
     del self.players[target_id]
 
@@ -379,6 +387,7 @@ class MState:
 
     self.main_msg += resp_lib['NIGHT']
     self.main_chat.cast(self.main_msg)
+    self.main_msg = ""
 
     # Check if goons should be stunned
     if (self.rules[MRules.goon_potence] == "OFF" or 
@@ -470,6 +479,7 @@ class MState:
     self.__dawn_investigate()
 
     self.main_chat.cast(self.main_msg)
+    self.main_msg = ""
 
     self.day += 1
     return self.__day()
@@ -564,6 +574,7 @@ class MState:
     self.phase = MPhase.DUSK
     self.main_msg += "\n" + resp_lib["DUSK"]
     self.main_chat.cast(self.main_msg)
+    self.main_msg = ""
     opts = resp_lib["DUSK_OPTIONS"]
     opts += "\n".join(self.listMenu(self.vengeance.venges, notarget=False))
     self.dms.send(opts, self.vengeance.idiot)
@@ -582,10 +593,11 @@ class MState:
     self.__vengeance(idiot_id, target_id)
 
   def __vengeance(self, idiot_id : MPlayerID, target_id : Optional[MPlayerID]):
-    self.main_msg = get_resp('VENGEANCE',actor=idiot_id, target=target_id)
+    self.main_msg += get_resp('VENGEANCE',actor=idiot_id, target=target_id)
     self.__eliminate(idiot_id, target_id) # Eliminate target before idiot
     self.__eliminate(self.vengeance.final_vote, idiot_id)
     self.main_chat.cast(self.main_msg)
+    self.main_msg = ""
     self.__night()
 
   def __contract_result(self, contractor_id:MPlayerID, contract:MContract):
@@ -608,6 +620,7 @@ class MState:
     msg += "\n" + get_resp("SHOW_ROLES",start_roles=self.start_roles)
     self.main_msg += msg
     self.main_chat.cast(self.main_msg)
+    self.main_msg = ""
     raise TeamWinException(team, msg)
 
   def __idiot_win(self, idiot):

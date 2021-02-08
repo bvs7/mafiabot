@@ -17,6 +17,23 @@ def silent(*args):
 #print_mode = chunk
 print_mode = silent
 
+usernames=[
+  'ONE', 'TWO', 'THREE', 'FOUR', 'FIVE', 'SIX', 'SEVEN', 'EIGHT',
+  'NINE', 'TEN', 'ELEVEN', 'TWELVE', 'THIRTEEN', 'FOURTEEN', 'FIFTEEN',
+]
+
+def get_users(n):
+  user_ids = [str(i) for i in range(1,n+1) ]
+  users = dict(zip(user_ids, usernames[:len(user_ids)]))
+  return users
+
+def get_roleGen(roles, contracts={}):
+  def roleGen(ids):
+    user_ids = [str(i) for i in range(1, len(ids)+1)]
+    user_roles = roles[:len(ids)]
+    return ( list(zip(user_ids,user_roles)), contracts )
+  return roleGen
+
 def halt_timer(*args):
   print_mode("Halt Timer!")
 

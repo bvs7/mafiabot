@@ -17,15 +17,20 @@ class TestMChat(MChat):
 
   def __init__(self, group_id, name_reference=None,test_id=0):
     try:
-      fname = "chat{}_{}_expected.msg".format(test_id, group_id)
+      fname = "test_data/chat{}_{}_expected.msg".format(test_id, group_id)
       f = open(fname)
-    except OSError:
-      super().__init__(group_id, name_reference)
-      return
+    except OSError as e:
+      print("Failed to find file {}".format(fname))
+      raise e
     
     self.state = "NORMAL"
     self.lines = self.parse(f.readlines())
+    super().__init__(group_id,name_reference)
     f.close()
+
+  def check_end(self):
+    if len(self.lines) > 0:
+      raise TestMChatError("Group {} Not at end: {}".format(self.id, self.lines))
 
   def parse(self, lines):
     results = deque()
@@ -45,9 +50,9 @@ class TestMChat(MChat):
 
   def cast(self,msg):
     # Compare msg to lines.
+    msg = self.format(msg)
     msg = msg.replace("\n", ' ')
     self.check(msg)
-
 
   def check(self, msg):
     if isinstance(self.state, int):
@@ -92,17 +97,27 @@ class TestMDM(MDM):
   def __init__(self, name_reference=None, test_id=0, user_ids=[]):
     self.lines = {}
     self.states = {}
+    at_least_one_success = False
     for user_id in user_ids:
       try:
-        fname = "dm{}_{}_expected.msg".format(test_id, user_id)
-        f = open(fname)
+        fname = "test_data/dm{}_{}_expected.msg".format(test_id, user_id)
+        with open(fname, 'r') as f:
+          at_least_one_success = True
+          self.states[user_id] = "NORMAL"
+          self.lines[user_id] = self.parse(f.readlines())
       except OSError:
         print("Couldn't find file for id: {}".format(user_id))
         pass
-      
-      self.states[user_id] = "NORMAL"
-      self.lines[user_id] = self.parse(f.readlines())
-      f.close()
+  
+    if not at_least_one_success:
+      raise OSError("Couldn't find a single dm file!")
+
+    super().__init__(name_reference)
+
+  def check_end(self):
+    for user_id in self.lines:
+      if len(self.lines[user_id]) > 0:
+        raise TestMChatError("user {} Not at end: {}".format(user_id,self.lines[user_id]))
 
   def parse(self, lines):
     results = deque()
@@ -122,14 +137,15 @@ class TestMDM(MDM):
 
   def send(self,msg, user_id):
     # Compare msg to lines.
+    msg = self.format(msg)
     msg = msg.replace("\n", ' ')
+    if not user_id in self.lines:
+      return super().send(msg,user_id)
     self.check(msg, user_id)
 
-
   def check(self, msg, user_id):
-    
     if isinstance(self.states[user_id], int):
-      print("Matched: {}, {} \n {}".format("ignore_n", self.states[user_id], msg))
+      print("{} Matched: {}, {} \n {}".format(user_id, "ignore_n", self.states[user_id], msg))
       self.states[user_id] -= 1
       if self.states[user_id] <= 0:
         self.states[user_id] = "NORMAL"
@@ -141,13 +157,13 @@ class TestMDM(MDM):
       if t == "standard":
         if not msg == expected:
           raise TestMChatError(msg, t, expected)
-        print("Matched: {}, {} \n {}".format(t, expected, msg))
+        print("{} Matched: {}, {} \n {}".format(user_id, t, expected, msg))
         result = True
       elif t == "regexp":
         exp = re.compile(expected, re.IGNORECASE)
         if exp.fullmatch(msg) == None:
           raise TestMChatError(msg, t, expected)
-        print("Matched: {}, {} \n {}".format(t, expected, msg))
+        print("{} Matched: {}, {} \n {}".format(user_id, t, expected, msg))
         result = True
       elif t == "star":
         self.states[user_id] = "STAR"
@@ -160,6 +176,6 @@ class TestMDM(MDM):
       if not self.states[user_id] == "STAR":
         raise e
       self.lines[user_id].appendleft((t,expected))
-      print("Matched: {}, {} (next: {}, {}) \n {}".format("star","*", t, expected, msg))
+      print("{} Matched: {}, {} (next: {}, {}) \n {}".format(user_id, "star","*", t, expected, msg))
       result = True
     return result

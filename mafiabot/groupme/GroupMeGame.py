@@ -1,7 +1,8 @@
 
 from ..chatinterface import MCmd
 from ..mafiactrl import MGame
-from ..mafiastate import resp_lib, MRole, MPlayer, MPlayerID, MPhase
+from ..mafiastate import MRole, MPlayer, MPlayerID, MPhase
+from .. import resp_lib
 from . import GroupMeChat, GroupMeDM
 
 
@@ -72,7 +73,7 @@ class GroupMeGame(MGame):
       m *= m
       target_letter = target_letter[:-1]
 
-    return target_letter
+    return target_number
 
   def handle_mtarget(self, sender_id, text):
     targeter_id = sender_id
@@ -82,7 +83,8 @@ class GroupMeGame(MGame):
         target_id = MPlayer.NOTARGET
       else:
         target_id = list(self.mstate.players.keys())[target_number]
-    except Exception:
+    except Exception as e:
+      print(e)
       self.mafia_chat.cast(resp_lib["INVALID_MTARGET"].format(text=text))
       return False
     
@@ -95,12 +97,13 @@ class GroupMeGame(MGame):
       if itarget:
         player_order = self.mstate.vengeance.venges
       else:
-        player_order = list(self.mstate.players.key())
+        player_order = list(self.mstate.players.keys())
       if target_number == len(player_order):
         target_id = MPlayer.NOTARGET
       else:
         target_id = player_order[target_number]
     except Exception as e:
+      print(e)
       self.dms.send(resp_lib["INVALID_TARGET"].format(text=text)+"{}".format(e),sender_id)
       return False
 

@@ -108,7 +108,7 @@ class MRules:
     "know_if_stripped":"USEFUL",
     "no_milk_self":"ON",
     "cop_strength":"MAFIA",
-    "unique_night_act":"OFF",
+    "unique_night_act":"ON",
     "goon_potence":"ON",
   }
 

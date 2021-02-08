@@ -11,6 +11,7 @@ resp_lib = {
   "REVEAL_REMINDER": "Remember, [{actor}] is {role}",
   "TIMER_DAY":  "Timer: nokill",
   "TIMER_NIGHT":"Timer: some slept through the night",
+  "TIMER_DUSK": "Timer: [{idiot_id}] the IDIOT exploded, killing [{other_id}]",
   "ELECT":      "[{target}] has been elected to be killed",
   "ELECT_NOKILL":"You have elected not to kill anyone",
   "ELECT_IDIOT": "... They were an IDIOT...",
