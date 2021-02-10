@@ -4,7 +4,7 @@ from typing import Iterable,Tuple,Callable,Optional, Mapping
 
 class MTimer:
   """Used to create a timer object and bind functions to specific times for it"""
-  
+  tick_time = 1
   def __init__(self, value:int, alarms:Mapping[int,Iterable[Callable]],
     exception_callback = None,low_set_lim=0):
     """ value is the starting time value in seconds
@@ -23,16 +23,15 @@ class MTimer:
     self.low_set_lim = low_set_lim
     
     self.lock = threading.Lock()
-
-    self.tick_time = 1
     
     self.timerThread = threading.Thread(name="Timer"+str(id), target=self.tick)
     self.timerThread.start()
     
   def tick(self):
     """ Internal function to count time """
-    last_time = time.perf_counter()
     offset = 0
+    time.sleep(self.tick_time)
+    last_time = time.perf_counter()
     try:
       while self.active:
         self.lock.acquire()
@@ -91,6 +90,6 @@ class MTimer:
     return time.strftime("%H:%M:%S",time.gmtime(self.value))
 
 class FastMTimer(MTimer):
-  def __init__(self, value, alarms, low_set_lim=0):
-    super().__init__(value,alarms,low_set_lim)
-    self.tick_time = .001
+  tick_time = .001
+  def __init__(self, value, alarms, exception_callback=None, low_set_lim=0):
+    super().__init__(value,alarms,low_set_lim=low_set_lim)

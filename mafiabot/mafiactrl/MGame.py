@@ -1,9 +1,12 @@
 import time
+import datetime
 import json
 
 from typing import NewType, Callable, Optional
+from ..resp_lib import resp_lib
 from .MTimer import MTimer
-from ..mafiastate import MState, MRules, MRole, MPlayerID, InvalidActionException, EndGameException, MPhase
+from ..mafiastate import MState, MPlayer, MRules, MRole, MPlayerID, \
+  InvalidActionException, EndGameException, MPhase, dispKnownRoles
 from ..chatinterface import MChat, MDM, MCmd
 
 # Starts game, creates chats?
@@ -19,6 +22,8 @@ from ..chatinterface import MChat, MDM, MCmd
 #  find chats?
 #  recreate MState
 #  get lobby still?
+
+TIME_PER_PLAYER = 5*30
 
 class DeleteGameException(Exception):
   pass
@@ -52,6 +57,8 @@ class MGame:
       self.mafia_chat = self.MChatType(mafia_chat_id, name_reference=self.main_chat)
     self.dms = self.MDMType(self.main_chat)
     self.mstate = None
+    self.timer = None
+    self.timered = set()
     self.end_game = self.__end_game
     self.end_timer = None
     self.destroy_callback = self.__destroy_callback
@@ -197,17 +204,55 @@ class MGame:
       return False
     
   def halt_timer(self):
-    print("Halt timer for MGame {}".format(self.id))
+    if not self.timer == None:
+      self.timer.halt()
+      self.timer = None
+    self.timered = set()
+
+  def set_timer(self, time):
+    def make_alarm(msg):
+      def alarm():
+        self.main_chat.cast(msg)
+      return alarm
+    timer = self.MTimerType(time,
+      {
+        0 : [self.mstate.timer],
+        60: [make_alarm(resp_lib['TIMER_1MINUTE'])],
+        5*60 : [make_alarm(resp_lib['TIMER_5MINUTE'])],
+        10*60 : [make_alarm(resp_lib['TIMER_10MINUTE'])],
+      }, exception_callback=self.end_game_timer_callback, low_set_lim=TIME_PER_PLAYER)
+    return timer
 
   @wrap_end
   def handle_timer(self, player_id):
-    # Timer is started. When it finishes, the game might end.
-    # How to catch that scenario? Join after setting timer?
-    self.main_chat.cast("Timer not implemented yet")
+    if self.timer == None:
+      n_players = len(self.mstate.players)
+      time = n_players * TIME_PER_PLAYER
+      self.timer = self.set_timer(time)
+      time_str = str(self.timer)
+      self.main_chat.cast_resp("TIMER_STARTED",time=time_str)
+      
+    else:
+      if player_id in self.timered:
+        self.main_chat.cast_resp("ALREADY_TIMERED")
+        return True
+      self.timer.addTime(-TIME_PER_PLAYER)
+      self.main_chat.cast_resp("TIMER_REDUCED",time=str(self.timer))
+    self.timered.add(player_id)
+    return True
   
   @wrap_end
   def handle_untimer(self, player_id):
-    self.main_chat.cast("Timer not implemented yet")
+    if self.timer == None or not player_id in self.timered:
+      self.main_chat.cast_resp("HAVENT_TIMERED")
+    elif len(self.timered) == 1:
+      self.halt_timer()
+      self.main_chat.cast_resp("TIMER_HALTED")
+    else: 
+      self.timered.remove(player_id)
+      self.timer.addTime(TIME_PER_PLAYER)
+      self.main_chat.cast_resp("TIMER_EXTENDED", time=str(self.timer))
+    return True
 
   def handle_main_help(self, sender_id, text):
     self.main_chat.cast("Help not implemented yet")
@@ -218,9 +263,101 @@ class MGame:
   def handle_dm_help(self, sender_id, text):
     self.dms.send("Help not implemented yet",sender_id)
 
+  @staticmethod
+  def vote_status(votes, players, timered=set(), detailed=False):
+    print(votes)
+    status_msg = ""
+    thresh = len(votes)//2+1
+    no_kill_thresh = len(votes) - thresh + 1
+    for p_id in players:
+      this_votes = [v for v in votes.values() if v==p_id]
+      if len(this_votes) == 0:
+        continue
+      status_msg += "[{}]: {}/{}".format(p_id, len(this_votes),thresh)
+      if detailed:
+        status_msg += " (" + \
+          ", ".join(["[%s]"%o_id for o_id,v in votes.items() if v==p_id]) + ")"
+      status_msg += "\n"
+    nokill_votes = [(o_id,v) for o_id,v in votes.items() if v==MPlayer.NOTARGET]
+    if len(nokill_votes) > 0:
+      status_msg += "No kill: {}/{}".format(len(nokill_votes),no_kill_thresh)
+      if detailed:
+        status_msg += " (" + ", ".join(["[%s]"%o_id for o_id,v in nokill_votes]) + ")"
+      status_msg += "\n"
+    return status_msg[:-1]
+
+  @staticmethod
+  def get_status_reveal(rules):
+    known_roles = rules[MRules.known_roles]
+    reveal_on_death = rules[MRules.reveal_on_death]
+    status_reveal = "OFF"
+    if known_roles == "ROLE" and reveal_on_death == "ROLE":
+      status_reveal = "ROLE"
+    elif known_roles in ["ROLE","MAFIA"] and \
+        reveal_on_death in ["ROLE","MAFIA"]:
+      status_reveal = "MAFIA"
+    elif known_roles in ["ROLE","MAFIA","TEAM"] and \
+      reveal_on_death in ["ROLE","MAFIA","TEAM"]:
+      status_reveal = "TEAM"
+    return status_reveal
+
   def handle_main_status(self, sender_id, text):
-    msg = self.mstate.main_status()
-    self.main_chat.cast(msg)
+    words = text.split()
+    if len(words) > 1:
+      context = words[1].lower()
+      if "vote" in context:
+        votes = dict([(p_id,p.vote) for p_id,p in self.mstate.players.items()])
+        self.main_chat.cast(self.vote_status(votes,self.mstate.players,detailed=True))
+      elif "player" in context:
+        # TODO: Add timer status
+        players_str = "\n".join("[%s]"%p_id for p_id in self.mstate.players)
+        players_str += "\nTotal: %i"%len(self.mstate.players)
+        self.main_chat.cast(players_str)
+      elif "role" in context:
+        roles = [p.role for p in self.mstate.players.values()]
+        status_reveal = self.get_status_reveal(self.mstate.rules)
+        role_msg = dispKnownRoles(roles, status_reveal)
+        known_roles = self.mstate.rules[MRules.known_roles]
+        reveal_on_death = self.mstate.rules[MRules.reveal_on_death]
+        start_roles = self.mstate.start_roles
+        if not status_reveal == reveal_on_death:
+          living_ps = set(self.mstate.players.keys())
+          original_ps = set([p_id for p_id,role in start_roles[0]])
+          dead_ps = original_ps - living_ps
+          dead_roles = [role for p_id,role in start_roles[0] if p_id in dead_ps]
+          if len(dead_roles) > 0:
+            role_msg += "\nDead Roles: "
+            role_msg += dispKnownRoles(dead_roles, reveal_on_death)
+        elif not status_reveal == known_roles:
+          original_roles = [role for p_id,role in start_roles[0]]
+          role_msg += "\nOriginal Roles: "
+          role_msg += dispKnownRoles(original_roles, known_roles)
+        self.main_chat.cast(role_msg)
+      elif "timer" in context:
+        if self.timer != None:
+          status_msg = "{phase} {day}: ".format(
+            phase=self.mstate.phase.__str__(), day=self.mstate.day)
+          status_msg += str(self.timer) + "\n"
+          status_msg += "Timered: {}".format(", ".join(
+            ["[{}]".format(t_id) for t_id in self.timered]))
+        else:
+          status_msg = "No timer"
+        self.main_chat.cast(status_msg)
+    else:
+      # Standard status
+      status_msg = "{phase} {day}: ".format(
+        phase=self.mstate.phase.__str__(), day=self.mstate.day)
+      if not self.timer == None:
+        status_msg += str(self.timer)
+      status_msg += "\n"
+      votes = dict([(p_id,p.vote) for p_id,p in self.mstate.players.items()])
+      status_msg += self.vote_status(votes, self.mstate.players, self.timered)
+      roles = [p.role for p in self.mstate.players.values()]
+      known_roles = self.mstate.rules[MRules.known_roles]
+      reveal_on_death = self.mstate.rules[MRules.reveal_on_death]
+      status_msg += "\nRoles: " + dispKnownRoles(roles, self.get_status_reveal(self.mstate.rules))
+      self.main_chat.cast(status_msg)
+    return True
 
   def handle_mafia_status(self, sender_id, text):
     msg = self.mstate.mafia_status()
@@ -233,23 +370,6 @@ class MGame:
   def handle_rule(self, sender_id, text):
     """ Return the rule for a specific rule or list of rules """
     pass
-    # msg = ""
-    # words = text.split()
-    # if len(words) == 1:
-    #   msg = self.mstate.rules.describe(has_expl=False)
-    # elif words[1] in MRules.RULE_BOOK:
-    #   rule = words[1]
-    #   msg = "{}:\n".format(rule)
-    #   msg += self.mstate.rules[rule].explRule()
-    # elif words[1] == "long":
-    #   msg = self.mstate.rules.describe(has_expl=True)
-    
-    # if sender == "MAIN":
-    #   self.main_cast(msg)
-    # elif sender == "MAFIA":
-    #   self.mafia_cast(msg)
-    # else:
-    #   self.send_dm(msg, sender)
 
   def __destroy_callback(self, g_id):
     if self.destroy_callback != self.__destroy_callback:

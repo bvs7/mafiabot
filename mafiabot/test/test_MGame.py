@@ -114,4 +114,65 @@ class Test_MGame(unittest.TestCase):
     
     self.tryEnd()
 
+  def test_mgame_statuses(self):
+
+    users = get_users(7)
+    roleGen = get_roleGen(['TOWN','COP','DOCTOR','CELEB','MILLER','STRIPPER','GODFATHER'])
+    rules = MRules()
+    rules[MRules.known_roles] = "ROLE"
+    rules[MRules.reveal_on_death] = "ROLE"
+    self.mgame.start(users,roleGen,rules=rules)
+
+    self.mgame.handle_vote('1','2')
+    self.mgame.handle_vote('2','2')
+    self.mgame.handle_vote('3','2')
+    self.mgame.handle_vote('4','2')
+
+    self.mgame.handle_mtarget("6","NOTARGET")
+    self.mgame.handle_target("6","NOTARGET")
+    self.mgame.handle_target("3","NOTARGET")
+
+    self.mgame.handle_vote('3','5')
+    self.mgame.handle_vote('4','5')
+    self.mgame.handle_vote('5','1')
+    self.mgame.handle_vote('6','NOTARGET')
+
+    print("\nStatus")
+    self.mgame.handle_main_status('1',"status")
+    print("\nStatus vote")
+    self.mgame.handle_main_status('1',"status vote")
+    print("\nStatus player")
+    self.mgame.handle_main_status('1',"status player")
+    print("\nStatus role")
+    self.mgame.handle_main_status('1',"status role")
+    self.mgame.mstate.rules[MRules.reveal_on_death] = "TEAM"
+    print("\nStatus role")
+    self.mgame.handle_main_status('1',"status role")
+    self.mgame.mstate.rules[MRules.known_roles] = "MAFIA"
+    self.mgame.mstate.rules[MRules.reveal_on_death] = "OFF"
+    print("\nStatus role")
+    self.mgame.handle_main_status('1',"status role")
+
+    self.mgame.handle_vote('6','5')
+    self.mgame.handle_vote('7','5')
+    
+    print("\nStatus role")
+    self.mgame.handle_main_status('1',"status role")
+
+    self.mgame.handle_timer("1")
+    self.mgame.handle_timer("3")
+    self.mgame.handle_timer("4")
+
+    print("\nStatus timer")
+    self.mgame.handle_main_status('1',"status timers")
+
+    time.sleep(.001*7*30)
+    self.mgame.handle_timer('6')
+    self.mgame.handle_timer('7')
+
+    self.mgame.handle_untimer("1")
+    time.sleep(.001*4*30)
+    self.mgame.handle_untimer("3")
+    time.sleep(.001*4*30)
+    self.mgame.handle_untimer("4")
 

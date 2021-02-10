@@ -83,7 +83,17 @@ resp_lib = {
   "WATCH_NO_GAMES" : "Failed to watch, no Games",
   "WATCH" : "Watching Game #{g_id}",
   "STATUS_NO_GAMES" : "No Games",
-  "LOBBY_GAME_END" : "Game #{g_id} Ended:\n"
+  "LOBBY_GAME_END" : "Game #{g_id} Ended:\n",
+
+  "TIMER_STARTED": "Timer started: {time} remaining",
+  "ALREADY_TIMERED" : "You have already /timered",
+  "HAVENT_TIMERED" : "You haven't /timered",
+  "TIMER_1MINUTE": "One minute remaining!",
+  "TIMER_5MINUTE": "Five minutes remaining!",
+  "TIMER_10MINUTE": "Ten minutes remaining!",
+  "TIMER_REDUCED": "Timer reduced: {time} remaining",
+  "TIMER_EXTENDED": "Timer extended: {time} remaining",
+  "TIMER_HALTED": "Timer halted",
 }
 
 def get_resp(resp, **locs):

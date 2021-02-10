@@ -333,6 +333,10 @@ class TestMStateModerate(unittest.TestCase):
 
     mstate.vote('5','1')
 
+    with self.assertRaises(EndGameException):
+      mstate.mtarget('4','4')
+
+
   def test_large_game(self):
     mstate = standardState()
     ns = [str(n) for n in range(500)]

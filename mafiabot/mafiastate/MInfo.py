@@ -37,7 +37,7 @@ def dispRoleFromDict(roleDict):
   for role in MRole.__members__.values():
     if role in roleDict:
       msgs.append("{role}: {amt}".format(role=role, amt=roleDict[role]))
-  return '\n'.join(msgs)
+  return ', '.join(msgs)
 
 
 def dispTeamFromDict(roleDict, known_roles):
@@ -53,15 +53,16 @@ def dispTeamFromDict(roleDict, known_roles):
       Rogue += n
   if known_roles == "TEAM":
     if Rogue > 0:
-      return "Town Aligned: {}\nMafia Aligned: {}\nRogue: {}\nTotal: {}".format(Town, Mafia, Rogue, Town+Mafia+Rogue)
+      return "Town Aligned: {}, Mafia Aligned: {}, Rogue: {}, Total: {}".format(Town, Mafia, Rogue, Town+Mafia+Rogue)
     else:
-      return "Town Aligned: {}\nMafia Aligned: {}\nTotal: {}".format(Town,Mafia, Town+Mafia)
+      return "Town Aligned: {}, Mafia Aligned: {}, Total: {}".format(Town,Mafia, Town+Mafia)
   elif known_roles == "MAFIA":
-    return "Mafia Aligned: {}\nTotal: {}".format(Mafia, Town+Mafia+Rogue)
+    return "Mafia Aligned: {}, Total: {}".format(Mafia, Town+Mafia+Rogue)
   else:
     raise ValueError(str(known_roles) + " wasn't TEAM or MAFIA")
 
 def dispKnownRoles(roles, known_roles):
+
   roleDict = makeRoleDict(roles)
   if known_roles == "ROLE":
     return dispRoleFromDict(roleDict)
@@ -70,12 +71,18 @@ def dispKnownRoles(roles, known_roles):
   elif known_roles == "OFF":
     return "Players: {}".format(len(roleDict))
 
-def createStartRolesMsg(players,contracts):
+def createStartRolesMsg(*args):
+  assignments, srcontracts = args
   msg = ""
-  for p in players.values():
-    msg += "\n[{}]: {}".format(p.id, p.role)
-    if p.role in {"GUARD", "AGENT"}:
-      msg += "([{}])".format(contracts[p.id].charge)
+  for p_id,role in assignments:
+    msg += "\n[{}]:".format(p_id)
+    if p_id in srcontracts:
+      msg += " ->".join(
+        [(" {}([{}])".format(c.role,c.charge) if c.role in [MRole.AGENT, MRole.GUARD] \
+          else " {}".format(c.role)) for c in srcontracts[p_id]])
+    else:
+      msg += " {}".format(role)
+      
   return msg
 
 def getNewGameID():

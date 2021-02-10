@@ -34,6 +34,9 @@ class MPhase(VEnum):
   @staticmethod
   def from_json(d):
     return getattr(MPhase, d['__MPhase__'])
+  
+  def __str__(self):
+    return self.name
 
 class InvalidActionException(Exception):
   def __init__(self, msg):
@@ -105,7 +108,7 @@ class MState:
 
     self.main_msg = ""
 
-    self.start_roles = "Init"
+    self.start_roles = None
 
   def destroy(self):
     print("DEL MSTATE")
@@ -141,6 +144,9 @@ class MState:
     self.players_init(assignments)
     self.send_role_expl()
     self.cast_start_msgs()
+    srcontracts = dict([(p_id,[MContract(c.role,c.charge,c.success)]) \
+       for p_id,c in self.contracts.items()])
+    self.start_roles = (assignments, srcontracts)
     
     self.day = 1
     start_night = self.rules[MRules.start_night]
@@ -342,8 +348,8 @@ class MState:
       self.__team_win(MTeam.Town)
     elif n_mafia>= (n_players+1) // 2:
       self.__team_win(MTeam.Mafia)
-
-    role_msg = get_resp("SHOW_ROLES",start_roles=self.start_roles)
+    start_role_str = createStartRolesMsg(*self.start_roles)
+    role_msg = get_resp("SHOW_ROLES",start_roles=start_role_str)
     self.dms.send(role_msg, target_id)
 
   # TODO: when the game is over, don't refocus?
@@ -371,16 +377,9 @@ class MState:
     contract.role = new_role
     contract.charge = new_charge
     contract.success = new_role in ("SURVIVOR","GUARD")
-
-    # Modify start roles:
-    srs = self.start_roles.split('\n')
-    goal = '[{}]:'.format(actor)
-    for i,sr in enumerate(srs):
-      if sr[:len(goal)] == goal:
-        srs[i] +=  " -> {role}".format(role=new_role)
-        if new_role in {MRole.GUARD,MRole.AGENT}:
-          srs[i] += "([{charge}])".format(charge=new_charge)
-    self.start_roles = "\n".join(srs)
+    c = contract
+    # Modify start roles?:
+    self.start_roles[1][actor].append(MContract(c.role,c.charge,c.success))
 
   def __night(self, nokill=False):
     self.__halt_timer()
@@ -617,7 +616,8 @@ class MState:
     for p_id,contract in self.contracts.items():
       msg += "\n" + self.__contract_result(p_id, contract)
 
-    msg += "\n" + get_resp("SHOW_ROLES",start_roles=self.start_roles)
+    start_role_str = createStartRolesMsg(*self.start_roles)
+    msg += "\n" + get_resp("SHOW_ROLES",start_roles=start_role_str)
     self.main_msg += msg
     self.main_chat.cast(self.main_msg)
     self.main_msg = ""
@@ -630,12 +630,13 @@ class MState:
     for p_id,contract in self.contracts.items():
       msg += "\n" + self.__contract_result(p_id, contract)
 
-    msg += get_resp("SHOW_ROLES",start_roles=self.start_roles)
+    start_role_str = createStartRolesMsg(*self.start_roles)
+    msg += get_resp("SHOW_ROLES",start_roles=start_role_str)
     self.main_msg += msg
     self.main_chat.cast(self.main_msg)
     raise IdiotWinException(idiot, msg)
 
-  def main_status(self):
+  def main_status(self, text):
     return "TODO" # TODO
 
   def mafia_status(self):
@@ -664,7 +665,6 @@ class MState:
         sett = self.rules[rule]
         msg += "\n{}|{}: {}".format(rule,sett, MRules.RULE_BOOK[rule][sett])
       self.dms.send(msg, p_id)
-    self.start_roles = createStartRolesMsg(self.players,self.contracts)
 
   def cast_start_msgs(self):
     msg = resp_lib["START"]
