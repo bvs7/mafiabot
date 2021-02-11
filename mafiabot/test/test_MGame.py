@@ -1,6 +1,6 @@
 import unittest
 import time
-from .test_util import *
+from .test_util import * # pylint: disable=unused-wildcard-import
 from ..mafiastate import EndGameException
 from ..mafiactrl import MGame, FastMTimer
 

@@ -30,7 +30,6 @@ class MController:
     self.rules = MRules()
     self.games:Dict[int,MGame] = {}
     self.focusedGames = {}
-    self.in_list = {} # maps id to min_p
 
     # Check for active games?
 

@@ -37,8 +37,6 @@ class MLobby:
     if cmd == MCmd.WATCH:
       self.handle_watch(sender_id, **kwargs)
     if cmd == MCmd.STATUS:
-      # Check game_ids for desired target game
-      # Return status of desired game
       pass
 
     return False

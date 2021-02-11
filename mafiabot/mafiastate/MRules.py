@@ -2,7 +2,7 @@ from typing import Set, Union
 import copy
 from collections import OrderedDict
 
-from .MInfo import *
+from .MInfo import * #pylint: disable=unused-wildcard-import
 
 class MRules:
 
@@ -157,8 +157,6 @@ class MRules:
       sett = self.rules[rule]
       expl = MRules.RULE_BOOK[rule][sett]
       rule_things.append( (rule, sett, expl) )
-
-    col_len = max([len(t[0]) + len(t[1]) for t in rule_things])
 
     msg = ""
     for (rule, sett, expl) in rule_things:

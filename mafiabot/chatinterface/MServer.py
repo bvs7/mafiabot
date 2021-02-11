@@ -32,8 +32,9 @@ class MCmd(VEnum):
         return k
     return None
 
-  def is_main(self):
-    return self in {
+  @classmethod
+  def main(cls):
+    return {
       MCmd.VOTE,
       MCmd.TIMER,
       MCmd.UNTIMER,
@@ -42,23 +43,35 @@ class MCmd(VEnum):
       MCmd.END
     }
 
-  def is_mafia(self):
-    return self in {
+  def is_main(self):
+    return self in self.main()
+
+  @classmethod
+  def mafia(cls):
+    return {
       MCmd.TARGET,
       MCmd.STATUS,
       MCmd.HELP,
     }
-  
-  def is_game_dm(self):
-    return self in {
+
+  def is_mafia(self):
+    return self in self.mafia()
+
+  @classmethod
+  def dm(cls):
+    return {
       MCmd.TARGET,
       MCmd.REVEAL,
       MCmd.STATUS,
       MCmd.HELP
     }
+  
+  def is_game_dm(self):
+    return self in self.dm()
 
-  def is_lobby(self):
-    return self in {
+  @classmethod
+  def lobby(cls):
+    return {
       MCmd.START,
       MCmd.IN,
       MCmd.OUT,
@@ -66,6 +79,9 @@ class MCmd(VEnum):
       MCmd.STATUS,
       MCmd.HELP,
     }
+
+  def is_lobby(self):
+    return self in self.lobby()
       
 
 ACCESS_KW = "/"
