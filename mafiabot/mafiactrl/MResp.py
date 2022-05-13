@@ -36,7 +36,7 @@ class MResp():
   def on_vote(self, voter, votee, f_votee=None): pass
   def on_mtarget(self, actor, target, guilty): pass
   def on_target(self, actor, target): pass
-  def on_reveal(self, actor, is_reminder=False): pass
+  def on_reveal(self, actor): pass
   def on_timer(self): pass
   def on_elect(self, target, hammer, guilty, is_idiot=False): pass
   def on_kill(self, target, actor, guilty): pass
@@ -44,11 +44,11 @@ class MResp():
   def on_eliminate(self, target, actor, guilty): pass
   def on_refocus(self, actor, new_role): pass
   def on_charge(self, actor, charge): pass
-  def on_block(self, actor, target, is_useful): pass
+  def on_block(self, actor, target, is_blocked, is_useful): pass
   def on_stun(self, actor, targets): pass
   def on_save(self, actor, target, is_blocked, is_effective): pass
   def on_milk(self, actor, target, is_blocked, is_effective): pass
-  def on_investigate(self, actor, target, is_blocked): pass
+  def on_investigate(self, actor, target, target_role, is_blocked): pass
   def on_win(self, winning_team, winner=None, role=None): pass
 
 class PrintMResp(MResp):
