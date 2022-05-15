@@ -98,3 +98,20 @@ Dawn:
   - DM roles/explanation
 - Day begins
   - Tell Main the count
+
+
+Do we really want the targeting actions distributed? During dawn, we will have a context. We run through each targeting role in priority order, and run a function on the context.
+
+This seems bad. it would probably just be better to have all this code somewhere else, rather than get all weird about it.
+
+When messing with roles, we want to be able to quickly get...
+Team
+isTargeting
+isContract
+
+We want to create role from string? no, we want full object...
+
+Ok ok Role is an enum.
+But part of role is the charge if it is a contract role. Other roles might have more info as well.
+
+So have roleinstances.

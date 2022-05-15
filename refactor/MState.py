@@ -59,6 +59,7 @@ class MState:
         return MState()
     
     def save(self, fname:str):
+        
 
 
 class MStateEncoder(JSONEncoder):
@@ -73,6 +74,7 @@ class MStateEncoder(JSONEncoder):
                 "start":str(o.start),
             }
             if isinstance(o, DayPhase):
+                
                 d["votes"] = 
 
         return super().default(o)
