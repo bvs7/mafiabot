@@ -8,7 +8,7 @@ import logging
 
 import MafiaGameState as mgs
 
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.INFO)
 
 CHAT_HANDLE_WIDTH = 20
 GAME_NUMBER_WIDTH = 4
@@ -129,6 +129,10 @@ class PlayerTab(MafiaGameEditorTab):
 
         logging.debug(f"Adding player: {player}")
 
+        def update(event):
+            logging.info(str(event))
+            return self.updateExtraWidget(player)
+
         idVar = tk.StringVar(value = player.id)
         idEntry = ttk.Entry(self.playerData, textvariable=idVar, width=PLAYER_ID_WIDTH, justify=tk.CENTER)
         idEntry.grid(column=0, row=r)
@@ -138,22 +142,42 @@ class PlayerTab(MafiaGameEditorTab):
         roleVar = tk.StringVar(value = player.role.name)
         roleCombobox = ttk.Combobox(self.playerData, textvariable=roleVar, justify=tk.CENTER, width=ROLE_WIDTH,
             values=list(mgs.Role._member_map_.keys()))
+        roleCombobox.bind("<<ComboboxSelected>>", update)
         roleCombobox.grid(column=2, row=r)
         teamVar = tk.StringVar(value = player.role.team)
         teamLabel = ttk.Entry(self.playerData, textvariable=teamVar, state=tk.DISABLED, justify=tk.CENTER)
         teamLabel.grid(column=3, row=r)
         extraVar = tk.StringVar(value="-")
-        extraEntry = ttk.Entry(self.playerData,textvariable=extraVar, state=tk.DISABLED, justify=tk.CENTER)
-        extraEntry.grid(column=4, row=r)
-        if player.role.contracting:
-            extraVar.set(player.charge)
-            extraEntry.configure(state=tk.NORMAL)
+        extraWidget = ttk.Entry(self.playerData,textvariable=extraVar, state=tk.DISABLED, justify=tk.CENTER)
+        extraWidget.grid(column=4, row=r)
 
-        self.players[player] = ((idEntry, nameEntry, roleCombobox, teamLabel, extraEntry),
+        self.players[player] = ((idEntry, nameEntry, roleCombobox, teamLabel, extraWidget),
                                  (idVar,   nameVar,   roleVar,      teamVar,   extraVar))
+        
+        self.updateExtraWidget(player)
+
+    def updateExtraWidget(self, player):
+        ((idEntry, nameEntry, roleCombobox, teamLabel, extraWidget),
+        (idVar,nameVar,roleVar,teamVar,extraVar)) = self.players[player]
+        role = mgs.Role(roleVar.get())
+        c = extraWidget.grid_info()['column']
+        r = extraWidget.grid_info()['row']
+        extraWidget.destroy()
+        extraVar.set("None")
+        if role.contracting:
+            extraWidget = ttk.Combobox(self.playerData,textvariable=extraVar, width = PLAYER_ID_WIDTH, 
+                justify=tk.CENTER, values = ([None]+[p.id for p in self.players]))
+        else:
+            extraWidget = ttk.Entry(self.playerData, textvariable=extraVar, width = PLAYER_ID_WIDTH,
+                justify=tk.CENTER, state= tk.DISABLED)
+        extraWidget.grid(column=c,row=r)
+        self.players[player] = ((idEntry, nameEntry, roleCombobox, teamLabel, extraWidget),
+            (idVar,nameVar,roleVar,teamVar,extraVar))
+
+        
 
     def updatePlayerData(self, player):
-        ((idEntry, nameEntry, roleCombobox, teamLabel, extraEntry),
+        ((idEntry, nameEntry, roleCombobox, teamLabel, extraWidget),
         (idVar,nameVar,roleVar,teamVar,extraVar)) = self.players[player]
         idVar.set(player.id)
         nameVar.set("Name_")
@@ -161,21 +185,26 @@ class PlayerTab(MafiaGameEditorTab):
         teamVar.set(player.role.team)
         if player.role.contracting:
             extraVar.set(player.charge)
-            extraEntry.configure(state=tk.NORMAL)
+            extraWidget.configure(state=tk.NORMAL)
         else:
             extraVar.set("-")
-            extraEntry.configure(state=tk.DISABLED)
+            extraWidget.configure(state=tk.DISABLED)
 
     def updatePlayer(self, player):
         (ws,(idVar,nameVar,roleVar,teamVar,extraVar)) = self.players[player]
 
         del self.players[player]
 
-        player.id = idVar.get()
+        player.id = int(idVar.get())
         player.role = mgs.Role(roleVar.get())
 
-        self.players[player] = (ws,(idVar,nameVar,roleVar,teamVar,extraVar))
+        if player.role.contracting:
+            player.charge = int(extraVar.get())
+        else:
+            if hasattr(player, "charge"):
+                del player.charge
 
+        self.players[player] = (ws,(idVar,nameVar,roleVar,teamVar,extraVar))
 
     def removePlayer(self, player):
         (ws,(idVar,nameVar,roleVar,teamVar,extraVar)) = self.players[player]
@@ -196,54 +225,23 @@ class PlayerTab(MafiaGameEditorTab):
 
 
     def updateFields(self):
-        current_players = set(self.players.keys())
-        actual_players = set(self.m.players)
-        to_update = current_players & actual_players
-        to_remove = current_players - actual_players
-        to_add = actual_players - current_players
-
-        for player in to_remove:
-            self.removePlayer(player)
-
-        for player in to_add:
+        for player in list(self.players):
+            self.remove(player)
+ 
+        for player in self.m.players:
             self.addPlayer(player)
-
-        for player in to_update:
-            self.updatePlayerData(player)
 
         self.sortPlayers()
     
     def applyCommand(self):
-        logging.debug(f"Apply command, player tab")
 
-        to_update = self.getChangedPlayerData()
-
-        for player in to_update:
-            self.updatePlayer(player)
-
-        current_players = set(self.players.keys())
-        actual_players = set(self.m.players)
-        
-        logging.debug(f"current: {current_players}")
-        logging.debug(f"actual: {actual_players}")
-
-        to_update = current_players.intersection(actual_players)
-        to_remove = actual_players - current_players
-        to_add = current_players - actual_players
-
-        logging.debug(f"to_update: {to_update}")
-        logging.debug(f"to_add: {to_add}")
-        logging.debug(f"to_remove: {to_remove}")
-
-        for player in to_update:
-            self.updatePlayer(player)
-        
-        for player in to_remove:
+        for player in list(self.m.players):
             self.m.players.remove(player)
         
-        for player in to_add:
+        for player in list(self.players):
+            self.updatePlayer(player)
             self.m.players.add(player)
-
+        
         self.sortPlayers()
 
 
