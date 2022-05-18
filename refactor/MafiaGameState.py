@@ -8,6 +8,8 @@ from enum import Enum, auto
 import json
 
 from datetime import datetime
+
+from numpy import isin
 DATETIME_DEFAULT_FMT = "%Y-%m-%d %H:%M:%S.%f"
 
 import logging
@@ -75,6 +77,12 @@ class Role(MafiaGameEncodable, Enum):
     def __repr__(self):
         return f"{self.name}"
 
+    def __lt__(self, other):
+        if not isinstance(other, Role):
+            raise ValueError
+        k = list(Role.__dict__.keys())
+        return k.index(self.name) < k.index(other.name)
+
     def mafia_game_encode(self):
         logging.debug(f"Encoding {self.__class__.__name__}")
         return {f"__{self.__class__.__name__}__" : self.value}
@@ -120,6 +128,10 @@ class Player(MafiaGameEncodable):
         d["role"] = Role(d["role"])
         return Player(**d)
 
+    def to_tuple(self):
+        return (self.id, "name", self.role, "")
+
+
 class ContractingPlayer(Player, MafiaGameEncodable):
     def __init__(self, id:PlayerID, role:Role, charge:PlayerID):
         super().__init__(id,role)
@@ -128,8 +140,23 @@ class ContractingPlayer(Player, MafiaGameEncodable):
     def __repr__(self):
         return f"<{self.__class__.__name__}:{self.id},{self.role},{self.charge}>"
 
+    def to_tuple(self):
+        return (self.id, "name", self.role, self.charge)
+
 class ChatHandle(MafiaGameEncodable):
-    pass
+    def __init__(self, id):
+        self.id = id
+
+    def __repr__(self):
+        return str(self.id)
+
+    def mafia_game_encode(self):
+        logging.debug(f"Encoding {self.__class__.__name__}")
+        return {f"__{self.__class__.__name__}__":self.id}
+
+    @classmethod
+    def fromdict(cls, int):
+        return cls(int)
 
 class Phase(MafiaGameEncodable, Enum):
     INIT = "INIT"
@@ -226,11 +253,11 @@ class MafiaGameState(MafiaGameEncodable):
 
     def __init__(self):
 
-        self.lobby_chat : Optional[ChatHandle] = None
+        self.lobby_chat : ChatHandle = ChatHandle(None)
         self.game_number : Optional[int] = 0
 
-        self.main_chat : Optional[ChatHandle] = None
-        self.mafia_chat : Optional[ChatHandle] = None
+        self.main_chat : ChatHandle = ChatHandle(None)
+        self.mafia_chat : ChatHandle = ChatHandle(None)
         
         self.players : Set[Player] = set()
 
@@ -347,19 +374,24 @@ def check_to_day(m : MafiaGameState):
 
 
 
-if True:
+if __name__ == "__main__":
 
-    # p = Player(0, Role.TOWN)
-    # tp = Player(1, Role.COP)
-    # cp = Player(2, Role.GUARD, charge=1)
+    p = Player(0, Role.TOWN)
+    tp = Player(1, Role.COP)
+    cp = Player(2, Role.GUARD, charge=1)
 
-    # m = MafiaGameState()
+    m = MafiaGameState()
 
-    # m.players.update([p,tp,cp])
+    m.lobby_chat= ChatHandle(0)
+    m.game_number = 1
+    m.main_chat = ChatHandle(-1)
+    m.mafia_chat = ChatHandle(-2)
 
-    # m.round.phase = Phase.NIGHT
-    # m.round.targets[p.id] = tp.id
-    # logging.debug(m.save("test.maf"))
+    m.players.update([p,tp,cp])
+
+    m.round.phase = Phase.NIGHT
+    m.round.targets[p.id] = tp.id
+    logging.debug(m.save("test.maf"))
     
     m2 = MafiaGameState.load("test.maf")
 

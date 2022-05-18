@@ -115,3 +115,34 @@ Ok ok Role is an enum.
 But part of role is the charge if it is a contract role. Other roles might have more info as well.
 
 So have roleinstances.
+
+
+State Editor:
+
+Info Tab:
+lobby_chat: text box (empty = None)
+game_number: int box
+main_chat: text box
+mafia_chat: text box
+
+Players Tab:
+List of players, on select:
+id: text box
+role: dropdown
+(team): display
+(opt charge): dropdown
+Add/Remove button?
+
+Round Tab:
+Day: arrow int box
+Start: datetime box, button for (reset)
+Phase: dropdown
+  Phase Subtab:
+  (DAY):
+  List of players and dropdowns for votes
+  (NIGHT):
+  List of players, ordered by role and opt dropdowns for targets
+  mafia target dropdown ahead of mafia
+  (DUSK):
+  Idiot: dropdown of idiots
+  Voters: 
