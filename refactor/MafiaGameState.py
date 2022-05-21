@@ -58,7 +58,7 @@ class Role(MafiaGameEncodable, Enum):
     GOON = "GOON", Team.Mafia
 
     IDIOT = "IDIOT", Team.Rogue
-    SURVIVOR = "SURVIVOR", Team.Rogue, "contracting"
+    SURVIVOR = "SURVIVOR", Team.Rogue
     GUARD = "GUARD", Team.Rogue, "contracting"
     AGENT = "AGENT", Team.Rogue, "contracting"
 
@@ -113,6 +113,12 @@ class Player(MafiaGameEncodable):
             return self.id == o.id
         else:
             return self.id == o
+
+    def __lt__(self,o):
+        if isinstance(o,Player):
+            return self.role < o.role
+        else:
+            raise TypeError
 
     def mafia_game_encode(self):
         logging.debug(f"Encoding {self.__class__.__name__}")
