@@ -16,16 +16,7 @@ PLAYER_ID_WIDTH = 10
 PLAYER_NAME_WIDTH = 10
 ROLE_WIDTH = 10
 
-class EditPlayerDialog(simpledialog.Dialog):
-    def __init__(self, parent, player):
-        self.player = player
-        super().__init__(parent, "Edit Player")
-
-    def body(self, frame):
-        ttk.Label(frame, text="ID").pack()
-        w = ttk.Entry(frame, state=tk.DISABLED)
-        w.insert(0,str(self.player.id))
-        w.pack()
+NOTARGET_MSG = "No Kill"
 
 class MafiaGameEditorTab(ttk.Frame):
 
@@ -98,6 +89,93 @@ class InfoTab(MafiaGameEditorTab):
         self.main_chat_id.set(str(self.m.main_chat.id))
         self.mafia_chat_id.set(str(self.m.mafia_chat.id))
 
+class EditPlayerWindow(tk.Toplevel):
+
+    window_title = "Edit Player"
+
+    id_entry_state = tk.DISABLED
+    def __init__(self, master, player, callback):
+        self.player : mgs.Player = player
+        self.callback = callback
+        super().__init__(master)
+
+        self.create()
+
+    def create(self):
+        self.title = self.window_title
+
+        r = 0
+        self.frame = ttk.Frame(self)
+        self.frame.columnconfigure(0, weight=1)
+        self.frame.columnconfigure(1, weight=1)
+        ttk.Label(self.frame, text="ID:").grid(column=0,row=r)
+        self.id_entry = ttk.Entry(self.frame)
+        self.id_entry.insert(0,str(self.player.id))
+        self.id_entry.configure(state=self.__class__.id_entry_state)
+        self.id_entry.grid(column=1,row=r)
+        r += 1
+
+        ttk.Label(self.frame, text="Name:").grid(column=0,row=r)
+        self.name_entry = ttk.Entry(self.frame)
+        self.name_entry.insert(0,"name")
+        self.name_entry.grid(column=1,row=r)
+        r+=1
+
+        ttk.Label(self.frame, text="Role:").grid(column=0,row=r)
+        self.role_combobox = ttk.Combobox(self.frame, values=list(mgs.Role._member_map_.keys()))
+        self.role_combobox.set(self.player.role.name)
+        self.role_combobox.grid(column=1,row=r)
+        r+=1
+
+        self.extra_r = r
+        self.updateExtra()
+        self.role_combobox.bind("<<ComboboxSelected>>", self.updateExtra)
+        r+=1
+
+        ttk.Button(self.frame, text="Done", command=self.editPlayerAndReturn).grid(column=0, columnspan=2, row=r)
+
+        self.frame.pack()
+
+    def editPlayerAndReturn(self):
+        role = mgs.Role(self.role_combobox.get())
+        if role.contracting:
+            charge = self.extra_entry.get().strip("|")[0]
+            role = (role, mgs.PlayerID(charge))
+        self.player.role = role
+        self.callback(self.player)
+        self.destroy()
+
+
+    def updateExtra(self, e=None):
+        if hasattr(self,"extra_label"):
+            self.extra_label.destroy()
+        if hasattr(self, "extra_entry"):
+            self.extra_entry.destroy()
+        
+        role = mgs.Role(self.role_combobox.get())
+        if role.contracting:
+            self.extra_label = ttk.Label(self.frame, text="Charge:")
+            self.extra_label.grid(column=0,row=self.extra_r)
+            charges = [f"{p.id}|name" for p in self.master.m.players]
+            self.extra_entry = ttk.Combobox(self.frame, values = charges)
+            if self.player.role.contracting:
+                self.extra_entry.set(f"{self.player.charge}|name")
+            self.extra_entry.grid(column=1, row=self.extra_r)
+
+
+class AddPlayerWindow(EditPlayerWindow):
+
+    window_title = "Add Player"
+
+    id_entry_state = tk.NORMAL
+
+    def __init__(self, master, callback):
+        super().__init__(master, mgs.Player("-"),callback)
+
+    def editPlayerAndReturn(self):
+        self.player = mgs.Player(mgs.PlayerID(self.id_entry.get()))
+        super().editPlayerAndReturn()
+
 class PlayerTab(MafiaGameEditorTab):
 
     def create(self):
@@ -110,30 +188,8 @@ class PlayerTab(MafiaGameEditorTab):
 
         ttk.Button(self,command=self.editPlayer, text="Edit Player"
             ).pack(side=tk.BOTTOM)
-
-
-        # self.players = OrderedDict()
-        # self.playerData = ttk.Frame(self)
-
-        # self.playerData.columnconfigure(0,weight=2)
-        # self.playerData.columnconfigure(1,weight=2)
-        # self.playerData.columnconfigure(2,weight=1)
-        # self.playerData.columnconfigure(3,weight=1)
-        # self.playerData.columnconfigure(4,weight=2)
-
-        # ## Header Row TODO
-        # ttk.Label(self.playerData, text="ID", justify=tk.CENTER).grid(column=0,row=0)
-        # ttk.Label(self.playerData, text="Name", justify=tk.CENTER).grid(column=1,row=0)
-        # ttk.Label(self.playerData, text="Role", justify=tk.CENTER).grid(column=2,row=0)
-        # ttk.Label(self.playerData, text="Team", justify=tk.CENTER).grid(column=3,row=0)
-        # ttk.Label(self.playerData, text="...", justify=tk.CENTER).grid(column=4,row=0)
-
-        # for player in sorted(self.m.players, key=lambda p:p.role):
-        #     self.addPlayer(player)
-
-        # self.playerData.pack()
-
-        # self.updateFields()
+        ttk.Button(self,command=self.addPlayer, text="Add Player"
+            ).pack(side=tk.BOTTOM)
 
     def createPlayerTable(self):
         cols = ("ID", "Name", "Role", "...")
@@ -151,158 +207,134 @@ class PlayerTab(MafiaGameEditorTab):
         for n,player in enumerate(sorted(self.m.players, key=lambda x:x.role)):
             playerTable.insert(parent="",index='end', iid=n,text="",values = player.to_tuple())
 
-        logging.info(playerTable.__dict__)
-
         return playerTable
 
     def editPlayer(self):
-        playerRow = self.playerTable.selection()[0]
-        logging.info(f"playerRow, self.playerTable.item(playerRow): {playerRow, self.playerTable.item(playerRow)}")
+        try:
+            playerRow = self.playerTable.selection()[0]
+        except IndexError:
+            return
+        p_id = self.playerTable.item(playerRow)['values'][0]
+        p = self.m.getPlayer(p_id)
+        edit_player = EditPlayerWindow(self,p, self.updateFields)
 
-    # def sortPlayers(self):
-    #     logging.debug(f"Sorting Players: {self.players.keys()}")
-    #     self.players = OrderedDict([(k,self.players[k]) for k in sorted(self.players)])
-    #     logging.debug(f"Done: {self.players.keys()}")
-    #     for i,(player,(ws,vars)) in enumerate(self.players.items()):
-    #         for j, w in enumerate(ws):
-    #             w.grid(column=j,row=i+1)
-
-    # def addPlayer(self, player:mgs.Player):
-    #     r = row=self.playerData.grid_size()[1]
-
-    #     logging.debug(f"Adding player: {player}")
-
-    #     def update(event):
-    #         logging.info(str(event))
-    #         return self.updateExtraWidget(player)
-
-    #     idVar = tk.StringVar(value = player.id)
-    #     idEntry = ttk.Entry(self.playerData, textvariable=idVar, width=PLAYER_ID_WIDTH, justify=tk.CENTER)
-    #     idEntry.grid(column=0, row=r)
-    #     nameVar = tk.StringVar(value = "name")
-    #     nameEntry = ttk.Entry(self.playerData, textvariable=nameVar, width=PLAYER_NAME_WIDTH, justify=tk.CENTER)
-    #     nameEntry.grid(column=1, row=r)
-    #     roleVar = tk.StringVar(value = player.role.name)
-    #     roleCombobox = ttk.Combobox(self.playerData, textvariable=roleVar, justify=tk.CENTER, width=ROLE_WIDTH,
-    #         values=list(mgs.Role._member_map_.keys()))
-    #     roleCombobox.bind("<<ComboboxSelected>>", update)
-    #     roleCombobox.grid(column=2, row=r)
-    #     teamVar = tk.StringVar(value = player.role.team)
-    #     teamLabel = ttk.Entry(self.playerData, textvariable=teamVar, state=tk.DISABLED, justify=tk.CENTER)
-    #     teamLabel.grid(column=3, row=r)
-    #     extraVar = tk.StringVar(value="-")
-    #     extraWidget = ttk.Entry(self.playerData,textvariable=extraVar, state=tk.DISABLED, justify=tk.CENTER)
-    #     extraWidget.grid(column=4, row=r)
-
-    #     self.players[player] = ((idEntry, nameEntry, roleCombobox, teamLabel, extraWidget),
-    #                              (idVar,   nameVar,   roleVar,      teamVar,   extraVar))
-        
-    #     self.updateExtraWidget(player)
-
-    # def updateExtraWidget(self, player):
-    #     ((idEntry, nameEntry, roleCombobox, teamLabel, extraWidget),
-    #     (idVar,nameVar,roleVar,teamVar,extraVar)) = self.players[player]
-    #     role = mgs.Role(roleVar.get())
-    #     c = extraWidget.grid_info()['column']
-    #     r = extraWidget.grid_info()['row']
-    #     extraWidget.destroy()
-    #     extraVar.set("None")
-    #     if role.contracting:
-    #         extraWidget = ttk.Combobox(self.playerData,textvariable=extraVar, width = PLAYER_ID_WIDTH, 
-    #             justify=tk.CENTER, values = ([None]+[p.id for p in self.players]))
-    #     else:
-    #         extraWidget = ttk.Entry(self.playerData, textvariable=extraVar, width = PLAYER_ID_WIDTH,
-    #             justify=tk.CENTER, state= tk.DISABLED)
-    #     extraWidget.grid(column=c,row=r)
-    #     self.players[player] = ((idEntry, nameEntry, roleCombobox, teamLabel, extraWidget),
-    #         (idVar,nameVar,roleVar,teamVar,extraVar))
-
-        
-
-    # def updatePlayerData(self, player):
-    #     ((idEntry, nameEntry, roleCombobox, teamLabel, extraWidget),
-    #     (idVar,nameVar,roleVar,teamVar,extraVar)) = self.players[player]
-    #     idVar.set(player.id)
-    #     nameVar.set("Name_")
-    #     roleVar.set(player.role.name)
-    #     teamVar.set(player.role.team)
-    #     if player.role.contracting:
-    #         extraVar.set(player.charge)
-    #         extraWidget.configure(state=tk.NORMAL)
-    #     else:
-    #         extraVar.set("-")
-    #         extraWidget.configure(state=tk.DISABLED)
-
-    # def updatePlayer(self, player):
-    #     (ws,(idVar,nameVar,roleVar,teamVar,extraVar)) = self.players[player]
-
-    #     del self.players[player]
-
-    #     player.id = int(idVar.get())
-    #     player.role = mgs.Role(roleVar.get())
-
-    #     if player.role.contracting:
-    #         player.charge = int(extraVar.get())
-    #     else:
-    #         if hasattr(player, "charge"):
-    #             del player.charge
-
-    #     self.players[player] = (ws,(idVar,nameVar,roleVar,teamVar,extraVar))
-
-    # def removePlayer(self, player):
-    #     (ws,(idVar,nameVar,roleVar,teamVar,extraVar)) = self.players[player]
-    #     for w in ws:
-    #         w.destroy()
-
-    #     del self.players[player]
-
-    # def getChangedPlayerData(self):
-    #     changed = set()
-    #     for player in self.players:
-    #         (ws,(idVar,nameVar,roleVar,teamVar,extraVar)) = self.players[player]
-    #         if (not player.id == idVar.get() or
-    #             not player.role.name == roleVar.get() or
-    #             (player.role.contracting and not player.charge == extraVar.get())):
-    #             changed.add(player)
-    #     return changed
+    def addPlayer(self):
+        def add_p_callback(p):
+            self.m.players.add(p)
+            self.updateFields()
+        AddPlayerWindow(self, add_p_callback)
 
 
-    def updateFields(self):
+    def updateFields(self, p=None):
         self.playerTable.destroy()
         self.playerTable = self.createPlayerTable()
         self.playerTable.pack()
-        # for player in list(self.players):
-        #     self.remove(player)
- 
-        # for player in self.m.players:
-        #     self.addPlayer(player)
 
-        # self.sortPlayers()
-    
     def applyCommand(self):
         pass
-
-        # for player in list(self.m.players):
-        #     self.m.players.remove(player)
-        
-        # for player in list(self.players):
-        #     self.updatePlayer(player)
-        #     self.m.players.add(player)
-        
-        # self.sortPlayers()
-
 
 
 class RoundTab(MafiaGameEditorTab):
 
     def create(self):
         self.columnconfigure(0,weight=1)
+
+        r = 0
+
         ttk.Label(self, text="Current Round and Specific State", justify='center'
-            ).grid(column=0,row=0, sticky="N",padx=100,pady=15)
+            ).grid(column=0,columnspan=2,row=r, sticky="N",padx=100,pady=15)
+        r+=1
+
+        # Day
+        ttk.Label(self, text="Day:").grid(column=0,row=r)
+        self.day_entry = ttk.Spinbox(self, from_=0)
+        self.day_entry.grid(column=1,row=r)
+        r+=1
+
+        # Phase
+        ttk.Label(self, text="Phase:").grid(column=0,row=r)
+        self.phase_entry = ttk.Combobox(self, values=list(mgs.Phase._member_map_.keys()))
+        self.phase_entry.grid(column=1, row=r)
+        r+=1
+
+        self.phase_frame = ttk.Frame(self)
+        self.phase_frame_r = r
+        self.phase_frame.grid(column=0, columnspan=2, row=r)
+        self.phase_entry.bind("<<ComboboxSelected>>", self.updatePhase)
+        r+=1
+
+        # Start
+        ttk.Label(self, text="Round Start Time:").grid(column=0,row=r)
+        self.start_entry_var = tk.StringVar(self)
+        ttk.Entry(self, textvariable=self.start_entry_var).grid(column=1,row=r)
+        r+=1
+
+        self.updateFields()
+
+
+    def updatePhase(self, e=None):
+        phase = mgs.Phase(self.phase_entry.get())
+        self.m.round.phase = phase
+        self.phase_frame.destroy()
+        self.phase_frame = ttk.Frame(self)
+        self.phase_frame.grid(column=0, columnspan=2, row=self.phase_frame_r)
+
+        if phase == mgs.Phase.DAY:
+            self.createVotesTable()
+        elif phase == mgs.Phase.NIGHT:
+            targets = [f"{p.id} | name of {p.id}" for p in self.m.players] + [NOTARGET_MSG] + [None]
+            self.mafia_target_box = ttk.Combobox(self.phase_frame, values=targets)
+            
+
+    def createVotesTable(self):
+        frame = self.phase_frame
+        frame.columnconfigure(0, weight=1)
+        frame.columnconfigure(1, weight=1)
+        
+        ttk.Label(frame, text="Voter:").grid(column=0,row=0)
+        ttk.Label(frame, text="Votee:").grid(column=1,row=0)
+        for (n,p) in enumerate(self.m.players):
+            ttk.Label(frame, text=f"{p.id} | name of {p.id}").grid(column=0,row=1+n)
+            
+            votees = [f"{p.id} | name of {p.id}" for p in self.m.players] + [NOTARGET_MSG] + [None]
+            self.votee_dict = {}
+            w=ttk.Combobox(frame, values = votees)
+            w.player_id = p.id
+            w.grid(column=1, row = 1+n)
+            
+            if p in self.m.round.votes:
+                votee = self.m.round.votes[p]
+                if votee == mgs.NOTARGET:
+                    w.set(NOTARGET_MSG)
+                else:
+                    w.set(f"{votee} | name of {votee}")
+            else:
+                w.set("None")
+
+            def applyVotee(e):
+                v = e.widget.get()
+                p_id = e.widget.player_id
+                if v in [None, "None"]:
+                    if p_id in self.m.round.votes:
+                        del self.m.round.votes[p_id]
+                else:
+                    if v==NOTARGET_MSG:
+                        votee_id = mgs.NOTARGET
+                    else:
+                        votee_id = mgs.PlayerID(v.split("|")[0].strip())
+                    self.m.round.votes[p_id] = votee_id
+                return self.updateFields()
+
+            w.bind("<<ComboboxSelected>>", applyVotee)
+            self.votee_dict[p] = w
+
 
     def updateFields(self):
-        print("Round Update!")
-    
+        self.day_entry.set(self.m.round.day)
+        self.phase_entry.set(self.m.round.phase.name)
+        self.updatePhase()
+        self.start_entry_var.set(self.m.round.start)
+
     def applyCommand(self):
         print("Round Apply!")
 
@@ -366,7 +398,7 @@ class MafiaGameEditor(tk.Tk):
         fname = filedialog.asksaveasfilename(
             initialdir=".",
             title="Save file as...",
-            initialfile=self.fname,
+            initialfile=self.fname.split("/")[-1],
             defaultextension = ".maf",
             filetypes = (("Mafia Game files","*.maf"),("all files","*.*"))
         )
@@ -427,6 +459,12 @@ class MafiaGameEditor(tk.Tk):
         self.tabControl.add(self.roundTab, text="Current Round")
 
         self.tabControl.pack()
+
+        def tabChanged(e):
+            self.tabControl.nametowidget(self.tabControl.select()
+                ).updateFields()
+
+        self.tabControl.bind("<<NotebookTabChanged>>", tabChanged)
         
         ttk.Button(self, command=self.applyCommand, text="Apply"
             ).pack()
@@ -438,5 +476,5 @@ class MafiaGameEditor(tk.Tk):
         self.bind("<Control-n>", self.newGame)
 
 if __name__ == "__main__":
-    mge = MafiaGameEditor()
+    mge = MafiaGameEditor("test.maf")
     mge.mainloop()

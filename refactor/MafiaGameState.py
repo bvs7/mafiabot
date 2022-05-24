@@ -11,7 +11,7 @@ DATETIME_DEFAULT_FMT = "%Y-%m-%d %H:%M:%S.%f"
 
 import logging
 
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.INFO)
 
 PlayerID = NewType("PlayerID", int)
 NOTARGET = PlayerID(0)
@@ -89,16 +89,8 @@ class Role(MafiaGameEncodable, Enum):
         return cls(str)  
 
 class Player(MafiaGameEncodable):
-    def __new__(cls, id:PlayerID, role:Role, *args, **kwargs):
-        if role.contracting:
-            cp = object.__new__(ContractingPlayer)
-            return cp
-        else:
-            p = object.__new__(cls)
-            p.__init__(id,role,*args,**kwargs)
-            return p
     
-    def __init__(self, id:PlayerID, role:Role):
+    def __init__(self, id:PlayerID, role:Role = Role.TOWN):
         self.id = id
         self.role = role
     
@@ -120,29 +112,48 @@ class Player(MafiaGameEncodable):
         else:
             raise TypeError
 
+    @property
+    def role(self):
+        return self._role
+
+    @role.setter
+    def role(self, r):
+        charge = None
+        if isinstance(r, tuple) or isinstance(r,list):
+            charge = r[1]
+            r = r[0]
+        if isinstance(r, str):
+            try:
+                r = Role(r)
+            except ValueError as ve:
+                logging.error(f"Error setting role to {r}: {ve}")
+                return
+        if isinstance(r, Role):
+            if r.contracting:
+                assert charge != None
+                self.charge = charge
+            else:
+                assert charge == None
+                self.charge = charge
+            self._role = r
+            return
+        raise NotImplementedError(r)
+
     def mafia_game_encode(self):
         logging.debug(f"Encoding {self.__class__.__name__}")
         d = self.__dict__.copy()
-        d["role"] = d["role"].name
+        if self.role.contracting:
+            d["role"] = d["_role"].name, d["charge"]
+        else:
+            d["role"] = d["_role"].name
+        del d["_role"]
+        del d["charge"]
         return d
 
     @classmethod
     def fromdict(cls, d):
-        d["role"] = Role(d["role"])
+        logging.debug(f"FromDict Player: {d}")
         return Player(**d)
-
-    def to_tuple(self):
-        return (self.id, "name", self.role.name, "")
-
-
-class ContractingPlayer(Player, MafiaGameEncodable):
-    def __init__(self, id:PlayerID, role:Role, charge:PlayerID):
-        super().__init__(id,role)
-        self.charge = charge
-    
-    def __repr__(self):
-        s = super().__repr__()
-        return f"{s[0:-1]},{self.charge}{s[-1:]}"
 
     def to_tuple(self):
         return (self.id, "name", self.role.name, self.charge)
@@ -195,6 +206,9 @@ class Round(MafiaGameEncodable):
     def phase(self, new_phase):
         if isinstance(new_phase, tuple):
             new_phase, idiot, voters = new_phase
+        if self._phase == new_phase:
+            return
+        
         if self._phase == Phase.DAY:
             del self.votes
         elif self._phase == Phase.NIGHT:
@@ -202,7 +216,7 @@ class Round(MafiaGameEncodable):
             del self.mafia_target
         elif self._phase == Phase.DUSK:
             del self.idiot
-            del self.votes
+            del self.voters
 
         if new_phase == Phase.DAY:
             self.votes : Dict[PlayerID,PlayerID] = {}
@@ -382,7 +396,7 @@ if __name__ == "__main__":
 
     p = Player(0, Role.TOWN)
     tp = Player(1, Role.COP)
-    cp = Player(2, Role.GUARD, charge=1)
+    cp = Player(2, (Role.GUARD,0),)
 
     m = MafiaGameState()
 
