@@ -103,7 +103,7 @@ class Player(MafiaGameEncodable):
         self.role = role
     
     def __repr__(self):
-        return f"<{self.__class__.__name__}:{self.id},{self.role}>"
+        return f"<{self.__class__.__name__}:{self.id},{self.role.name}>"
 
     def __hash__(self):
         return hash(self.id)
@@ -132,7 +132,7 @@ class Player(MafiaGameEncodable):
         return Player(**d)
 
     def to_tuple(self):
-        return (self.id, "name", self.role, "")
+        return (self.id, "name", self.role.name, "")
 
 
 class ContractingPlayer(Player, MafiaGameEncodable):
@@ -141,10 +141,11 @@ class ContractingPlayer(Player, MafiaGameEncodable):
         self.charge = charge
     
     def __repr__(self):
-        return f"<{self.__class__.__name__}:{self.id},{self.role},{self.charge}>"
+        s = super().__repr__()
+        return f"{s[0:-1]},{self.charge}{s[-1:]}"
 
     def to_tuple(self):
-        return (self.id, "name", self.role, self.charge)
+        return (self.id, "name", self.role.name, self.charge)
 
 class ChatHandle(MafiaGameEncodable):
     def __init__(self, id):

@@ -1,7 +1,7 @@
 
 
 import tkinter as tk
-from tkinter import ttk, filedialog, messagebox
+from tkinter import ttk, filedialog, messagebox, simpledialog
 from collections import OrderedDict
 from typing import List
 import logging
@@ -15,6 +15,17 @@ GAME_NUMBER_WIDTH = 4
 PLAYER_ID_WIDTH = 10
 PLAYER_NAME_WIDTH = 10
 ROLE_WIDTH = 10
+
+class EditPlayerDialog(simpledialog.Dialog):
+    def __init__(self, parent, player):
+        self.player = player
+        super().__init__(parent, "Edit Player")
+
+    def body(self, frame):
+        ttk.Label(frame, text="ID").pack()
+        w = ttk.Entry(frame, state=tk.DISABLED)
+        w.insert(0,str(self.player.id))
+        w.pack()
 
 class MafiaGameEditorTab(ttk.Frame):
 
@@ -93,156 +104,192 @@ class PlayerTab(MafiaGameEditorTab):
         ttk.Label(self, text="Player Details", justify='center'
             ).pack(padx=100,pady=15)#grid(column=0,row=0, sticky="N",padx=100,pady=15)
 
-        self.players = OrderedDict()
-        self.playerData = ttk.Frame(self)
+        self.playerTable = self.createPlayerTable()
 
-        self.playerData.columnconfigure(0,weight=2)
-        self.playerData.columnconfigure(1,weight=2)
-        self.playerData.columnconfigure(2,weight=1)
-        self.playerData.columnconfigure(3,weight=1)
-        self.playerData.columnconfigure(4,weight=2)
+        self.playerTable.pack()
 
-        ## Header Row TODO
-        ttk.Label(self.playerData, text="ID", justify=tk.CENTER).grid(column=0,row=0)
-        ttk.Label(self.playerData, text="Name", justify=tk.CENTER).grid(column=1,row=0)
-        ttk.Label(self.playerData, text="Role", justify=tk.CENTER).grid(column=2,row=0)
-        ttk.Label(self.playerData, text="Team", justify=tk.CENTER).grid(column=3,row=0)
-        ttk.Label(self.playerData, text="...", justify=tk.CENTER).grid(column=4,row=0)
+        ttk.Button(self,command=self.editPlayer, text="Edit Player"
+            ).pack(side=tk.BOTTOM)
 
-        for player in sorted(self.m.players, key=lambda p:p.role):
-            self.addPlayer(player)
 
-        self.playerData.pack()
+        # self.players = OrderedDict()
+        # self.playerData = ttk.Frame(self)
 
-        self.updateFields()
+        # self.playerData.columnconfigure(0,weight=2)
+        # self.playerData.columnconfigure(1,weight=2)
+        # self.playerData.columnconfigure(2,weight=1)
+        # self.playerData.columnconfigure(3,weight=1)
+        # self.playerData.columnconfigure(4,weight=2)
 
-    def sortPlayers(self):
-        logging.debug(f"Sorting Players: {self.players.keys()}")
-        self.players = OrderedDict([(k,self.players[k]) for k in sorted(self.players)])
-        logging.debug(f"Done: {self.players.keys()}")
-        for i,(player,(ws,vars)) in enumerate(self.players.items()):
-            for j, w in enumerate(ws):
-                w.grid(column=j,row=i+1)
+        # ## Header Row TODO
+        # ttk.Label(self.playerData, text="ID", justify=tk.CENTER).grid(column=0,row=0)
+        # ttk.Label(self.playerData, text="Name", justify=tk.CENTER).grid(column=1,row=0)
+        # ttk.Label(self.playerData, text="Role", justify=tk.CENTER).grid(column=2,row=0)
+        # ttk.Label(self.playerData, text="Team", justify=tk.CENTER).grid(column=3,row=0)
+        # ttk.Label(self.playerData, text="...", justify=tk.CENTER).grid(column=4,row=0)
 
-    def addPlayer(self, player:mgs.Player):
-        r = row=self.playerData.grid_size()[1]
+        # for player in sorted(self.m.players, key=lambda p:p.role):
+        #     self.addPlayer(player)
 
-        logging.debug(f"Adding player: {player}")
+        # self.playerData.pack()
 
-        def update(event):
-            logging.info(str(event))
-            return self.updateExtraWidget(player)
+        # self.updateFields()
 
-        idVar = tk.StringVar(value = player.id)
-        idEntry = ttk.Entry(self.playerData, textvariable=idVar, width=PLAYER_ID_WIDTH, justify=tk.CENTER)
-        idEntry.grid(column=0, row=r)
-        nameVar = tk.StringVar(value = "name")
-        nameEntry = ttk.Entry(self.playerData, textvariable=nameVar, width=PLAYER_NAME_WIDTH, justify=tk.CENTER)
-        nameEntry.grid(column=1, row=r)
-        roleVar = tk.StringVar(value = player.role.name)
-        roleCombobox = ttk.Combobox(self.playerData, textvariable=roleVar, justify=tk.CENTER, width=ROLE_WIDTH,
-            values=list(mgs.Role._member_map_.keys()))
-        roleCombobox.bind("<<ComboboxSelected>>", update)
-        roleCombobox.grid(column=2, row=r)
-        teamVar = tk.StringVar(value = player.role.team)
-        teamLabel = ttk.Entry(self.playerData, textvariable=teamVar, state=tk.DISABLED, justify=tk.CENTER)
-        teamLabel.grid(column=3, row=r)
-        extraVar = tk.StringVar(value="-")
-        extraWidget = ttk.Entry(self.playerData,textvariable=extraVar, state=tk.DISABLED, justify=tk.CENTER)
-        extraWidget.grid(column=4, row=r)
+    def createPlayerTable(self):
+        cols = ("ID", "Name", "Role", "...")
 
-        self.players[player] = ((idEntry, nameEntry, roleCombobox, teamLabel, extraWidget),
-                                 (idVar,   nameVar,   roleVar,      teamVar,   extraVar))
+        playerTable = ttk.Treeview(self)
+        playerTable['columns'] = [col.lower() for col in cols]
+        playerTable.column("#0", width=0, stretch=tk.NO)
+        for col in cols:
+            playerTable.column(col.lower(), anchor=tk.CENTER, width = 80)
+
+        playerTable.heading("#0",text="",anchor=tk.CENTER)
+        for col in cols:
+            playerTable.heading(col.lower(), text=col, anchor=tk.CENTER)
+
+        for n,player in enumerate(sorted(self.m.players, key=lambda x:x.role)):
+            playerTable.insert(parent="",index='end', iid=n,text="",values = player.to_tuple())
+
+        logging.info(playerTable.__dict__)
+
+        return playerTable
+
+    def editPlayer(self):
+        playerRow = self.playerTable.selection()[0]
+        logging.info(f"playerRow, self.playerTable.item(playerRow): {playerRow, self.playerTable.item(playerRow)}")
+
+    # def sortPlayers(self):
+    #     logging.debug(f"Sorting Players: {self.players.keys()}")
+    #     self.players = OrderedDict([(k,self.players[k]) for k in sorted(self.players)])
+    #     logging.debug(f"Done: {self.players.keys()}")
+    #     for i,(player,(ws,vars)) in enumerate(self.players.items()):
+    #         for j, w in enumerate(ws):
+    #             w.grid(column=j,row=i+1)
+
+    # def addPlayer(self, player:mgs.Player):
+    #     r = row=self.playerData.grid_size()[1]
+
+    #     logging.debug(f"Adding player: {player}")
+
+    #     def update(event):
+    #         logging.info(str(event))
+    #         return self.updateExtraWidget(player)
+
+    #     idVar = tk.StringVar(value = player.id)
+    #     idEntry = ttk.Entry(self.playerData, textvariable=idVar, width=PLAYER_ID_WIDTH, justify=tk.CENTER)
+    #     idEntry.grid(column=0, row=r)
+    #     nameVar = tk.StringVar(value = "name")
+    #     nameEntry = ttk.Entry(self.playerData, textvariable=nameVar, width=PLAYER_NAME_WIDTH, justify=tk.CENTER)
+    #     nameEntry.grid(column=1, row=r)
+    #     roleVar = tk.StringVar(value = player.role.name)
+    #     roleCombobox = ttk.Combobox(self.playerData, textvariable=roleVar, justify=tk.CENTER, width=ROLE_WIDTH,
+    #         values=list(mgs.Role._member_map_.keys()))
+    #     roleCombobox.bind("<<ComboboxSelected>>", update)
+    #     roleCombobox.grid(column=2, row=r)
+    #     teamVar = tk.StringVar(value = player.role.team)
+    #     teamLabel = ttk.Entry(self.playerData, textvariable=teamVar, state=tk.DISABLED, justify=tk.CENTER)
+    #     teamLabel.grid(column=3, row=r)
+    #     extraVar = tk.StringVar(value="-")
+    #     extraWidget = ttk.Entry(self.playerData,textvariable=extraVar, state=tk.DISABLED, justify=tk.CENTER)
+    #     extraWidget.grid(column=4, row=r)
+
+    #     self.players[player] = ((idEntry, nameEntry, roleCombobox, teamLabel, extraWidget),
+    #                              (idVar,   nameVar,   roleVar,      teamVar,   extraVar))
         
-        self.updateExtraWidget(player)
+    #     self.updateExtraWidget(player)
 
-    def updateExtraWidget(self, player):
-        ((idEntry, nameEntry, roleCombobox, teamLabel, extraWidget),
-        (idVar,nameVar,roleVar,teamVar,extraVar)) = self.players[player]
-        role = mgs.Role(roleVar.get())
-        c = extraWidget.grid_info()['column']
-        r = extraWidget.grid_info()['row']
-        extraWidget.destroy()
-        extraVar.set("None")
-        if role.contracting:
-            extraWidget = ttk.Combobox(self.playerData,textvariable=extraVar, width = PLAYER_ID_WIDTH, 
-                justify=tk.CENTER, values = ([None]+[p.id for p in self.players]))
-        else:
-            extraWidget = ttk.Entry(self.playerData, textvariable=extraVar, width = PLAYER_ID_WIDTH,
-                justify=tk.CENTER, state= tk.DISABLED)
-        extraWidget.grid(column=c,row=r)
-        self.players[player] = ((idEntry, nameEntry, roleCombobox, teamLabel, extraWidget),
-            (idVar,nameVar,roleVar,teamVar,extraVar))
+    # def updateExtraWidget(self, player):
+    #     ((idEntry, nameEntry, roleCombobox, teamLabel, extraWidget),
+    #     (idVar,nameVar,roleVar,teamVar,extraVar)) = self.players[player]
+    #     role = mgs.Role(roleVar.get())
+    #     c = extraWidget.grid_info()['column']
+    #     r = extraWidget.grid_info()['row']
+    #     extraWidget.destroy()
+    #     extraVar.set("None")
+    #     if role.contracting:
+    #         extraWidget = ttk.Combobox(self.playerData,textvariable=extraVar, width = PLAYER_ID_WIDTH, 
+    #             justify=tk.CENTER, values = ([None]+[p.id for p in self.players]))
+    #     else:
+    #         extraWidget = ttk.Entry(self.playerData, textvariable=extraVar, width = PLAYER_ID_WIDTH,
+    #             justify=tk.CENTER, state= tk.DISABLED)
+    #     extraWidget.grid(column=c,row=r)
+    #     self.players[player] = ((idEntry, nameEntry, roleCombobox, teamLabel, extraWidget),
+    #         (idVar,nameVar,roleVar,teamVar,extraVar))
 
         
 
-    def updatePlayerData(self, player):
-        ((idEntry, nameEntry, roleCombobox, teamLabel, extraWidget),
-        (idVar,nameVar,roleVar,teamVar,extraVar)) = self.players[player]
-        idVar.set(player.id)
-        nameVar.set("Name_")
-        roleVar.set(player.role.name)
-        teamVar.set(player.role.team)
-        if player.role.contracting:
-            extraVar.set(player.charge)
-            extraWidget.configure(state=tk.NORMAL)
-        else:
-            extraVar.set("-")
-            extraWidget.configure(state=tk.DISABLED)
+    # def updatePlayerData(self, player):
+    #     ((idEntry, nameEntry, roleCombobox, teamLabel, extraWidget),
+    #     (idVar,nameVar,roleVar,teamVar,extraVar)) = self.players[player]
+    #     idVar.set(player.id)
+    #     nameVar.set("Name_")
+    #     roleVar.set(player.role.name)
+    #     teamVar.set(player.role.team)
+    #     if player.role.contracting:
+    #         extraVar.set(player.charge)
+    #         extraWidget.configure(state=tk.NORMAL)
+    #     else:
+    #         extraVar.set("-")
+    #         extraWidget.configure(state=tk.DISABLED)
 
-    def updatePlayer(self, player):
-        (ws,(idVar,nameVar,roleVar,teamVar,extraVar)) = self.players[player]
+    # def updatePlayer(self, player):
+    #     (ws,(idVar,nameVar,roleVar,teamVar,extraVar)) = self.players[player]
 
-        del self.players[player]
+    #     del self.players[player]
 
-        player.id = int(idVar.get())
-        player.role = mgs.Role(roleVar.get())
+    #     player.id = int(idVar.get())
+    #     player.role = mgs.Role(roleVar.get())
 
-        if player.role.contracting:
-            player.charge = int(extraVar.get())
-        else:
-            if hasattr(player, "charge"):
-                del player.charge
+    #     if player.role.contracting:
+    #         player.charge = int(extraVar.get())
+    #     else:
+    #         if hasattr(player, "charge"):
+    #             del player.charge
 
-        self.players[player] = (ws,(idVar,nameVar,roleVar,teamVar,extraVar))
+    #     self.players[player] = (ws,(idVar,nameVar,roleVar,teamVar,extraVar))
 
-    def removePlayer(self, player):
-        (ws,(idVar,nameVar,roleVar,teamVar,extraVar)) = self.players[player]
-        for w in ws:
-            w.destroy()
+    # def removePlayer(self, player):
+    #     (ws,(idVar,nameVar,roleVar,teamVar,extraVar)) = self.players[player]
+    #     for w in ws:
+    #         w.destroy()
 
-        del self.players[player]
+    #     del self.players[player]
 
-    def getChangedPlayerData(self):
-        changed = set()
-        for player in self.players:
-            (ws,(idVar,nameVar,roleVar,teamVar,extraVar)) = self.players[player]
-            if (not player.id == idVar.get() or
-                not player.role.name == roleVar.get() or
-                (player.role.contracting and not player.charge == extraVar.get())):
-                changed.add(player)
-        return changed
+    # def getChangedPlayerData(self):
+    #     changed = set()
+    #     for player in self.players:
+    #         (ws,(idVar,nameVar,roleVar,teamVar,extraVar)) = self.players[player]
+    #         if (not player.id == idVar.get() or
+    #             not player.role.name == roleVar.get() or
+    #             (player.role.contracting and not player.charge == extraVar.get())):
+    #             changed.add(player)
+    #     return changed
 
 
     def updateFields(self):
-        for player in list(self.players):
-            self.remove(player)
+        self.playerTable.destroy()
+        self.playerTable = self.createPlayerTable()
+        self.playerTable.pack()
+        # for player in list(self.players):
+        #     self.remove(player)
  
-        for player in self.m.players:
-            self.addPlayer(player)
+        # for player in self.m.players:
+        #     self.addPlayer(player)
 
-        self.sortPlayers()
+        # self.sortPlayers()
     
     def applyCommand(self):
+        pass
 
-        for player in list(self.m.players):
-            self.m.players.remove(player)
+        # for player in list(self.m.players):
+        #     self.m.players.remove(player)
         
-        for player in list(self.players):
-            self.updatePlayer(player)
-            self.m.players.add(player)
+        # for player in list(self.players):
+        #     self.updatePlayer(player)
+        #     self.m.players.add(player)
         
-        self.sortPlayers()
+        # self.sortPlayers()
 
 
 
