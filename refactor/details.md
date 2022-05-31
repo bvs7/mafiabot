@@ -76,10 +76,33 @@ Events?
 
 It would be nice to have discrete events that could be sent to the chat controller...
 
-Events:
+Active Events:
 - Vote
-- Elect
 - Target
 - Mafia_Target
-- Block
-- 
+- Reveal
+- Timer
+
+Derived Events:
+- Start
+- Day (to day)
+- Night (to night)
+- Elect
+- Stun
+- Save
+- Kill
+- Investigate
+- Revenge
+- Eliminate
+- Win
+- ChargeDie
+- Refocus
+
+
+Event system?
+
+State is saved
+Server generates actions from chat, opens state, modifies, then saves
+After stateless server operates, check other stuff.
+Events are generated at every turn, event handler sends events to a database
+
