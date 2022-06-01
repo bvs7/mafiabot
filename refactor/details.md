@@ -114,8 +114,17 @@ Guild
 | |-Game2.maf
 |-DBs
 
-controllerChat:
-chat-id -> lobby-id  (game-number)
+chats:
+chat-id -> lobby-id  (game-number) "MAIN"/"MAFIA"
 
-Player-db: (not unique)
+lobbies:
+channel-id
+
+Player-db: (not unique?) ordered by time?
 player-id -> lobby-id, (game-number)
+
+
+Server - Controller - EventHandler
+       ^            |
+       |            |
+       |--GameState-|

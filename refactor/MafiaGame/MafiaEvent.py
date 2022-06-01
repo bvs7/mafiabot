@@ -1,37 +1,44 @@
 
 import enum
 
-from .MafiaState import PlayerID, ChatHandle, Phase, Role
+from .MafiaState import *
 
 import logging
 logging.basicConfig(level=logging.DEBUG)
 
 __all__ =["Event"]
 
+class EventType(enum.Enum):
+
+    VOTE = "VOTE"
+    TARGET = "TARGET"
+    MAFIA_TARGET = "MAFIA_TARGET"
+    REVEAL = "REVEAL"
+    TIMER = "TIMER"
+
+    START = "START"
+    DAY = "DAY"
+    NIGHT = "NIGHT"
+    DUSK = "DUSK"
+    ELECT = "ELECT"
+    STUN = "STUN"
+    SAVE = "SAVE"
+    KILL = "KILL"
+    INVESTIGATE = "INVESTIGATE"
+    REVENGE = "REVENGE"
+    ELIMINATE = "ELIMINATE"
+    WIN = "WIN"
+    CHARGEDIE = "CHARGEDIE"
+    REFOCUS = "REFOCUS"
+
+class EventHandler:
+    def __init__(self):
+        
+
+
 class Event():
         
-    class EventType(enum.Enum):
-
-        VOTE = "VOTE"
-        TARGET = "TARGET"
-        MAFIA_TARGET = "MAFIA_TARGET"
-        REVEAL = "REVEAL"
-        TIMER = "TIMER"
-
-        START = "START"
-        DAY = "DAY"
-        NIGHT = "NIGHT"
-        DUSK = "DUSK"
-        ELECT = "ELECT"
-        STUN = "STUN"
-        SAVE = "SAVE"
-        KILL = "KILL"
-        INVESTIGATE = "INVESTIGATE"
-        REVENGE = "REVENGE"
-        ELIMINATE = "ELIMINATE"
-        WIN = "WIN"
-        CHARGEDIE = "CHARGEDIE"
-        REFOCUS = "REFOCUS"
+    
 
     # Define functions for submitting events?
     # PhaseID
@@ -67,7 +74,8 @@ class Event():
 
     # Databases eventually...
 
-    def event(etype: EventType, phase_id: int, actor: PlayerID = None, target: PlayerID = None):
+    def event(etype: EventType, m, actor: PlayerID = None, target: PlayerID = None):
+        phase_id = Event.getPhaseIDFromGameState(m)
         logging.info(f"Logging {etype.name}, phase_id: {phase_id}, actor: {actor}, target: {target}")
 
     def addPlayerState(phase_id:int, player:PlayerID, role:Role):
@@ -77,50 +85,53 @@ class Event():
         """Retrieve phase id if it exists, or create it if it doesn't """
         logging.info(f"Getting Phase ID for {lobby, game_id, day, phase}")
         return 1
+    
+    def getPhaseIDFromGameState(m:GameState):
+        return Event.getPhaseID(m.lobby_chat, m.game_number, m.round.day,)
         
     def phaseState(lobby:ChatHandle, game_id:int, day:int, phase:Phase, players):
         phase_id = Event.getPhaseID(lobby, game_id, day, phase)
         for player in players:
             Event.addPlayerState(phase_id, player.id, player.role)
 
-    def vote(phase_id : int, voter:PlayerID, votee:PlayerID):
-        return Event.Event.event(Event.EventType.VOTE, phase_id, voter, votee)
+    def vote(m:GameState, voter:PlayerID, votee:PlayerID):
+        return Event.event(Event.EventType.VOTE, m, voter, votee)
 
-    def target(phase_id : int, actor:PlayerID, target:PlayerID):
-        return Event.event(Event.EventType.TARGET, phase_id, actor, target)
+    def target(m : GameState, actor:PlayerID, target:PlayerID):
+        return Event.event(Event.EventType.TARGET, m, actor, target)
 
-    def mtarget(phase_id : int, actor:PlayerID, target:PlayerID):
-        return Event.event(Event.EventType.MAFIA_TARGET, phase_id, actor, target)
+    def mtarget(m : GameState, actor:PlayerID, target:PlayerID):
+        return Event.event(Event.EventType.MAFIA_TARGET, m, actor, target)
 
-    def reveal(phase_id : int, celeb:PlayerID):
-        return Event.event(Event.EventType.REVEAL, phase_id, celeb)
+    def reveal(m : GameState, celeb:PlayerID):
+        return Event.event(Event.EventType.REVEAL, m, celeb)
 
-    def elect(phase_id:int, hammer:PlayerID, electee:PlayerID):
-        return Event.event(Event.EventType.ELECT, phase_id, hammer, electee)
+    def elect(m : GameState, hammer:PlayerID, electee:PlayerID):
+        return Event.event(Event.EventType.ELECT, m, hammer, electee)
 
-    def stun(phase_id:int, actor:PlayerID, target:PlayerID):
-        return Event.event(Event.EventType.STUN, phase_id, actor, target)
+    def stun(m : GameState, actor:PlayerID, target:PlayerID):
+        return Event.event(Event.EventType.STUN, m, actor, target)
 
-    def save(phase_id:int, actor:PlayerID, target:PlayerID):
-        return Event.event(Event.EventType.SAVE, phase_id, actor, target)
+    def save(m : GameState, actor:PlayerID, target:PlayerID):
+        return Event.event(Event.EventType.SAVE, m, actor, target)
         
-    def kill(phase_id:int, actor:PlayerID, target:PlayerID):
-        return Event.event(Event.EventType.KILL, phase_id, actor, target)
+    def kill(m : GameState, actor:PlayerID, target:PlayerID):
+        return Event.event(Event.EventType.KILL, m, actor, target)
         
-    def investigate(phase_id:int, actor:PlayerID, target:PlayerID):
-        return Event.event(Event.EventType.INVESTIGATE, phase_id, actor, target)
+    def investigate(m : GameState, actor:PlayerID, target:PlayerID):
+        return Event.event(Event.EventType.INVESTIGATE, m, actor, target)
         
-    def revenge(phase_id:int, idiot:PlayerID, target:PlayerID):
-        return Event.event(Event.EventType.REVENGE, phase_id, idiot, target)
+    def revenge(m : GameState, idiot:PlayerID, target:PlayerID):
+        return Event.event(Event.EventType.REVENGE, m, idiot, target)
 
-    def eliminate(phase_id:int, target:PlayerID):
-        return Event.event(Event.EventType.ELIMINATE, phase_id, None, target)
+    def eliminate(m : GameState, target:PlayerID):
+        return Event.event(Event.EventType.ELIMINATE, m, None, target)
 
-    def chargedie(phase_id:int, contracting:PlayerID, charge:PlayerID):
-        return Event.event(Event.EventType.CHARGEDIE, phase_id, contracting, charge)
+    def chargedie(m : GameState, contracting:PlayerID, charge:PlayerID):
+        return Event.event(Event.EventType.CHARGEDIE, m, contracting, charge)
 
-    def refocus(phase_id:int, contracting:PlayerID, new_charge:PlayerID):
-        return Event.event(Event.EventType.REFOCUS, phase_id, contracting, new_charge)
+    def refocus(m : GameState, contracting:PlayerID, new_charge:PlayerID):
+        return Event.event(Event.EventType.REFOCUS, m, contracting, new_charge)
 
     def start():
         # TODO: specific game data, rules, roles, players, etc?
