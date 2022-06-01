@@ -2,22 +2,91 @@
 import discord
 from discord.ext import commands
 
+import sqlite3
+
 import logging
 logging.basicConfig(level=logging.DEBUG)
 
 from .MafiaState import *
 from .MafiaEvent import *
 
-class MafiaBot(commands.Cog):
+CONTROLLER_CHAT = "controllerChat"
+
+def constructGameFname(guild:discord.Guild, lobby_id, game_no):
+    return f"{guild.id}/{lobby_id}/Game{game_no}.maf"
+
+class MafiaController:
+
+    def __init__(self, data_db, game_folder):
+        self.data_db = data_db
+        self.game_folder = game_folder
+
+    def retrieveGame(self, channel_id):
+        con = sqlite3.connect(self.data_db)
+        cur = con.cursor()
+        resp = cur.execute(
+            f"SELECT * FROM {CONTROLLER_CHAT} \
+                where chat-id = {channel_id}"
+        )
+        if len(resp) < 1:
+            raise ValueError(f"Couldn't find game for channel {channel_id}")
+        con.close()
+        return resp[0]
+        
+    
+    def getGame(self, ctx:commands.Context):
+        channel = ctx.channel
+        if isinstance(channel, discord.TextChannel):
+            lobby_id, game_no = self.retrieveGame(channel.id)
+            game_fname = constructGameFname(ctx.guild, lobby_id, game_no)
+            game = GameState.load(self.game_folder + game_fname)
+            )
+            return game, game_fname
+
+def getGuildAndChannel(ctx:commands.Context):
+    channel = ctx.channel
+    guild = ctx.guild
+    return guild, channel
+
+class MafiaBotLobby(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-    def found_lobby(self):
+        # TODO open current games
+        
+    # TODO: Add listener for member update state, to check games?
+    
+
+    @commands.command
+    def found_lobby(self, ctx):
         """Make this chat into a MafiaBot lobby.
         
         New games can be created from this chat.
         Does not work if this is a main chat or mafia chat"""
         pass
+
+    @commands.command
+    def start(self, ctx, mins = 5, nplayers = 0):
+        channel, guild = self.getGuildAndChannel(ctx)
+        
+        # TODO:
+        # Validate channel/guild
+        # Send start message, save ID
+        # Start timer for start...
+
+
+class MafiaBotMain(commands.Cog):
+    # TODO: How to find the game?
+    # Have a database with channel_id -> game/lobby stuff
+
+    def __init__(self, bot, ctrl:MafiaController):
+        self.bot = bot
+        self.ctrl:MafiaController = ctrl
+
+    @commands.command
+    def vote(self, ctx : commands.Context, votee : str):
+        if isinstance(ctx.channel, discord.TextChannel):
+            game = self.ctrl.getGame(ctx)
 
 
 def eliminate(m:GameState, p_id:PlayerID):

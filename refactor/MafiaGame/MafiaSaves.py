@@ -81,7 +81,7 @@ class MafiaEncodable:
                 o = MafiaDecoder().decode(fp.read())
         
         if not isinstance(o, cls):
-            raise TypeError(f"Loaded incorrect object, should be {c} but got {o.__class__}: {o} ")
+            raise TypeError(f"Loaded incorrect object, should be {cls} but got {o.__class__}: {o} ")
         return o
 
 class MafiaEnumEncodable(MafiaEncodable, enum.Enum):

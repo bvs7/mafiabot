@@ -106,3 +106,16 @@ Server generates actions from chat, opens state, modifies, then saves
 After stateless server operates, check other stuff.
 Events are generated at every turn, event handler sends events to a database
 
+Storage of current games:
+Guild
+|-Lobby
+| |-info.maflob
+| |-Game1.maf
+| |-Game2.maf
+|-DBs
+
+controllerChat:
+chat-id -> lobby-id  (game-number)
+
+Player-db: (not unique)
+player-id -> lobby-id, (game-number)
