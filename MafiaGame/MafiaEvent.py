@@ -33,7 +33,7 @@ class EventType(enum.Enum):
 
 class EventHandler:
     def __init__(self):
-        
+        pass
 
 
 class Event():

@@ -9,37 +9,60 @@ from .MafiaRules import *
 from .MafiaState import *
 
 class MafiaController:
+
+    def __init__(self):
+        pass
     
-    async def start(chat:ChatHandle, game_number:int,  
-                    role_list:List[Tuple[PlayerID,Role]], rules:RuleSet):
+    def start(self, chat:ChatHandle, game_number:int, role_list:List[Tuple[PlayerID,Role]], rules:RuleSet):
 
         players = set()
         for p_id,role in role_list:
             players.add(Player(p_id, role))
         return GameState(chat, game_number, players=players, rules=rules)
 
-    async def vote(m:GameState, voter:PlayerID, votee:PlayerID):
+    def vote(self, m:GameState, voter:PlayerID, votee:PlayerID):
         if not m.round.phase == Phase.DAY:
             raise MafiaFormatError("Can only vote during Day")
         m.round.votes[voter] = votee
+        thresh, count = self.check_vote_thresh(m, votee)
+        if count >= thresh:
+            self.to_night(m, votee)
 
-        thresh, count = MafiaController.check_vote_thresh(m, votee)
+    def target(self, m:GameState, actor:PlayerID, target:PlayerID):
+        actor_p = m.getPlayer(actor)
+        if not m.round.phase == Phase.NIGHT and actor_p.role.targeting:
+            raise MafiaFormatError("Targeting roles must target at NIGHT")
+        if not m.round.phase == Phase.DUSK and not m.round.idiot == actor:
+            raise MafiaFormatError("Only the revenge-seeking idiot can target at DUSK")
 
-        # Resp
-        
-        await MafiaController.check_to_night(m)
+        if m.round.phase == Phase.NIGHT:
+            m.round.targets[actor] = target
+            self.check_to_day(m)
+            return
+
+        if m.round.phase == Phase.DUSK:
+            if not target in m.round.voters:
+                raise MafiaFormatError("Revenge-seeking idiot must select a voter")
+            self.revent(m, actor, target)
+            return
+
+
+    def revenge(self, m:GameState, idiot:PlayerID, target:PlayerID):
+        logging.info(f"{idiot} gets revenge on {target}")
+        self.eliminate(target)
+        self.eliminate(idiot)
+        self.night()
 
     def eliminate(m:GameState, p_id:PlayerID):
         p = m.getPlayer(p_id)
         # TODO: Check for victory
-        # logging.info(f"{p_id} died")
-        phase_id = Event.getPhaseID(m.lobby_chat, m.game_number, m.round.day, m.round.phase)
+        logging.info(f"{p_id} died")
 
         m.players.remove(p)
 
         MafiaController.check_win(m)
 
-    def check_win(m:GameState):
+    def check_win(self, m:GameState):
         n = len(m.players)
         n_town = 0
         n_maf = 0
@@ -111,10 +134,10 @@ class MafiaController:
             return True
         return False
 
-    def to_night(m : GameState, votee : PlayerID):
+    def elect(self, m : GameState, votee : PlayerID):
         logging.info(f"Election")
 
-        if votee == Player.NOTARGET:
+        if votee == PlayerID.NOTARGET:
             logging.info("Nobody elected")
         else:
             logging.info(f"{votee} elected")
@@ -123,10 +146,12 @@ class MafiaController:
             except GameEndException as ge:
                 logging.info(f"Winner: {ge.winner}")
                 return
-
+        self.night(m)
+    
+    def night(self, m):
         m.round.phase = Phase.NIGHT
 
-    def check_vote_thresh(m : GameState, target : PlayerID):
+    def check_vote_thresh(self, m : GameState, target : PlayerID):
         if m.round.phase != Phase.DAY:
             raise TypeError(f"Cannot check_to_day if not Phase.DAY: {m.round.phase}")
         

@@ -278,11 +278,11 @@ class GameState(MafiaEncodable):
         lobby_chat=None, game_number=None, main_chat=None, mafia_chat=None,
         players=None, round=None, rules=None):
 
-        self.lobby_chat : ChatHandle = lobby_chat
+        self.lobby_chat : ChatHandle = lobby_chat if isinstance(lobby_chat, ChatHandle) else ChatHandle(lobby_chat)
         self.game_number : Optional[int] = game_number
 
-        self.main_chat : ChatHandle = main_chat
-        self.mafia_chat : ChatHandle = mafia_chat
+        self.main_chat : ChatHandle = main_chat if isinstance(main_chat, ChatHandle) else ChatHandle(main_chat)
+        self.mafia_chat : ChatHandle = mafia_chat if isinstance(mafia_chat, ChatHandle) else ChatHandle(mafia_chat)
         
         self.players : Set[Player] = set() if players == None else players
 
@@ -313,9 +313,6 @@ class GameState(MafiaEncodable):
         d["players"] = set([Player.from_dict(pd) for pd in d["players"]])
         d["round"] = Round.from_dict(d["round"])
         d["rules"] = RuleSet.from_dict(d["rules"])
-        d["lobby_chat"] = ChatHandle.from_dict(d["lobby_chat"])
-        d["main_chat"] = ChatHandle.from_dict(d["main_chat"])
-        d["mafia_chat"] = ChatHandle.from_dict(d["mafia_chat"])
         return super().from_dict(d)
 
 class GameEndException(Exception):

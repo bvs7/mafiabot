@@ -26,6 +26,59 @@ def mafia_game():
 
     return m
 
+def test_vote(mafia_game : GameState):
+    m = GameState.load("test/test_data/vote1_1.maf")
+
+    ctrl = MafiaController()
+
+    ctrl.vote(m,2,1)
+    ctrl.vote(m,3,1)
+    ctrl.vote(m,4,1)
+
+    assert m.round.phase == Phase.DAY
+
+    ctrl.vote(m,4,PlayerID.NOTARGET)
+    ctrl.vote(m,3,PlayerID.NOTARGET)
+    ctrl.vote(m,2,PlayerID.NOTARGET)
+
+    assert m.round.phase == Phase.DAY
+
+    ctrl.vote(m, 1, PlayerID.NOTARGET)
+
+    assert m.round.phase == Phase.NIGHT
+
+    m.round.set_phase(Phase.DAY)
+
+    assert m.round.phase == Phase.DAY
+
+    ctrl.vote(m,2,1)
+    ctrl.vote(m,3,1)
+    ctrl.vote(m,4,1)
+    ctrl.vote(m,5,1)
+
+    assert m.round.phase == Phase.NIGHT
+    assert not 1 in m.players
+
+    m.round.set_phase(Phase.DAY)
+
+    ctrl.vote(m,4,PlayerID.NOTARGET)
+    ctrl.vote(m,3,PlayerID.NOTARGET)
+    ctrl.vote(m,2,PlayerID.NOTARGET)
+
+    assert m.round.phase == Phase.NIGHT
+
+    m.round.set_phase(Phase.DAY)
+
+    ctrl.vote(m,2,5)
+    ctrl.vote(m,3,5)
+    ctrl.vote(m,4,5)
+
+    assert m.round.phase == Phase.DAY
+
+    ctrl.vote(m,6,5)
+    
+    assert m.round.phase == Phase.NIGHT
+
 def test_rules():
     assert StartNight.default == StartNight.EVEN
     assert SavePublic.default == SavePublic.ANON
