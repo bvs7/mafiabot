@@ -29,7 +29,7 @@ def mafia_game():
 def test_vote(mafia_game : GameState):
     m = GameState.load("test/test_data/vote1_1.maf")
 
-    ctrl = MafiaController()
+    ctrl = MafiaController(handler=PrintEventHandler())
 
     ctrl.vote(m,2,1)
     ctrl.vote(m,3,1)
@@ -78,6 +78,78 @@ def test_vote(mafia_game : GameState):
     ctrl.vote(m,6,5)
     
     assert m.round.phase == Phase.NIGHT
+
+def test_target():
+    m = GameState.load("test/test_data/target1_1.maf")
+
+    th = QueueTestEventHandler(handler_on_empty=PrintEventHandler())
+
+    ctrl = MafiaController(handler=th)
+
+    ctrl.target(m, 2, 1)
+    ctrl.target(m, 3, 1)
+    ctrl.target(m, 4, 1)
+    ctrl.target(m, 5, 1)
+
+    assert m.round.phase == Phase.NIGHT
+
+    th.queue(Event.MAFIA_TARGET)
+    th.queue(Event.STUN)
+
+    ctrl.mafia_target(m, 6, 1)
+
+    assert m.round.phase == Phase.DAY
+    assert len(m.players) == 7
+
+    m.round.phase = Phase.NIGHT
+
+    ctrl.mafia_target(m, 6, 1)
+
+    ctrl.target(m, 3, 1)
+    ctrl.target(m, 4, 1)
+    ctrl.target(m, 5, 3)
+    ctrl.target(m, 2, 1)
+
+    assert m.round.phase == Phase.DAY
+    assert len(m.players) == 6
+
+    m.round.phase = Phase.NIGHT
+
+    ctrl.mafia_target(m, 6, 3)
+
+    ctrl.target(m, 3, 3)
+    ctrl.target(m, 4, 2)
+    ctrl.target(m, 5, 2)
+    ctrl.target(m, 2, 5)
+
+    assert m.round.phase == Phase.DAY
+    assert len(m.players) == 6
+
+    m.round.phase = Phase.NIGHT
+
+    ctrl.mafia_target(m, 6, 3)
+
+    ctrl.target(m, 3, 2)
+    ctrl.target(m, 4, 2)
+    ctrl.target(m, 5, 2)
+    ctrl.target(m, 2, 5)
+
+    assert m.round.phase == Phase.DAY
+    assert len(m.players) == 5
+
+    m.round.phase = Phase.NIGHT
+
+    ctrl.mafia_target(m, 6, 2)
+
+    ctrl.target(m, 4, 2)
+    ctrl.target(m, 5, 2)
+
+    try:
+        ctrl.target(m, 2, 5)
+    except GameEndException:
+        pass
+
+    assert m.round.phase == Phase.END
 
 def test_rules():
     assert StartNight.default == StartNight.EVEN

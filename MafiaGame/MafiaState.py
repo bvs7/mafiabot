@@ -77,24 +77,19 @@ class PlayerID(int):
     
     def __new__(cls, *args, **kwargs):
         if len(args) >= 1 and args[0] == None:
-            return PlayerID.NONE
+            return None
         return super().__new__(cls, *args, **kwargs)
 
     @classmethod
     @property
     def NOTARGET(cls):
-        return cls(-1)
-    
-    @classmethod
-    @property
-    def NONE(cls):
         return cls(0)
 
 class Player(MafiaEncodable):
     
     def __init__(self, id:PlayerID, role:Role = Role.TOWN, charge = None):
         self.id = PlayerID(id)
-        assert self.id not in [PlayerID.NOTARGET, PlayerID.NONE]
+        assert self.id not in [None, PlayerID.NOTARGET]
         if isinstance(role, list) or isinstance(role, tuple):
             role, charge = role
         self.role = role, PlayerID(charge)
@@ -236,8 +231,8 @@ class Round(MafiaEncodable):
         return self._phase
 
     @phase.setter
-    def phase(self, new_phase, **kwargs):
-        self.set_phase(new_phase, **kwargs)
+    def phase(self, new_phase):
+        self.set_phase(new_phase)
 
     def __repr__(self):
         r = f"{self.__class__.__name__}:{self.phase} {self.day} @({self.start})"
@@ -297,6 +292,9 @@ class GameState(MafiaEncodable):
         return ps[0]
 
     def __repr__(self):
+        return f"<{self.__class__.__name__}:{self.game_number}>"
+
+    def __str__(self):
         return (f"<{self.__class__.__name__}:{self.game_number} lobby-{self.lobby_chat},"
                 f" main-{self.main_chat}, mafia-{self.mafia_chat}\n"
                 f"  Round:   {self.round}\n"
@@ -321,4 +319,4 @@ class GameEndException(Exception):
         self.winner = winner
         super().__init__(*args, **kwargs)
 
-        m.round.phase = (Phase.END, winner)
+        m.round.set_phase(Phase.END, winner=winner)
