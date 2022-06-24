@@ -36,6 +36,7 @@ class EventHandler:
     def handle(s, event:Event, *args, **kwargs):
         if hasattr(s, event.name):
             fn = getattr(s, event.name)
+            del kwargs["self"]
             fn(*args, **kwargs)
         else:
             raise NotImplementedError

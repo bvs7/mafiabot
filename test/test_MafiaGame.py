@@ -29,7 +29,13 @@ def mafia_game():
 def test_vote(mafia_game : GameState):
     m = GameState.load("test/test_data/vote1_1.maf")
 
-    ctrl = MafiaController(handler=PrintEventHandler())
+    assert len(m.players) == 7
+
+    th = QueueTestEventHandler(handler_on_empty=PrintEventHandler())
+    ctrl = MafiaController(handler=th)
+
+    th.queue(Event.VOTE)
+    th.queue(Event.VOTE, {"voter":3, "votee":1, "thresh":4, "count":2})
 
     ctrl.vote(m,2,1)
     ctrl.vote(m,3,1)
@@ -202,4 +208,8 @@ def test_save_game(mafia_game : GameState):
     assert t2 != Team.Rogue
 
 
+def test_discordResponse(mafia_game:GameState):
 
+    ctrl = MafiaController(handler = DiscordResponse(TestBot()))
+
+    ctrl.vote(mafia_game, 2,1)

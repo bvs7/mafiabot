@@ -6,3 +6,4 @@ from .MafiaEvent import *
 from .MafiaRoleGen import *
 from .MafiaLobby import *
 from .MafiaController import *
+from .MafiaDiscordResponse import *
