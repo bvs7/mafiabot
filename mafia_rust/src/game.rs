@@ -25,6 +25,7 @@ mod error {
 }
 
 mod interface {
+    use serde::{Deserialize, Serialize};
     use std::fmt::Debug;
 
     use super::game::{Actor, Ballot, Phase, Pidx, Player, RawPID, Target};
@@ -89,8 +90,9 @@ mod interface {
 
 mod role {
     use super::game::RawPID;
+    use serde::{Deserialize, Serialize};
 
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize /*Deserialize*/)]
     pub enum Role<U: RawPID> {
         TOWN,
         COP,
@@ -108,7 +110,7 @@ mod role {
         AGENT(U),
     }
 
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize /*Deserialize*/)]
     pub enum Team {
         Town,
         Mafia,
@@ -141,6 +143,7 @@ mod role {
 }
 
 mod game {
+    use serde::{Deserialize, Serialize};
     use std::fmt::{Debug, Display};
     use std::{
         sync::mpsc::{Receiver, Sender},
@@ -155,25 +158,25 @@ mod game {
         role::Team,
     };
 
-    pub trait RawPID: Debug + Display + Clone + Copy + PartialEq + Eq + Send {}
+    pub trait RawPID: Debug + Display + Clone + Copy + PartialEq + Eq + Send + Serialize {}
 
     pub type Pidx = usize;
     impl RawPID for Pidx {}
 
-    #[derive(Debug, Clone, PartialEq, Eq)]
+    #[derive(Debug, Clone, PartialEq, Eq, Serialize /*Deserialize*/)]
     pub struct Player<U: RawPID> {
         pub raw_pid: U,
         pub name: String,
         pub role: Role<U>,
     }
 
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize /*Deserialize*/)]
     pub enum Winner {
         Team(Team),
         Player(Pidx),
     }
 
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize /*Deserialize*/)]
     pub enum Ballot<U: RawPID> {
         Player(U),
         Abstain,
@@ -188,7 +191,7 @@ mod game {
         }
     }
 
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize /*Deserialize*/)]
     pub enum Actor<U: RawPID> {
         Player(U),
         Mafia(U),
@@ -223,7 +226,7 @@ mod game {
         }
     }
 
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize /*Deserialize*/)]
     pub enum Target<U: RawPID> {
         Player(U),
         NoTarget,
@@ -233,19 +236,27 @@ mod game {
     pub type Votes = Vec<(Pidx, Ballot<Pidx>)>;
     pub type Actions = Vec<(Actor<Pidx>, Target<Pidx>)>;
 
-    #[derive(Debug, Clone, PartialEq, Eq)]
+    #[derive(Debug, Clone, PartialEq, Eq, Serialize /*Deserialize*/)]
     pub enum Phase {
         Init,
-        Day(usize, Votes),
-        Night(usize, Actions),
+        Day {
+            day_no: usize,
+            #[serde(skip)]
+            votes: Votes,
+        },
+        Night {
+            night_no: usize,
+            #[serde(skip)]
+            actions: Actions,
+        },
         End(Winner),
     }
 
     impl Phase {
         pub fn clear(&mut self) {
             match self {
-                Phase::Day(_, votes) => votes.clear(),
-                Phase::Night(_, actions) => actions.clear(),
+                Phase::Day { votes, .. } => votes.clear(),
+                Phase::Night { actions, .. } => actions.clear(),
                 _ => {}
             }
         }
@@ -254,6 +265,7 @@ mod game {
     // Want to ensure players can't be modified without clearing phase...
     type Players<U> = Vec<Player<U>>;
 
+    #[derive(Debug, Clone, Serialize /*Deserialize*/)]
     pub struct Game<U: RawPID, S: Source> {
         players: Players<U>,
         phase: Phase,
@@ -317,14 +329,13 @@ mod game {
             rx: Receiver<Request<U, S>>,
             tx: Sender<Response<U, S>>,
         ) -> JoinHandle<()> {
-            // Set phase to start phase
-            self.phase = Phase::Day(1, Vec::new());
             // Start game thread
             thread::spawn(move || self.game_thread(rx, tx))
         }
     }
     impl<U: RawPID, S: Source> Game<U, S> {
         fn game_thread(&mut self, rx: Receiver<Request<U, S>>, tx: Sender<Response<U, S>>) {
+            Self::next_phase(&mut self.players, &mut self.phase, &tx, &S::default());
             tx.send(Response {
                 event: Event::Start {
                     players: self.players.clone(),
@@ -335,8 +346,12 @@ mod game {
             .unwrap();
 
             loop {
+                println!("Serialize: {}", serde_json::to_string(&self).unwrap());
                 match &mut self.phase {
-                    Phase::Day(day_no, ref mut votes) => {
+                    Phase::Day {
+                        day_no,
+                        ref mut votes,
+                    } => {
                         if let Ok(Request {
                             cmd: Command::Vote(raw_voter, raw_ballot),
                             src,
@@ -366,7 +381,10 @@ mod game {
                         }
                     }
 
-                    Phase::Night(night_no, ref mut actions) => {
+                    Phase::Night {
+                        night_no,
+                        ref mut actions,
+                    } => {
                         if let Ok(Request {
                             cmd: Command::Action(raw_actor, raw_target),
                             src,
@@ -716,26 +734,55 @@ mod game {
             src: &S,
         ) {
             match phase {
-                Phase::Day(day_no, _) => {
-                    println!("Day {} ends", day_no);
-                    *phase = Phase::Night(*day_no, Vec::new());
-                    tx.send(Response {
-                        event: Event::Night,
-                        src: src.clone(),
-                    })
-                    .unwrap();
+                Phase::Init => {
+                    // TODO: set phase based on rules
+                    *phase = Phase::Day {
+                        day_no: 1,
+                        votes: Vec::new(),
+                    };
                 }
-                Phase::Night(night_no, _) => {
+                Phase::Day { day_no, .. } => {
+                    println!("Day {} ends", day_no);
+                    *phase = Phase::Night {
+                        night_no: *day_no,
+                        actions: Vec::new(),
+                    };
+                }
+                Phase::Night { night_no, .. } => {
                     println!("Night {} ends", night_no);
-                    *phase = Phase::Day(*night_no + 1, Vec::new());
+                    *phase = Phase::Day {
+                        day_no: *night_no + 1,
+                        votes: Vec::new(),
+                    };
+                }
+                _ => {}
+            };
+            match phase {
+                Phase::Day { .. } => {
                     tx.send(Response {
                         event: Event::Day,
                         src: src.clone(),
                     })
                     .unwrap();
                 }
-                _ => {}
-            }
+                Phase::Night { .. } => {
+                    tx.send(Response {
+                        event: Event::Night,
+                        src: src.clone(),
+                    })
+                    .unwrap();
+                }
+                Phase::End(_) => {
+                    tx.send(Response {
+                        event: Event::End,
+                        src: src.clone(),
+                    })
+                    .unwrap();
+                }
+                Phase::Init => {
+                    panic!("Shouldn't ever next phase into Init")
+                }
+            };
         }
 
         fn check_win(players: &Players<U>, tx: &Sender<Response<U, S>>, src: &S) -> Option<Team> {
@@ -809,19 +856,18 @@ mod game {
         }
     }
 }
+
 mod test {
+    use super::error::*;
+    use super::game::*;
+    use super::interface::*;
+    use super::role::*;
+    use std::sync::mpsc;
+    use std::thread;
+    use std::time::Duration;
 
     #[test]
     fn minimal() {
-        use super::error::*;
-        use super::game::*;
-        use super::interface::*;
-        use super::role::*;
-
-        use std::sync::mpsc;
-        use std::thread;
-        use std::time::Duration;
-
         impl RawPID for u64 {}
         impl Source for String {}
 
@@ -847,7 +893,6 @@ mod test {
         let (tx, recv_event) = mpsc::channel::<Response<u64, String>>();
         let game = Game::new(players);
         let g: thread::JoinHandle<()> = game.start(rx, tx);
-
         send_cmd
             .send(Request {
                 src: "vote1".to_string(),
@@ -866,96 +911,116 @@ mod test {
         thread::sleep(Duration::from_millis(200));
 
         assert!(g.is_finished());
-
-        // Look at events
-        let mut response_iter = recv_event.try_iter();
-
-        response_iter.for_each(|r| {
-            println!("{:#?}", r);
-        });
-
-        // let event = response_iter.next();
-        // match event {
-        //     Some(Response {
-        //         event:
-        //             Event::Start {
-        //                 phase: Phase::Day(1, _),
-        //                 ..
-        //             },
-        //         ..
-        //     }) => {
-        //         dbg!(event);
-        //     }
-        //     _ => {
-        //         assert!(false, "Unexpected event: {:?}", event);
-        //     }
-        // }
-
-        // let event = response_iter.next();
-        // match event {
-        //     Some(Response {
-        //         event:
-        //             Event::Vote {
-        //                 voter: 0,
-        //                 ballot: Some(Ballot::Player(2)),
-        //                 former: None,
-        //                 threshold: 2,
-        //                 count: 1,
-        //             },
-        //         ..
-        //     }) => {
-        //         dbg!(event);
-        //     }
-        //     _ => {
-        //         assert!(false, "Unexpected event: {:?}", event);
-        //     }
-        // }
-        // let event = response_iter.next();
-        // match event {
-        //     Some(Response {
-        //         event:
-        //             Event::Vote {
-        //                 voter: 1,
-        //                 ballot: Some(Ballot::Player(2)),
-        //                 former: None,
-        //                 threshold: 2,
-        //                 count: 2,
-        //             },
-        //         ..
-        //     }) => {
-        //         dbg!(event);
-        //     }
-        //     _ => {
-        //         assert!(false, "Unexpected event: {:?}", event);
-        //     }
-        // }
-        // let event = response_iter.next();
-        // match event {
-        //     Some(Response {
-        //         event:
-        //             Event::Elect {
-        //                 ballot: Ballot::Player(2),
-        //                 ..
-        //             },
-        //         ..
-        //     }) => {
-        //         dbg!(event);
-        //     }
-        //     _ => {
-        //         assert!(false, "Unexpected event: {:?}", event);
-        //     }
-        // }
-        // let event = response_iter.next();
-        // match event {
-        //     Some(Response {
-        //         event: Event::Eliminate { .. },
-        //         ..
-        //     }) => {
-        //         dbg!(event);
-        //     }
-        //     _ => {
-        //         assert!(false, "Unexpected event: {:?}", event);
-        //     }
-        // }
     }
 }
+// send_cmd
+//     .send(Request {
+//         src: "vote1".to_string(),
+//         cmd: Command::Vote(1u64, Some(Ballot::Player(3u64))),
+//     })
+//     .unwrap();
+
+// send_cmd
+//     .send(Request {
+//         src: "vote2".to_string(),
+//         cmd: Command::Vote(2u64, Some(Ballot::Player(3u64))),
+//     })
+//     .unwrap();
+
+// // sleep .5 seconds
+// thread::sleep(Duration::from_millis(200));
+
+// assert!(g.is_finished());
+
+//         // Look at events
+//         let mut response_iter = recv_event.try_iter();
+
+//         response_iter.for_each(|r| {
+//             println!("{:#?}", r);
+//         });
+
+//         // let event = response_iter.next();
+//         // match event {
+//         //     Some(Response {
+//         //         event:
+//         //             Event::Start {
+//         //                 phase: Phase::Day(1, _),
+//         //                 ..
+//         //             },
+//         //         ..
+//         //     }) => {
+//         //         dbg!(event);
+//         //     }
+//         //     _ => {
+//         //         assert!(false, "Unexpected event: {:?}", event);
+//         //     }
+//         // }
+
+//         // let event = response_iter.next();
+//         // match event {
+//         //     Some(Response {
+//         //         event:
+//         //             Event::Vote {
+//         //                 voter: 0,
+//         //                 ballot: Some(Ballot::Player(2)),
+//         //                 former: None,
+//         //                 threshold: 2,
+//         //                 count: 1,
+//         //             },
+//         //         ..
+//         //     }) => {
+//         //         dbg!(event);
+//         //     }
+//         //     _ => {
+//         //         assert!(false, "Unexpected event: {:?}", event);
+//         //     }
+//         // }
+//         // let event = response_iter.next();
+//         // match event {
+//         //     Some(Response {
+//         //         event:
+//         //             Event::Vote {
+//         //                 voter: 1,
+//         //                 ballot: Some(Ballot::Player(2)),
+//         //                 former: None,
+//         //                 threshold: 2,
+//         //                 count: 2,
+//         //             },
+//         //         ..
+//         //     }) => {
+//         //         dbg!(event);
+//         //     }
+//         //     _ => {
+//         //         assert!(false, "Unexpected event: {:?}", event);
+//         //     }
+//         // }
+//         // let event = response_iter.next();
+//         // match event {
+//         //     Some(Response {
+//         //         event:
+//         //             Event::Elect {
+//         //                 ballot: Ballot::Player(2),
+//         //                 ..
+//         //             },
+//         //         ..
+//         //     }) => {
+//         //         dbg!(event);
+//         //     }
+//         //     _ => {
+//         //         assert!(false, "Unexpected event: {:?}", event);
+//         //     }
+//         // }
+//         // let event = response_iter.next();
+//         // match event {
+//         //     Some(Response {
+//         //         event: Event::Eliminate { .. },
+//         //         ..
+//         //     }) => {
+//         //         dbg!(event);
+//         //     }
+//         //     _ => {
+//         //         assert!(false, "Unexpected event: {:?}", event);
+//         //     }
+//         // }
+//     }
+// }
