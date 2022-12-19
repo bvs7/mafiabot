@@ -10,6 +10,16 @@ Right now, because we can have different types of game states based on the curre
 
 ## Solutions
 
+Overview:
+
+- Look up the phase at the beginning of every helper fn.
+- Implement handle_day in Day struct. Pass in mutable players. Return type determines next phase.
+    - No access to other game fields (rx,tx). Need to pass those in...
+- Local votes/actions
+    - No clear way to save votes/actions?
+- Figure out std::cell?
+    - Very hard to serialize...
+
 ### Raise the enum to the full Game
 
 ```rust
@@ -335,3 +345,25 @@ Disadvantages:
 
 ### Impl in Phase
 
+```rust
+impl Day {
+    pub fn handle_day<U: RawPID>(
+        &mut self,
+        players: &mut Players<U>,
+        cmd: Command<U>,
+    ) -> (Phase, Vec<Event<U>>) {
+        //let cmd = self.rx.recv().unwrap();
+
+        return (
+            Phase::Night(Night {
+                night_no: self.day_no + 1,
+                actions: Vec::new(),
+            }),
+            Vec::new(),
+        );
+    }
+}
+```
+- pass mutable players into sub?
+
+This doesn't work...
