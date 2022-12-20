@@ -228,6 +228,11 @@ mod game {
         Abstain,
     }
 
+    pub struct Election {
+        electors: Vec<Pidx>,
+        candidate: Pidx,
+    }
+
     impl<U: RawPID> Display for Ballot<U> {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
             match self {
@@ -306,6 +311,18 @@ mod game {
                 _ => {}
             }
         }
+        pub fn new_day(day_no: usize) -> Self {
+            Self::Day {
+                day_no,
+                votes: Vec::new(),
+            }
+        }
+        pub fn new_night(night_no: usize) -> Self {
+            Self::Night {
+                night_no,
+                actions: Vec::new(),
+            }
+        }
     }
 
     // Want to ensure players can't be modified without clearing phase...
@@ -375,18 +392,107 @@ mod game {
         }
     }
     impl<U: RawPID + 'static, S: 'static + Source> Game<U, S> {
-        pub fn start(mut self) -> JoinHandle<()> {
+        pub fn start(mut self) -> Result<JoinHandle<()>, ()> {
+            let even = self.players.len() % 2 == 0;
+            match self.phase {
+                Phase::Init if !even => self.phase = Phase::new_day(1),
+                Phase::Init if even => self.phase = Phase::new_night(1),
+                _ => return Err(()),
+            };
             // Start game thread
-            thread::spawn(move || self.game_thread())
+            Ok(thread::spawn(move || self.game_thread()))
         }
     }
 
     impl<U: RawPID, S: Source> Game<U, S> {
         fn redo_game_thread(&mut self) {
-            // Leave init phase to start phase
+            let players = &mut self.players;
+            let comm = &mut self.comm;
+            loop {
+                match self.phase {
+                    Phase::Init => {}
+                    Phase::Day { day_no, votes } => match self.comm.rx() {
+                        Command::Vote(v, b) => {
+                            let (voter, ballot) = match Self::_validate_vote(players, v, b, comm) {
+                                Ok((voter, ballot)) => (voter, ballot),
+                                Err(e) => {
+                                    self.comm.tx(Event::InvalidCommand);
+                                    continue;
+                                }
+                            };
+                            if let Some(election) =
+                                Self::_accept_vote(&mut votes, voter, ballot, comm)
+                            {
+                                Self::_resolve_election(players, &mut self.phase, election, comm);
+                            }
+                        }
+                        _ => {
+                            self.comm.tx(Event::InvalidCommand);
+                            continue;
+                        }
+                    },
+                    Phase::Night { night_no, actions } => {}
+                    Phase::End(winner) => {}
+                }
+            }
+        }
+
+        fn handle_day(players: &mut Players<U>, votes: &mut Votes, comm: &mut Comm<U, S>) {
+            // Validate command
+            let cmd = comm.rx();
+            match cmd {
+                Command::Vote(raw_voter, raw_ballot) => {
+                    let election = match Self::_validate_vote(players, raw_voter, raw_ballot, comm)
+                    {
+                        Err(e) => {
+                            comm.tx(Event::InvalidCommand);
+                            None
+                        }
+                        Ok((voter, ballot)) => Self::_accept_vote(votes, voter, ballot, comm),
+                    };
+                    if let Some(election) = election {
+                        Self::_resolve_election(players, &mut self.phase, election, comm);
+                    }
+                }
+                _ => {}
+            }
+
+            // Handle command
+
+            None
+        }
+
+        // SKELETON, IMPLEMENT!
+        fn _validate_vote(
+            players: &mut Players<U>,
+            raw_voter: U,
+            raw_ballot: Option<Ballot<U>>,
+            comm: &mut Comm<U, S>,
+        ) -> Result<(Pidx, Pidx), ValidationErr> {
+            Err(ValidationErr {
+                msg: "".to_string(),
+            })
+        }
+
+        // SKELETON, IMPLEMENT!
+        fn _accept_vote(
+            votes: &mut Votes,
+            voter: Pidx,
+            ballot: Pidx,
+            comm: &mut Comm<U, S>,
+        ) -> Option<Election> {
+            None
+        }
+
+        // SKELETON, IMPLEMENT!
+        fn _resolve_election(
+            players: &mut Players<U>,
+            phase: &mut Phase,
+            election: Election,
+            comm: &mut Comm<U, S>,
+        ) {
         }
     }
-
     impl<U: RawPID, S: Source> Game<U, S> {
         fn game_thread(&mut self) {
             Self::next_phase(&mut self.players, &mut self.phase, &self.comm);
