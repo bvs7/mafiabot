@@ -1,4 +1,3 @@
-
 use serde::{Deserialize, Serialize};
 use std::fmt::{Debug, Display};
 
@@ -61,6 +60,16 @@ pub struct Player<U: RawPID> {
     pub raw_pid: U,
     pub name: String,
     pub role: Role<U>,
+}
+
+impl<U: RawPID> Player<U> {
+    pub fn new(raw_pid: U, name: &str, role: Role<U>) -> Self {
+        Self {
+            raw_pid,
+            name: name.to_string(),
+            role,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize /*Deserialize*/)]

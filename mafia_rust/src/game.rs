@@ -2,6 +2,8 @@ pub mod player;
 
 pub mod comm;
 
+mod test;
+
 use serde::{Deserialize, Serialize};
 use std::fmt::{Debug, Display};
 use std::sync::mpsc::{Receiver, Sender};
@@ -120,7 +122,7 @@ impl<U: RawPID, S: Source> Game<U, S> {
                 Phase::Night { .. } => self.handle_night(),
                 Phase::End(_) => {}
             }
-            serde__json::to_file("game.json", self).unwrap();
+            println!("{}", serde_json::to_string_pretty(&self).unwrap());
         }
     }
 
@@ -253,6 +255,15 @@ impl<U: RawPID, S: Source> Game<U, S> {
         let actor = match a {
             Actor::Player(raw_pid) => Actor::Player(self.check_player(&raw_pid)?),
             Actor::Mafia(raw_pid) => Actor::Mafia(self.check_player(&raw_pid)?),
+        };
+        match actor {
+            Actor::Player(p) if !self.players[p].role.has_night_action() => {
+                return Err("Player does not have a night action".to_string());
+            }
+            Actor::Mafia(p) if self.players[p].role.team() != Team::Mafia => {
+                return Err("Only Mafia Players can kill at ngiht".to_string());
+            }
+            _ => {}
         };
         let target = match t {
             Target::Player(raw_pid) => Target::Player(self.check_player(&raw_pid)?),
