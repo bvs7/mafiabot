@@ -19,6 +19,9 @@ Overview:
     - No clear way to save votes/actions?
 - Figure out std::cell?
     - Very hard to serialize...
+- Pass everything in.
+    - Players + Interface
+
 
 ### Raise the enum to the full Game
 
