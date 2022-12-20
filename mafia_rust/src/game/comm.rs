@@ -4,7 +4,7 @@ use std::{
     sync::mpsc::{Receiver, Sender},
 };
 
-use super::player::{Actor, Ballot, Pidx, Player, RawPID, Target, Winner};
+use super::player::{Actor, Ballot, Election, Pidx, Player, RawPID, Role, Target, Winner};
 use super::Phase;
 
 // Eventually this will require a way to respond?
@@ -40,24 +40,42 @@ pub enum Event<U: RawPID> {
     Day,
     Vote {
         voter: Pidx,
-        ballot: Option<Ballot<Pidx>>,
+        ballot: Ballot<Pidx>,
         former: Option<Ballot<Pidx>>,
         threshold: usize,
         count: usize,
     },
-    Elect {
-        ballot: Ballot<Pidx>,
+    RetractVote {
+        voter: Pidx,
+        former: Option<Ballot<Pidx>>,
+    },
+    Election {
+        election: Election,
     },
     Night,
     Action {
         actor: Actor<Pidx>,
-        target: Option<Target<Pidx>>,
+        target: Target<Pidx>,
     },
     Dawn,
-    Strip,
-    Save,
-    Investigate,
-    Kill,
+    Strip {
+        stripper: Pidx,
+        stripped: Pidx,
+    },
+    Save {
+        doctor: Pidx,
+        saved: Pidx,
+    },
+    Investigate {
+        cop: Pidx,
+        suspect: Pidx,
+        role: Role<U>,
+    },
+    Kill {
+        killer: Pidx,
+        victim: Pidx,
+    },
+    NoKill,
     Eliminate {
         player: Pidx,
     },
@@ -87,7 +105,7 @@ impl<U: RawPID, S: Source> Comm<U, S> {
             let req = self.rx.recv();
             match req {
                 Err(err) => {
-                    println!("Error: {:?}", err);
+                    println!("Recv Error in Comm!: {:?}", err);
                     continue;
                 }
                 Ok(req) => {
@@ -98,7 +116,7 @@ impl<U: RawPID, S: Source> Comm<U, S> {
         }
     }
     pub fn tx(&self, event: Event<U>) {
-        println!("Sending event: {:?}", event);
+        //println!("Sending event: {:?}", event);
         let resp = Response {
             event,
             src: self.src.clone(),

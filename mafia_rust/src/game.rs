@@ -6,6 +6,8 @@ mod test;
 
 use serde::{Deserialize, Serialize};
 use std::fmt::{Debug, Display};
+use std::fs::File;
+use std::io::prelude::*;
 use std::sync::mpsc::{Receiver, Sender};
 use std::thread::{self, JoinHandle};
 
@@ -108,6 +110,10 @@ impl<U: RawPID + 'static, S: 'static + Source> Game<U, S> {
             Phase::Init if even => self.phase = Phase::new_night(1),
             _ => return Err(()),
         };
+        self.comm.tx(Event::Start {
+            players: self.players.clone(),
+            phase: self.phase.clone(),
+        });
         // Start game thread
         Ok(thread::spawn(move || self.game_thread()))
     }
@@ -122,7 +128,8 @@ impl<U: RawPID, S: Source> Game<U, S> {
                 Phase::Night { .. } => self.handle_night(),
                 Phase::End(_) => {}
             }
-            println!("{}", serde_json::to_string_pretty(&self).unwrap());
+            let mut f = File::create("game.json").unwrap();
+            serde_json::to_writer_pretty(&mut f, &self).unwrap();
         }
     }
 
@@ -176,7 +183,7 @@ impl<U: RawPID, S: Source> Game<U, S> {
         match ballot {
             Ballot::Player(_) | Ballot::Abstain => votes.push((voter, ballot)),
             Ballot::Retract => {
-                // EVENT RETRACT VOTE
+                self.comm.tx(Event::RetractVote { voter, former });
                 return None;
             }
         }
@@ -193,7 +200,15 @@ impl<U: RawPID, S: Source> Game<U, S> {
             .map(|(v, _)| *v)
             .collect::<Vec<_>>();
         let count = electors.len();
-        // EVENT VOTE
+
+        self.comm.tx(Event::Vote {
+            voter,
+            ballot,
+            former,
+            count,
+            threshold,
+        });
+
         if count >= threshold {
             Some(Election { electors, ballot })
         } else {
@@ -205,16 +220,16 @@ impl<U: RawPID, S: Source> Game<U, S> {
             Phase::Day { day_no, .. } => day_no,
             _ => return,
         };
-        // EVENT ELECTION
+        self.comm.tx(Event::Election {
+            election: election.clone(),
+        });
         match election.ballot {
             Ballot::Player(p) => {
                 if let Some(winner) = self.eliminate(&p) {
                     return;
                 }
             }
-            _ => {
-                // EVENT NO-ELIMINATION
-            }
+            _ => {}
         }
         self.phase = Phase::new_night(day_no + 1);
     }
@@ -290,7 +305,7 @@ impl<U: RawPID, S: Source> Game<U, S> {
             .position(|(a, _)| a.overlaps(&actor))
             .map(|i| actions.remove(i));
 
-        // EVENT ACTION
+        self.comm.tx(Event::Action { actor, target });
         actions.push((actor, target));
 
         let actor_count = self
@@ -303,7 +318,7 @@ impl<U: RawPID, S: Source> Game<U, S> {
     }
 
     fn resolve_dawn(&mut self) {
-        // EVENT DAWN
+        self.comm.tx(Event::Dawn);
         // Strip
         let (night_no, actions) = match &mut self.phase {
             Phase::Night { night_no, actions } => (*night_no, actions),
@@ -326,50 +341,76 @@ impl<U: RawPID, S: Source> Game<U, S> {
             .iter()
             .enumerate()
             .filter(|(_, p)| p.role == Role::COP)
-            .for_each(|(cop, _)| Self::investigate(actions, cop, &self.comm));
+            .for_each(|(cop, _)| Self::investigate(&self.players, actions, cop, &self.comm));
 
         let kill = actions
             .iter()
             .find_map(|(a, t)| a.is_mafia().then_some((a, t)));
 
         if let Some((Actor::Mafia(killer), Target::Player(victim))) = kill {
-            // EVENT KILL
             // (Copy to avoid borrow checker)
             let (killer, victim) = (killer.clone(), victim.clone());
+            self.comm.tx(Event::Kill { killer, victim });
             if let Some(winner) = self.eliminate(&victim) {
                 return;
             }
         } else {
-            // EVENT NO-KILL
+            self.comm.tx(Event::NoKill);
         }
 
         self.phase = Phase::new_day(night_no + 1);
     }
 
     fn strip(actions: &mut Actions, stripper: Pidx, comm: &Comm<U, S>) {
-        for (actor, target) in actions {
-            if actor.is_player(stripper) {
-                // EVENT STRIP
+        // Get stripped Pidx
+        let stripped = actions
+            .iter()
+            .find_map(|(a, t)| a.is_player(stripper).then_some(t));
+
+        let stripped = match stripped {
+            Some(Target::Player(p)) => *p,
+            _ => return,
+        };
+
+        // Find strippeds action
+        for (action, target) in actions {
+            if action.is_player(stripped) {
+                comm.tx(Event::Strip { stripper, stripped });
                 *target = Target::Blocked;
+                return;
             }
         }
     }
 
     fn save(actions: &mut Actions, doctor: Pidx, comm: &Comm<U, S>) {
-        for (actor, target) in actions {
-            if actor.is_mafia() && target.is_player(doctor) {
-                // EVENT SAVE
+        // Get saved
+        let saved = actions
+            .iter()
+            .find_map(|(a, t)| a.is_player(doctor).then_some(t));
+
+        let saved = match saved {
+            Some(Target::Player(p)) => *p,
+            _ => return,
+        };
+
+        // Find Mafia Action
+        for (action, target) in actions {
+            if action.is_mafia() && target.is_player(saved) {
+                comm.tx(Event::Save { doctor, saved });
                 *target = Target::Blocked;
+                return;
             }
         }
     }
 
-    fn investigate(actions: &mut Actions, cop: Pidx, comm: &Comm<U, S>) {
+    fn investigate(players: &Players<U>, actions: &mut Actions, cop: Pidx, comm: &Comm<U, S>) {
         for (actor, target) in actions {
             if actor.is_player(cop) {
                 match target {
                     Target::Player(suspect) => {
-                        // EVENT INVESTIGATE
+                        let suspect = suspect.clone();
+                        let role = players[suspect].role;
+                        comm.tx(Event::Investigate { cop, suspect, role });
                     }
                     _ => {}
                 }

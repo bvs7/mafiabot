@@ -29,3 +29,6 @@ build/*
 
 # Rust target
 mafia_rust/target
+
+# Rust data
+mafia_rust/data

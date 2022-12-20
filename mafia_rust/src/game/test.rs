@@ -1,5 +1,6 @@
-use std::sync::mpsc::channel;
+use std::sync::mpsc;
 use std::thread;
+use std::thread::JoinHandle;
 use std::time::Duration;
 
 use super::comm::*;
@@ -34,22 +35,27 @@ fn run_basic() {
         Player::new(14, "p14", Role::AGENT(1)), // p2
     ];
 
-    let (tx, game_rx) = channel::<Request<u64, String>>();
-    let (game_tx, rx) = channel::<Response<u64, String>>();
+    let (tx, game_rx) = mpsc::channel();
+    let (game_tx, rx) = mpsc::channel();
 
     let mut game = Game::new(players, game_rx, game_tx);
 
-    let game_thread = game.start();
+    let game_thread = match game.start() {
+        Ok(t) => t,
+        Err(e) => panic!("Error starting game: {:?}", e),
+    };
 
     thread::sleep(Duration::from_millis(500));
 
     tx.send(Request {
         cmd: Command::Action(Actor::Player(2), Target::Player(7)),
         src: "action".to_string(),
-    });
+    })
+    .expect("Should send");
 
-    dbg!(rx.recv().unwrap());
-    dbg!(rx.recv().unwrap());
-    dbg!(rx.recv().unwrap());
-    dbg!(rx.recv().unwrap());
+    for event in rx.iter() {
+        println!("{:?}", event);
+    }
+
+    game_thread.join().unwrap();
 }
