@@ -76,6 +76,7 @@ impl<U: RawPID> Player<U> {
 pub enum Winner {
     Team(Team),
     Player(Pidx),
+    None,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize /*Deserialize*/)]

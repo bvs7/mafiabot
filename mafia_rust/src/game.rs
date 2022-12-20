@@ -8,11 +8,11 @@ use serde::{Deserialize, Serialize};
 use std::fmt::{Debug, Display};
 use std::fs::File;
 use std::io::prelude::*;
-use std::sync::mpsc::{Receiver, Sender};
 use std::thread::{self, JoinHandle};
 
 use comm::*;
 use player::*;
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize /*Deserialize*/)]
 pub enum Phase {
     Init,
@@ -63,34 +63,42 @@ pub struct Game<U: RawPID, S: Source> {
 }
 
 impl<U: RawPID, S: Source> Game<U, S> {
-    pub fn new(
-        players: Players<U>,
-        rx: Receiver<Request<U, S>>,
-        tx: Sender<Response<U, S>>,
-    ) -> Self {
+    pub fn new(players: Players<U>, comm: Comm<U, S>) -> Self {
         let mut game = Self {
             players: Vec::new(),
             phase: Phase::Init,
-            comm: Comm::new(rx, tx),
+            comm,
         };
 
         game.comm.tx(Event::Init);
 
         for player in players {
-            game.add_player(player);
+            if let Err(_) = game.add_player(player) {
+                continue;
+            }
         }
         return game;
     }
 
-    pub fn add_player(&mut self, player: Player<U>) -> Result<(), String> {
+    pub fn add_player(&mut self, player: Player<U>) -> Result<(), ()> {
         if let Phase::Init = self.phase {
-            if !self.players.contains(&player) {
+            if !self
+                .players
+                .iter()
+                .map(|p| &p.raw_pid)
+                .any(|pid| pid == &player.raw_pid)
+            {
                 Ok(self.players.push(player))
             } else {
-                return Err("Player already exists".to_string());
+                self.comm
+                    .tx(Event::InvalidCommand("Player already exists".to_string()));
+                return Err(());
             }
         } else {
-            return Err("Can't add player during game".to_string());
+            self.comm.tx(Event::InvalidCommand(
+                "Can't add player during game".to_string(),
+            ));
+            return Err(());
         }
     }
 
@@ -100,15 +108,34 @@ impl<U: RawPID, S: Source> Game<U, S> {
             .position(|p| &p.raw_pid == raw_pid)
             .ok_or_else(|| "Player not found".to_string())
     }
+
+    pub fn save_game(&self, fname: &str) -> Result<(), ()> {
+        let mut f = File::create(fname).map_err(|_| ())?;
+        serde_json::to_writer_pretty(&mut f, &self).map_err(|_| ())?;
+        Ok(())
+    }
 }
 
 impl<U: RawPID + 'static, S: 'static + Source> Game<U, S> {
-    pub fn start(mut self) -> Result<JoinHandle<()>, ()> {
+    pub fn start(mut self) -> Result<JoinHandle<Self>, Self> {
+        if self.players.len() < 3 {
+            self.comm.tx(Event::InvalidCommand(
+                "Can't start game with less than 3 players".to_string(),
+            ));
+            return Err(self);
+        }
+        if let Some(_) = self.check_team_numbers() {
+            self.comm.tx(Event::InvalidCommand(
+                "Can't start game with given roles".to_string(),
+            ));
+            return Err(self);
+        }
+
         let even = self.players.len() % 2 == 0;
         match self.phase {
             Phase::Init if !even => self.phase = Phase::new_day(1),
             Phase::Init if even => self.phase = Phase::new_night(1),
-            _ => return Err(()),
+            _ => return Err(self),
         };
         self.comm.tx(Event::Start {
             players: self.players.clone(),
@@ -120,24 +147,34 @@ impl<U: RawPID + 'static, S: 'static + Source> Game<U, S> {
 }
 
 impl<U: RawPID, S: Source> Game<U, S> {
-    fn game_thread(&mut self) {
+    fn game_thread(mut self) -> Self {
         loop {
             match self.phase {
                 Phase::Init => {}
                 Phase::Day { .. } => self.handle_day(),
                 Phase::Night { .. } => self.handle_night(),
-                Phase::End(_) => {}
+                Phase::End(_) => {
+                    self.comm.tx(Event::End);
+                    break;
+                }
             }
-            let mut f = File::create("game.json").unwrap();
-            serde_json::to_writer_pretty(&mut f, &self).unwrap();
+            if let SaveStrategy::PerChange(fname) = &self.comm.save {
+                self.save_game(fname).expect("Saving game should work");
+            };
         }
+        self
     }
 
     fn handle_day(&mut self) {
         let cmd = self.comm.rx();
         match cmd {
             Command::Vote(v, b) => self.handle_vote(v, b),
-            _ => self.comm.tx(Event::InvalidCommand),
+            Command::End => self.phase = Phase::End(Winner::None),
+            _ => {
+                self.comm.tx(Event::InvalidCommand(
+                    "Invalid command for Day Phase".to_string(),
+                ));
+            }
         }
     }
 
@@ -146,7 +183,7 @@ impl<U: RawPID, S: Source> Game<U, S> {
         let (voter, ballot) = match self.validate_vote(v, b) {
             Ok((voter, ballot)) => (voter, ballot),
             Err(e) => {
-                self.comm.tx(Event::InvalidCommand);
+                self.comm.tx(Event::InvalidCommand(e));
                 return;
             }
         };
@@ -221,7 +258,8 @@ impl<U: RawPID, S: Source> Game<U, S> {
             _ => return,
         };
         self.comm.tx(Event::Election {
-            election: election.clone(),
+            electors: election.electors.clone(),
+            ballot: election.ballot.clone(),
         });
         match election.ballot {
             Ballot::Player(p) => {
@@ -231,6 +269,7 @@ impl<U: RawPID, S: Source> Game<U, S> {
             }
             _ => {}
         }
+        self.next_phase(Phase::new_night(day_no + 1));
         self.phase = Phase::new_night(day_no + 1);
     }
 
@@ -238,7 +277,8 @@ impl<U: RawPID, S: Source> Game<U, S> {
         let cmd = self.comm.rx();
         match cmd {
             Command::Action(a, t) => self.handle_action(a, t),
-            _ => self.comm.tx(Event::InvalidCommand),
+            Command::End => self.phase = Phase::End(Winner::None),
+            _ => {}
         }
     }
 
@@ -247,7 +287,7 @@ impl<U: RawPID, S: Source> Game<U, S> {
         let (actor, target) = match self.validate_action(a, t) {
             Ok((actor, target)) => (actor, target),
             Err(e) => {
-                self.comm.tx(Event::InvalidCommand);
+                self.comm.tx(Event::InvalidCommand(e));
                 return;
             }
         };
@@ -312,7 +352,8 @@ impl<U: RawPID, S: Source> Game<U, S> {
             .players
             .iter()
             .filter(|p| p.role.has_night_action())
-            .count();
+            .count()
+            + 1; // Mafia action
 
         (actor_count == actions.len()).then(|| ())
     }
@@ -419,15 +460,23 @@ impl<U: RawPID, S: Source> Game<U, S> {
     }
 
     fn eliminate(&mut self, p: &Pidx) -> Option<Winner> {
-        // EVENT ELIMINATE
+        self.comm.tx(Event::Eliminate { player: *p });
         self.players.remove(p.clone());
         // all Pidxs are now invalid...
         self.phase.clear();
 
-        return self.check_win();
+        return self.check_team_win();
     }
 
-    fn check_win(&mut self) -> Option<Winner> {
+    fn next_phase(&mut self, next_phase: Phase) {
+        self.phase = next_phase;
+
+        if let SaveStrategy::PerPhase(fname) = &self.comm.save {
+            self.save_game(fname).expect("Saving game should work");
+        };
+    }
+
+    fn check_team_numbers(&self) -> Option<Winner> {
         let n_players = self.players.len();
         let n_mafia = self
             .players
@@ -435,14 +484,20 @@ impl<U: RawPID, S: Source> Game<U, S> {
             .filter(|p| p.role.team() == Team::Mafia)
             .count();
 
-        let winner = match 0 {
+        match 0 {
             _ if n_mafia == 0 => Some(Winner::Team(Team::Town)),
-            _ if n_mafia >= n_players => Some(Winner::Team(Team::Mafia)),
+            // True if: 3/5, 3/6. False if: 2/5, 2/6
+            _ if n_mafia > (n_players - 1) / 2 => Some(Winner::Team(Team::Mafia)),
             _ => None,
-        };
+        }
+    }
+
+    fn check_team_win(&mut self) -> Option<Winner> {
+        let winner = self.check_team_numbers();
+
         if let Some(winner) = winner {
+            self.comm.tx(Event::Win { winner });
             self.phase = Phase::End(winner);
-            // END PHASE
         }
         winner
     }
