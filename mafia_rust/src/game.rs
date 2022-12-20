@@ -1,29 +1,3 @@
-mod error {
-    use std::error::Error;
-    use std::fmt::Display;
-
-    #[derive(Debug, Clone)]
-    pub struct ValidationErr {
-        pub msg: String,
-    }
-
-    impl ValidationErr {
-        pub fn new(msg: &str) -> Self {
-            Self {
-                msg: msg.to_string(),
-            }
-        }
-    }
-
-    impl Display for ValidationErr {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            write!(f, "{}", self.msg)
-        }
-    }
-
-    impl Error for ValidationErr {}
-}
-
 mod interface {
     use serde::{Deserialize, Serialize};
     use std::{
@@ -45,8 +19,8 @@ mod interface {
 
     #[derive(Debug, Clone, PartialEq, Eq)]
     pub enum Command<U: RawPID> {
-        Vote(U, Option<Ballot<U>>),
-        Action(Actor<U>, Option<Target<U>>),
+        Vote(U, Ballot<U>),
+        Action(Actor<U>, Target<U>),
     }
 
     #[derive(Debug, Clone, PartialEq, Eq)]
@@ -122,6 +96,7 @@ mod interface {
             }
         }
         pub fn tx(&self, event: Event<U>) {
+            println!("Sending event: {:?}", event);
             let resp = Response {
                 event,
                 src: self.src.clone(),
@@ -134,7 +109,7 @@ mod interface {
     }
 }
 
-mod role {
+mod player {
     use super::game::RawPID;
     use serde::{Deserialize, Serialize};
 
@@ -186,23 +161,6 @@ mod role {
             }
         }
     }
-}
-
-mod game {
-    use serde::{Deserialize, Serialize};
-    use std::fmt::{Debug, Display};
-    use std::{
-        sync::mpsc::{Receiver, Sender},
-        thread::{self, JoinHandle},
-    };
-
-    use super::interface::{Comm, Event};
-    use super::role::Role;
-    use super::{
-        error::ValidationErr,
-        interface::{Command, Request, Response, Source},
-        role::Team,
-    };
 
     pub trait RawPID: Debug + Display + Clone + Copy + PartialEq + Eq + Send + Serialize {}
 
@@ -215,6 +173,12 @@ mod game {
         pub name: String,
         pub role: Role<U>,
     }
+}
+mod game {
+    use serde::{Deserialize, Serialize};
+    use std::fmt::{Debug, Display};
+    use std::sync::mpsc::{Receiver, Sender};
+    use std::thread::JoinHandle;
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize /*Deserialize*/)]
     pub enum Winner {
@@ -226,11 +190,13 @@ mod game {
     pub enum Ballot<U: RawPID> {
         Player(U),
         Abstain,
+        Retract,
     }
 
+    #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize /*Deserialize*/)]
     pub struct Election {
         electors: Vec<Pidx>,
-        candidate: Pidx,
+        ballot: Ballot<Pidx>,
     }
 
     impl<U: RawPID> Display for Ballot<U> {
@@ -238,6 +204,7 @@ mod game {
             match self {
                 Ballot::Player(p) => write!(f, "Player({})", p),
                 Ballot::Abstain => write!(f, "Abstain"),
+                Ballot::Retract => write!(f, "Retract"),
             }
         }
     }
@@ -282,6 +249,15 @@ mod game {
         Player(U),
         NoTarget,
         Blocked,
+    }
+
+    impl<U: RawPID> Target<U> {
+        fn is_player(&self, p: U) -> bool {
+            match self {
+                Target::Player(p2) => p == *p2,
+                _ => false,
+            }
+        }
     }
 
     pub type Votes = Vec<(Pidx, Ballot<Pidx>)>;
@@ -370,6 +346,13 @@ mod game {
             }
         }
 
+        pub fn g_check_player(&self, raw_pid: &U) -> Result<Pidx, String> {
+            self.players
+                .iter()
+                .position(|p| &p.raw_pid == raw_pid)
+                .ok_or_else(|| "Player not found".to_string())
+        }
+
         pub fn check_player(players: &Players<U>, raw_pid: &U) -> Result<Pidx, ValidationErr> {
             players
                 .iter()
@@ -379,6 +362,21 @@ mod game {
                     msg: format!("Player {:?} not found", raw_pid),
                 })
         }
+
+        // pub fn g_get_players_that<I, P>(
+        //     &self,
+        //     f: P,
+        // ) -> Filter<impl Iterator<Item = (Pidx, Player<U>)>, P>
+        // where
+        //     I: Iterator<Item = (Pidx, Player<U>)>,
+        //     P: FnMut(&(Pidx, Player<U>)) -> bool,
+        // {
+        //     self.players
+        //         .iter()
+        //         .enumerate()
+        //         .map(|(i, p)| (i, p.clone()))
+        //         .filter(|(i, p)| f((i, p)))
+        // }
 
         pub fn get_players_that(
             players: &Players<U>,
@@ -400,535 +398,731 @@ mod game {
                 _ => return Err(()),
             };
             // Start game thread
-            Ok(thread::spawn(move || self.game_thread()))
+            Ok(thread::spawn(move || self.guard_game_thread()))
         }
     }
 
     impl<U: RawPID, S: Source> Game<U, S> {
-        fn redo_game_thread(&mut self) {
-            let players = &mut self.players;
-            let comm = &mut self.comm;
+        fn guard_game_thread(&mut self) {
             loop {
                 match self.phase {
                     Phase::Init => {}
-                    Phase::Day { day_no, votes } => match self.comm.rx() {
-                        Command::Vote(v, b) => {
-                            let (voter, ballot) = match Self::_validate_vote(players, v, b, comm) {
-                                Ok((voter, ballot)) => (voter, ballot),
-                                Err(e) => {
-                                    self.comm.tx(Event::InvalidCommand);
-                                    continue;
-                                }
-                            };
-                            if let Some(election) =
-                                Self::_accept_vote(&mut votes, voter, ballot, comm)
-                            {
-                                Self::_resolve_election(players, &mut self.phase, election, comm);
-                            }
-                        }
-                        _ => {
-                            self.comm.tx(Event::InvalidCommand);
-                            continue;
-                        }
-                    },
-                    Phase::Night { night_no, actions } => {}
-                    Phase::End(winner) => {}
+                    Phase::Day { .. } => self.g_handle_day(),
+                    Phase::Night { .. } => self.g_handle_night(),
+                    Phase::End(_) => {}
                 }
             }
         }
 
-        fn handle_day(players: &mut Players<U>, votes: &mut Votes, comm: &mut Comm<U, S>) {
-            // Validate command
-            let cmd = comm.rx();
+        fn g_handle_day(&mut self) {
+            let cmd = self.comm.rx();
             match cmd {
-                Command::Vote(raw_voter, raw_ballot) => {
-                    let election = match Self::_validate_vote(players, raw_voter, raw_ballot, comm)
-                    {
-                        Err(e) => {
-                            comm.tx(Event::InvalidCommand);
-                            None
-                        }
-                        Ok((voter, ballot)) => Self::_accept_vote(votes, voter, ballot, comm),
-                    };
-                    if let Some(election) = election {
-                        Self::_resolve_election(players, &mut self.phase, election, comm);
-                    }
-                }
-                _ => {}
-            }
-
-            // Handle command
-
-            None
-        }
-
-        // SKELETON, IMPLEMENT!
-        fn _validate_vote(
-            players: &mut Players<U>,
-            raw_voter: U,
-            raw_ballot: Option<Ballot<U>>,
-            comm: &mut Comm<U, S>,
-        ) -> Result<(Pidx, Pidx), ValidationErr> {
-            Err(ValidationErr {
-                msg: "".to_string(),
-            })
-        }
-
-        // SKELETON, IMPLEMENT!
-        fn _accept_vote(
-            votes: &mut Votes,
-            voter: Pidx,
-            ballot: Pidx,
-            comm: &mut Comm<U, S>,
-        ) -> Option<Election> {
-            None
-        }
-
-        // SKELETON, IMPLEMENT!
-        fn _resolve_election(
-            players: &mut Players<U>,
-            phase: &mut Phase,
-            election: Election,
-            comm: &mut Comm<U, S>,
-        ) {
-        }
-    }
-    impl<U: RawPID, S: Source> Game<U, S> {
-        fn game_thread(&mut self) {
-            Self::next_phase(&mut self.players, &mut self.phase, &self.comm);
-            self.comm.tx(Event::Start {
-                players: self.players.clone(),
-                phase: self.phase.clone(),
-            });
-
-            loop {
-                println!("Serialize: {}", serde_json::to_string(&self).unwrap());
-                match &mut self.phase {
-                    Phase::Day {
-                        day_no,
-                        ref mut votes,
-                    } => {
-                        let cmd = self.comm.rx();
-                        match cmd {
-                            Command::Vote(raw_voter, raw_ballot) => {
-                                let elect = Self::handle_vote(
-                                    &mut self.players,
-                                    votes,
-                                    raw_voter,
-                                    raw_ballot,
-                                    &self.comm,
-                                );
-                                match elect {
-                                    None => {}
-                                    Some(ballot) => {
-                                        // "elect" subfn
-                                        Self::handle_elect(
-                                            &mut self.players,
-                                            &mut self.phase,
-                                            ballot,
-                                            &self.comm,
-                                        );
-                                    }
-                                }
-                            }
-                            _ => {
-                                self.comm.tx(Event::InvalidCommand);
-                            }
-                        }
-                    }
-
-                    Phase::Night {
-                        night_no,
-                        ref mut actions,
-                    } => {
-                        let cmd = self.comm.rx();
-                        match cmd {
-                            Command::Action(raw_actor, raw_target) => {
-                                if Self::handle_action(
-                                    &mut self.players,
-                                    actions,
-                                    raw_actor,
-                                    raw_target,
-                                    &self.comm,
-                                ) {
-                                    let victim =
-                                        Self::handle_dawn(&mut self.players, actions, &self.comm);
-
-                                    match victim {
-                                        None => {}
-                                        Some(victim) => {
-                                            Self::eliminate(
-                                                &mut self.players,
-                                                &mut self.phase,
-                                                victim,
-                                                &self.comm,
-                                            );
-                                        }
-                                    };
-                                    Self::next_phase(&self.players, &mut self.phase, &self.comm);
-                                }
-                            }
-                            _ => {
-                                self.comm.tx(Event::InvalidCommand);
-                            }
-                        }
-                    }
-                    Phase::End(winner) => {
-                        break;
-                    }
-                    _ => {
-                        self.comm.tx(Event::End);
-                    }
-                };
-            }
-            // Ok(())
-        }
-
-        fn handle_vote(
-            players: &mut Players<U>,
-            votes: &mut Votes,
-            raw_voter: U,
-            raw_ballot: Option<Ballot<U>>,
-            comm: &Comm<U, S>,
-        ) -> Option<Ballot<Pidx>> {
-            match Self::validate_vote(players, raw_voter, raw_ballot, comm) {
-                Err(err) => {
-                    // Handle error response
-                    comm.tx(Event::InvalidCommand);
-                    None
-                }
-                Ok((voter, ballot)) => {
-                    let former = Self::accept_vote(votes, voter, ballot, comm);
-                    Self::check_elect(players, votes, former, comm)
-                }
+                Command::Vote(v, b) => self.g_handle_vote(v, b),
+                _ => self.comm.tx(Event::InvalidCommand),
             }
         }
 
-        fn validate_vote(
-            players: &Players<U>,
-            raw_voter: U,
-            raw_ballot: Option<Ballot<U>>,
-            comm: &Comm<U, S>,
-        ) -> Result<(Pidx, Option<Ballot<Pidx>>), ValidationErr> {
-            let voter = Self::check_player(players, &raw_voter)?;
-            let ballot = match raw_ballot {
-                Some(Ballot::Player(raw_pid)) => {
-                    Some(Ballot::Player(Self::check_player(players, &raw_pid)?))
+        fn g_handle_vote(&mut self, v: U, b: Ballot<U>) {
+            // Validate vote
+            let (voter, ballot) = match self.g_validate_vote(v, b) {
+                Ok((voter, ballot)) => (voter, ballot),
+                Err(e) => {
+                    self.comm.tx(Event::InvalidCommand);
+                    return;
                 }
-                Some(Ballot::Abstain) => Some(Ballot::Abstain),
-                None => None,
+            };
+            // accept vote
+            let election = match self.g_accept_vote(voter, ballot) {
+                Some(election) => election,
+                None => return,
+            };
+
+            // resolve election
+            self.g_resolve_election(election);
+        }
+        fn g_validate_vote(&mut self, v: U, b: Ballot<U>) -> Result<(Pidx, Ballot<Pidx>), String> {
+            let voter = self.g_check_player(&v)?;
+            let ballot = match b {
+                Ballot::Player(raw_pid) => Ballot::Player(self.g_check_player(&raw_pid)?),
+                Ballot::Abstain => Ballot::Abstain,
+                Ballot::Retract => Ballot::Retract,
             };
             Ok((voter, ballot))
         }
 
-        fn accept_vote(
-            votes: &mut Votes,
-            voter: Pidx,
-            ballot: Option<Ballot<Pidx>>,
-            comm: &Comm<U, S>,
-        ) -> Option<Ballot<Pidx>> {
+        fn g_accept_vote(&mut self, voter: Pidx, ballot: Ballot<Pidx>) -> Option<Election> {
+            let votes = match &mut self.phase {
+                Phase::Day { votes, .. } => votes,
+                _ => return None,
+            };
             let former = votes
                 .iter()
                 .position(|(v, _)| v == &voter)
-                .map(|i| votes.remove(i));
-            if let Some(ballot) = ballot {
-                println!("Player {} votes for {:?}", voter, ballot);
-                votes.push((voter, ballot));
-            }
-            former.map(|(v, b)| b)
-        }
+                .map(|i| votes.remove(i))
+                .map(|(v, b)| b);
 
-        fn check_elect(
-            players: &Players<U>,
-            votes: &Votes,
-            former: Option<Ballot<Pidx>>,
-            comm: &Comm<U, S>,
-        ) -> Option<Ballot<Pidx>> {
-            let n_players = players.len();
-            let threshold = n_players / 2 + 1;
-            let lo_thresh = (n_players + 1) / 2;
-
-            if votes.len() == 0 {
-                return None;
-            }
-            let (last_voter, last_ballot) = votes.last().unwrap();
-
-            let threshold = match last_ballot {
-                Ballot::Abstain => lo_thresh,
-                _ => threshold,
-            };
-
-            let count = votes.iter().filter(|(_, b)| b == last_ballot).count();
-            comm.tx(Event::Vote {
-                voter: *last_voter,
-                ballot: Some(*last_ballot),
-                former,
-                count,
-                threshold,
-            });
-            match last_ballot {
-                Ballot::Player(candidate) if count >= threshold => Some(Ballot::Player(*candidate)),
-                Ballot::Abstain if count >= lo_thresh => Some(Ballot::Abstain),
-                _ => None,
-            }
-        }
-
-        fn handle_elect(
-            players: &mut Players<U>,
-            phase: &mut Phase,
-            ballot: Ballot<Pidx>,
-            comm: &Comm<U, S>,
-        ) {
-            comm.tx(Event::Elect { ballot });
             match ballot {
-                Ballot::Player(elect) => {
-                    Self::eliminate(players, phase, elect, comm);
+                Ballot::Player(_) | Ballot::Abstain => votes.push((voter, ballot)),
+                Ballot::Retract => {
+                    // EVENT RETRACT VOTE
+                    return None;
                 }
-                Ballot::Abstain => {}
+            }
+
+            let n_players = self.players.len();
+            let threshold = match ballot {
+                Ballot::Player(_) => n_players / 2 + 1,
+                _ => (n_players + 1) / 2,
             };
-            Self::next_phase(&players, phase, comm);
+
+            let electors = votes
+                .iter()
+                .filter(|(_, b)| b == &ballot)
+                .map(|(v, _)| *v)
+                .collect::<Vec<_>>();
+            let count = electors.len();
+            // EVENT VOTE
+            if count >= threshold {
+                Some(Election { electors, ballot })
+            } else {
+                None
+            }
+        }
+        fn g_resolve_election(&mut self, election: Election) {
+            let day_no = match self.phase {
+                Phase::Day { day_no, .. } => day_no,
+                _ => return,
+            };
+            // EVENT ELECTION
+            match election.ballot {
+                Ballot::Player(p) => {
+                    if let Some(winner) = self.g_eliminate(&p) {
+                        return;
+                    }
+                }
+                _ => {
+                    // EVENT NO-ELIMINATION
+                }
+            }
+            self.phase = Phase::new_night(day_no + 1);
         }
 
-        fn handle_action(
-            players: &mut Players<U>,
-            actions: &mut Actions,
-            raw_actor: Actor<U>,
-            raw_target: Option<Target<U>>,
-            comm: &Comm<U, S>,
-        ) -> bool {
-            match Self::validate_action(players, raw_actor, raw_target, comm) {
-                Err(err) => {
-                    // Handle error response
-                    comm.tx(Event::InvalidCommand);
-                    false
-                }
-                Ok((actor, target)) => {
-                    Self::accept_action(actions, actor, target, comm);
-                    Self::check_dawn(players, actions, comm)
-                }
+        fn g_handle_night(&mut self) {
+            let cmd = self.comm.rx();
+            match cmd {
+                Command::Action(a, t) => self.g_handle_action(a, t),
+                _ => self.comm.tx(Event::InvalidCommand),
             }
         }
 
-        fn validate_action(
-            players: &Players<U>,
-            raw_actor: Actor<U>,
-            raw_target: Option<Target<U>>,
-            comm: &Comm<U, S>,
-        ) -> Result<(Actor<Pidx>, Option<Target<Pidx>>), ValidationErr> {
-            let actor = match raw_actor {
-                Actor::Player(raw_pid) => Actor::Player(Self::check_player(players, &raw_pid)?),
-                Actor::Mafia(raw_pid) => Actor::Mafia(Self::check_player(players, &raw_pid)?),
-            };
-            let target = match raw_target {
-                Some(Target::Player(raw_pid)) => {
-                    Some(Target::Player(Self::check_player(players, &raw_pid)?))
+        fn g_handle_action(&mut self, a: Actor<U>, t: Target<U>) {
+            // Validate action
+            let (actor, target) = match self.g_validate_action(a, t) {
+                Ok((actor, target)) => (actor, target),
+                Err(e) => {
+                    self.comm.tx(Event::InvalidCommand);
+                    return;
                 }
-                Some(Target::NoTarget) => Some(Target::NoTarget),
+            };
 
-                None | Some(Target::Blocked) => None,
+            // accept action
+            match self.g_accept_action(actor, target) {
+                Some(_) => {}
+                None => return,
+            };
+
+            // resolve dawn
+            self.g_resolve_dawn();
+        }
+
+        fn g_validate_action(
+            &self,
+            a: Actor<U>,
+            t: Target<U>,
+        ) -> Result<(Actor<Pidx>, Target<Pidx>), String> {
+            let actor = match a {
+                Actor::Player(raw_pid) => Actor::Player(self.g_check_player(&raw_pid)?),
+                Actor::Mafia(raw_pid) => Actor::Mafia(self.g_check_player(&raw_pid)?),
+            };
+            let target = match t {
+                Target::Player(raw_pid) => Target::Player(self.g_check_player(&raw_pid)?),
+                Target::NoTarget => Target::NoTarget,
+                Target::Blocked => Target::Blocked,
             };
             Ok((actor, target))
         }
 
-        fn accept_action(
-            actions: &mut Actions,
-            actor: Actor<Pidx>,
-            target: Option<Target<Pidx>>,
-            comm: &Comm<U, S>,
-        ) {
-            // TODO: Role Check? Goon -> Target::Blocked?
+        fn g_accept_action(&mut self, actor: Actor<Pidx>, target: Target<Pidx>) -> Option<()> {
+            // Check for Goon
+            let target = match actor {
+                Actor::Mafia(p) if self.players[p].role == Role::GOON => Target::Blocked,
+                _ => target,
+            };
+
+            let actions = match &mut self.phase {
+                Phase::Night { actions, .. } => actions,
+                _ => return None,
+            };
+
             let former = actions
                 .iter()
                 .position(|(a, _)| a.overlaps(&actor))
                 .map(|i| actions.remove(i));
-            if let Some(target) = target {
-                println!("Player {} acts on {:?}", actor, target);
-                comm.tx(Event::Action {
-                    actor,
-                    target: Some(target),
-                });
-                actions.push((actor, target));
-            }
+
+            // EVENT ACTION
+            actions.push((actor, target));
+
+            let actor_count = self
+                .players
+                .iter()
+                .filter(|p| p.role.has_night_action())
+                .count();
+
+            (actor_count == actions.len()).then(|| ())
         }
 
-        fn check_dawn(players: &Players<U>, actions: &Actions, comm: &Comm<U, S>) -> bool {
-            // Check that all possible actors have acted
-            let actors = players
+        fn g_resolve_dawn(&mut self) {
+            // EVENT DAWN
+            // Strip
+            let (night_no, actions) = match &mut self.phase {
+                Phase::Night { night_no, actions } => (*night_no, actions),
+                _ => return,
+            };
+
+            self.players
                 .iter()
                 .enumerate()
-                .filter(|(_, p)| p.role.has_night_action())
-                .map(|(i, _)| Actor::Player(i))
-                .chain([Actor::Mafia(0)])
-                .collect::<Vec<_>>();
+                .filter(|(_, p)| p.role == Role::STRIPPER)
+                .for_each(|(stripper, _)| Self::g_strip(actions, stripper, &self.comm));
 
-            // For all actors, check that they have acted, or if Mafia, that at least one has acted
-            for actor in actors {
-                match actor {
-                    Actor::Player(pid) => {
-                        if actions.iter().find(|(a, _)| a == &actor).is_none() {
-                            return false;
+            self.players
+                .iter()
+                .enumerate()
+                .filter(|(_, p)| p.role == Role::DOCTOR)
+                .for_each(|(doctor, _)| Self::g_save(actions, doctor, &self.comm));
+
+            self.players
+                .iter()
+                .enumerate()
+                .filter(|(_, p)| p.role == Role::COP)
+                .for_each(|(cop, _)| Self::g_investigate(actions, cop, &self.comm));
+
+            let kill = actions
+                .iter()
+                .find_map(|(a, t)| a.is_mafia().then_some((a, t)));
+
+            if let Some((Actor::Mafia(killer), Target::Player(victim))) = kill {
+                // EVENT KILL
+                // (Copy to avoid borrow checker)
+                let (killer, victim) = (killer.clone(), victim.clone());
+                if let Some(winner) = self.g_eliminate(&victim) {
+                    return;
+                }
+            } else {
+                // EVENT NO-KILL
+            }
+
+            self.phase = Phase::new_day(night_no + 1);
+        }
+
+        fn g_strip(actions: &mut Actions, stripper: Pidx, comm: &Comm<U, S>) {
+            for (actor, target) in actions {
+                if actor.is_player(stripper) {
+                    // EVENT STRIP
+                    *target = Target::Blocked;
+                }
+            }
+        }
+
+        fn g_save(actions: &mut Actions, doctor: Pidx, comm: &Comm<U, S>) {
+            for (actor, target) in actions {
+                if actor.is_mafia() && target.is_player(doctor) {
+                    // EVENT SAVE
+                    *target = Target::Blocked;
+                }
+            }
+        }
+
+        fn g_investigate(actions: &mut Actions, cop: Pidx, comm: &Comm<U, S>) {
+            for (actor, target) in actions {
+                if actor.is_player(cop) {
+                    match target {
+                        Target::Player(suspect) => {
+                            // EVENT INVESTIGATE
                         }
-                    }
-                    Actor::Mafia(_) => {
-                        if actions.iter().find(|(a, _)| a.is_mafia()).is_none() {
-                            return false;
-                        }
+                        _ => {}
                     }
                 }
             }
-            true
         }
 
-        fn handle_dawn(
-            players: &Players<U>,
-            actions: &mut Actions,
-            comm: &Comm<U, S>,
-        ) -> Option<Pidx> {
-            comm.tx(Event::Dawn);
-            // Strip
-            Self::get_players_that(players, |(_, p)| p.role == Role::STRIPPER)
-                .for_each(|(stripped, _)| Self::strip(actions, stripped, comm));
+        fn g_eliminate(&mut self, p: &Pidx) -> Option<Winner> {
+            // EVENT ELIMINATE
+            self.players.remove(p.clone());
+            // all Pidxs are now invalid...
+            self.phase.clear();
 
-            Self::get_players_that(players, |(_, p)| p.role == Role::DOCTOR)
-                .for_each(|(saved, _)| Self::save(actions, saved, comm));
-
-            let cops = Self::get_players_that(players, |(_, p)| p.role == Role::COP);
-            for (cop, _) in cops {
-                let suspect = actions
-                    .iter()
-                    .find(|(a, _)| a.is_player(cop))
-                    .map(|(_, t)| t);
-                if let Some(Target::Player(suspect)) = suspect {
-                    Self::investigate(cop, *suspect, players, comm)
-                }
-            }
-
-            let kill = actions.iter().find(|(a, _)| a.is_mafia());
-            match kill {
-                Some((a, Target::Player(victim))) => {
-                    comm.tx(Event::Kill);
-                    Some(*victim)
-                }
-                _ => None,
-            }
+            return self.g_check_win();
         }
 
-        fn eliminate(players: &mut Players<U>, phase: &mut Phase, victim: Pidx, comm: &Comm<U, S>) {
-            comm.tx(Event::Eliminate { player: victim });
-            println!("Eliminating player {}", victim);
-            players.remove(victim);
-            phase.clear();
-            match Self::check_win(players, &comm) {
-                None => {}
-                Some(winner) => {
-                    *phase = Phase::End(Winner::Team(winner));
-                }
-            }
-        }
-
-        fn next_phase(players: &Players<U>, phase: &mut Phase, comm: &Comm<U, S>) {
-            match phase {
-                Phase::Init => {
-                    // TODO: set phase based on rules
-                    *phase = Phase::Day {
-                        day_no: 1,
-                        votes: Vec::new(),
-                    };
-                }
-                Phase::Day { day_no, .. } => {
-                    println!("Day {} ends", day_no);
-                    *phase = Phase::Night {
-                        night_no: *day_no,
-                        actions: Vec::new(),
-                    };
-                }
-                Phase::Night { night_no, .. } => {
-                    println!("Night {} ends", night_no);
-                    *phase = Phase::Day {
-                        day_no: *night_no + 1,
-                        votes: Vec::new(),
-                    };
-                }
-                _ => {}
-            };
-            match phase {
-                Phase::Day { .. } => {
-                    comm.tx(Event::Day);
-                }
-                Phase::Night { .. } => {
-                    comm.tx(Event::Night);
-                }
-                Phase::End(_) => {
-                    comm.tx(Event::End);
-                }
-                Phase::Init => {
-                    panic!("Shouldn't ever next phase into Init")
-                }
-            };
-        }
-
-        fn check_win(players: &Players<U>, comm: &Comm<U, S>) -> Option<Team> {
-            let n_players = players.len();
-            let n_mafia = players
+        fn g_check_win(&mut self) -> Option<Winner> {
+            let n_players = self.players.len();
+            let n_mafia = self
+                .players
                 .iter()
                 .filter(|p| p.role.team() == Team::Mafia)
                 .count();
-            let result = match 0 {
-                _ if n_mafia == 0 => Some(Team::Town),
-                _ if n_players <= n_mafia * 2 => Some(Team::Mafia),
+
+            let winner = match 0 {
+                _ if n_mafia == 0 => Some(Winner::Team(Team::Town)),
+                _ if n_mafia >= n_players => Some(Winner::Team(Team::Mafia)),
                 _ => None,
             };
-            if result.is_some() {
-                comm.tx(Event::Win);
+            if let Some(winner) = winner {
+                self.phase = Phase::End(winner);
+                // END PHASE
             }
-            println!("Win condition: {:?}", result);
-            result
-        }
-
-        fn strip(actions: &mut Actions, stripped: Pidx, comm: &Comm<U, S>) {
-            for (actor, target) in actions {
-                if actor == &Actor::Player(stripped) {
-                    *target = Target::Blocked;
-
-                    comm.tx(Event::Strip);
-                }
-            }
-        }
-
-        fn save(actions: &mut Actions, saved: Pidx, comm: &Comm<U, S>) {
-            for (actor, target) in actions {
-                if let Actor::Mafia(_) = actor {
-                    *target = match target {
-                        Target::Player(pid) if *pid == saved => Target::Blocked,
-                        _ => *target,
-                    };
-
-                    comm.tx(Event::Save);
-                }
-            }
-        }
-
-        fn investigate(cop: Pidx, suspect: Pidx, players: &Players<U>, comm: &Comm<U, S>) {
-            let is_mafia = players[suspect].role.investigate_mafia();
-
-            comm.tx(Event::Investigate);
-            // println!("Cop {:?} investigates {:?} and finds {:?}", cop, suspect, is_mafia);
+            winner
         }
     }
 }
 
-mod test {
-    use super::error::*;
-    use super::game::*;
-    use super::interface::*;
-    use super::role::*;
-    use std::sync::mpsc;
-    use std::thread;
-    use std::time::Duration;
+//     impl<U: RawPID, S: Source> Game<U, S> {
+//         fn game_thread(&mut self) {
+//             Self::next_phase(&mut self.players, &mut self.phase, &self.comm);
+//             self.comm.tx(Event::Start {
+//                 players: self.players.clone(),
+//                 phase: self.phase.clone(),
+//             });
 
-    #[test]
-    fn minimal() {
-        impl RawPID for u64 {}
-        impl Source for String {}
-    }
-}
+//             loop {
+//                 println!("Serialize: {}", serde_json::to_string(&self).unwrap());
+//                 match &mut self.phase {
+//                     Phase::Day {
+//                         day_no,
+//                         ref mut votes,
+//                     } => {
+//                         let cmd = self.comm.rx();
+//                         match cmd {
+//                             Command::Vote(raw_voter, raw_ballot) => {
+//                                 let elect = Self::handle_vote(
+//                                     &mut self.players,
+//                                     votes,
+//                                     raw_voter,
+//                                     raw_ballot,
+//                                     &self.comm,
+//                                 );
+//                                 match elect {
+//                                     None => {}
+//                                     Some(ballot) => {
+//                                         // "elect" subfn
+//                                         Self::handle_elect(
+//                                             &mut self.players,
+//                                             &mut self.phase,
+//                                             ballot,
+//                                             &self.comm,
+//                                         );
+//                                     }
+//                                 }
+//                             }
+//                             _ => {
+//                                 self.comm.tx(Event::InvalidCommand);
+//                             }
+//                         }
+//                     }
+
+//                     Phase::Night {
+//                         night_no,
+//                         ref mut actions,
+//                     } => {
+//                         let cmd = self.comm.rx();
+//                         match cmd {
+//                             Command::Action(raw_actor, raw_target) => {
+//                                 if Self::handle_action(
+//                                     &mut self.players,
+//                                     actions,
+//                                     raw_actor,
+//                                     raw_target,
+//                                     &self.comm,
+//                                 ) {
+//                                     let victim =
+//                                         Self::handle_dawn(&mut self.players, actions, &self.comm);
+
+//                                     match victim {
+//                                         None => {}
+//                                         Some(victim) => {
+//                                             Self::eliminate(
+//                                                 &mut self.players,
+//                                                 &mut self.phase,
+//                                                 victim,
+//                                                 &self.comm,
+//                                             );
+//                                         }
+//                                     };
+//                                     Self::next_phase(&self.players, &mut self.phase, &self.comm);
+//                                 }
+//                             }
+//                             _ => {
+//                                 self.comm.tx(Event::InvalidCommand);
+//                             }
+//                         }
+//                     }
+//                     Phase::End(winner) => {
+//                         break;
+//                     }
+//                     _ => {
+//                         self.comm.tx(Event::End);
+//                     }
+//                 };
+//             }
+//             // Ok(())
+//         }
+
+//         fn handle_vote(
+//             players: &mut Players<U>,
+//             votes: &mut Votes,
+//             raw_voter: U,
+//             raw_ballot: Option<Ballot<U>>,
+//             comm: &Comm<U, S>,
+//         ) -> Option<Ballot<Pidx>> {
+//             match Self::validate_vote(players, raw_voter, raw_ballot, comm) {
+//                 Err(err) => {
+//                     // Handle error response
+//                     comm.tx(Event::InvalidCommand);
+//                     None
+//                 }
+//                 Ok((voter, ballot)) => {
+//                     let former = Self::accept_vote(votes, voter, ballot, comm);
+//                     Self::check_elect(players, votes, former, comm)
+//                 }
+//             }
+//         }
+
+//         fn validate_vote(
+//             players: &Players<U>,
+//             raw_voter: U,
+//             raw_ballot: Option<Ballot<U>>,
+//             comm: &Comm<U, S>,
+//         ) -> Result<(Pidx, Option<Ballot<Pidx>>), ValidationErr> {
+//             let voter = Self::check_player(players, &raw_voter)?;
+//             let ballot = match raw_ballot {
+//                 Some(Ballot::Player(raw_pid)) => {
+//                     Some(Ballot::Player(Self::check_player(players, &raw_pid)?))
+//                 }
+//                 Some(Ballot::Abstain) => Some(Ballot::Abstain),
+//                 None => None,
+//             };
+//             Ok((voter, ballot))
+//         }
+
+//         fn accept_vote(
+//             votes: &mut Votes,
+//             voter: Pidx,
+//             ballot: Option<Ballot<Pidx>>,
+//             comm: &Comm<U, S>,
+//         ) -> Option<Ballot<Pidx>> {
+//             let former = votes
+//                 .iter()
+//                 .position(|(v, _)| v == &voter)
+//                 .map(|i| votes.remove(i));
+//             if let Some(ballot) = ballot {
+//                 println!("Player {} votes for {:?}", voter, ballot);
+//                 votes.push((voter, ballot));
+//             }
+//             former.map(|(v, b)| b)
+//         }
+
+//         fn check_elect(
+//             players: &Players<U>,
+//             votes: &Votes,
+//             former: Option<Ballot<Pidx>>,
+//             comm: &Comm<U, S>,
+//         ) -> Option<Ballot<Pidx>> {
+//             let n_players = players.len();
+//             let threshold = n_players / 2 + 1;
+//             let lo_thresh = (n_players + 1) / 2;
+
+//             if votes.len() == 0 {
+//                 return None;
+//             }
+//             let (last_voter, last_ballot) = votes.last().unwrap();
+
+//             let threshold = match last_ballot {
+//                 Ballot::Abstain => lo_thresh,
+//                 _ => threshold,
+//             };
+
+//             let count = votes.iter().filter(|(_, b)| b == last_ballot).count();
+//             comm.tx(Event::Vote {
+//                 voter: *last_voter,
+//                 ballot: Some(*last_ballot),
+//                 former,
+//                 count,
+//                 threshold,
+//             });
+//             match last_ballot {
+//                 Ballot::Player(candidate) if count >= threshold => Some(Ballot::Player(*candidate)),
+//                 Ballot::Abstain if count >= lo_thresh => Some(Ballot::Abstain),
+//                 _ => None,
+//             }
+//         }
+
+//         fn handle_elect(
+//             players: &mut Players<U>,
+//             phase: &mut Phase,
+//             ballot: Ballot<Pidx>,
+//             comm: &Comm<U, S>,
+//         ) {
+//             comm.tx(Event::Elect { ballot });
+//             match ballot {
+//                 Ballot::Player(elect) => {
+//                     Self::eliminate(players, phase, elect, comm);
+//                 }
+//                 Ballot::Abstain => {}
+//             };
+//             Self::next_phase(&players, phase, comm);
+//         }
+
+//         fn handle_action(
+//             players: &mut Players<U>,
+//             actions: &mut Actions,
+//             raw_actor: Actor<U>,
+//             raw_target: Option<Target<U>>,
+//             comm: &Comm<U, S>,
+//         ) -> bool {
+//             match Self::validate_action(players, raw_actor, raw_target, comm) {
+//                 Err(err) => {
+//                     // Handle error response
+//                     comm.tx(Event::InvalidCommand);
+//                     false
+//                 }
+//                 Ok((actor, target)) => {
+//                     Self::accept_action(actions, actor, target, comm);
+//                     Self::check_dawn(players, actions, comm)
+//                 }
+//             }
+//         }
+
+//         fn validate_action(
+//             players: &Players<U>,
+//             raw_actor: Actor<U>,
+//             raw_target: Option<Target<U>>,
+//             comm: &Comm<U, S>,
+//         ) -> Result<(Actor<Pidx>, Option<Target<Pidx>>), ValidationErr> {
+//             let actor = match raw_actor {
+//                 Actor::Player(raw_pid) => Actor::Player(Self::check_player(players, &raw_pid)?),
+//                 Actor::Mafia(raw_pid) => Actor::Mafia(Self::check_player(players, &raw_pid)?),
+//             };
+//             let target = match raw_target {
+//                 Some(Target::Player(raw_pid)) => {
+//                     Some(Target::Player(Self::check_player(players, &raw_pid)?))
+//                 }
+//                 Some(Target::NoTarget) => Some(Target::NoTarget),
+
+//                 None | Some(Target::Blocked) => None,
+//             };
+//             Ok((actor, target))
+//         }
+
+//         fn accept_action(
+//             actions: &mut Actions,
+//             actor: Actor<Pidx>,
+//             target: Option<Target<Pidx>>,
+//             comm: &Comm<U, S>,
+//         ) {
+//             // TODO: Role Check? Goon -> Target::Blocked?
+//             let former = actions
+//                 .iter()
+//                 .position(|(a, _)| a.overlaps(&actor))
+//                 .map(|i| actions.remove(i));
+//             if let Some(target) = target {
+//                 println!("Player {} acts on {:?}", actor, target);
+//                 comm.tx(Event::Action {
+//                     actor,
+//                     target: Some(target),
+//                 });
+//                 actions.push((actor, target));
+//             }
+//         }
+
+//         fn check_dawn(players: &Players<U>, actions: &Actions, comm: &Comm<U, S>) -> bool {
+//             // Check that all possible actors have acted
+//             let actors = players
+//                 .iter()
+//                 .enumerate()
+//                 .filter(|(_, p)| p.role.has_night_action())
+//                 .map(|(i, _)| Actor::Player(i))
+//                 .chain([Actor::Mafia(0)])
+//                 .collect::<Vec<_>>();
+
+//             // For all actors, check that they have acted, or if Mafia, that at least one has acted
+//             for actor in actors {
+//                 match actor {
+//                     Actor::Player(pid) => {
+//                         if actions.iter().find(|(a, _)| a == &actor).is_none() {
+//                             return false;
+//                         }
+//                     }
+//                     Actor::Mafia(_) => {
+//                         if actions.iter().find(|(a, _)| a.is_mafia()).is_none() {
+//                             return false;
+//                         }
+//                     }
+//                 }
+//             }
+//             true
+//         }
+
+//         fn handle_dawn(
+//             players: &Players<U>,
+//             actions: &mut Actions,
+//             comm: &Comm<U, S>,
+//         ) -> Option<Pidx> {
+//             comm.tx(Event::Dawn);
+//             // Strip
+//             Self::get_players_that(players, |(_, p)| p.role == Role::STRIPPER)
+//                 .for_each(|(stripped, _)| Self::strip(actions, stripped, comm));
+
+//             Self::get_players_that(players, |(_, p)| p.role == Role::DOCTOR)
+//                 .for_each(|(saved, _)| Self::save(actions, saved, comm));
+
+//             let cops = Self::get_players_that(players, |(_, p)| p.role == Role::COP);
+//             for (cop, _) in cops {
+//                 let suspect = actions
+//                     .iter()
+//                     .find(|(a, _)| a.is_player(cop))
+//                     .map(|(_, t)| t);
+//                 if let Some(Target::Player(suspect)) = suspect {
+//                     Self::investigate(cop, *suspect, players, comm)
+//                 }
+//             }
+
+//             let kill = actions.iter().find(|(a, _)| a.is_mafia());
+//             match kill {
+//                 Some((a, Target::Player(victim))) => {
+//                     comm.tx(Event::Kill);
+//                     Some(*victim)
+//                 }
+//                 _ => None,
+//             }
+//         }
+
+//         fn eliminate(players: &mut Players<U>, phase: &mut Phase, victim: Pidx, comm: &Comm<U, S>) {
+//             comm.tx(Event::Eliminate { player: victim });
+//             println!("Eliminating player {}", victim);
+//             players.remove(victim);
+//             phase.clear();
+//             match Self::check_win(players, &comm) {
+//                 None => {}
+//                 Some(winner) => {
+//                     *phase = Phase::End(Winner::Team(winner));
+//                 }
+//             }
+//         }
+
+//         fn next_phase(players: &Players<U>, phase: &mut Phase, comm: &Comm<U, S>) {
+//             match phase {
+//                 Phase::Init => {
+//                     // TODO: set phase based on rules
+//                     *phase = Phase::Day {
+//                         day_no: 1,
+//                         votes: Vec::new(),
+//                     };
+//                 }
+//                 Phase::Day { day_no, .. } => {
+//                     println!("Day {} ends", day_no);
+//                     *phase = Phase::Night {
+//                         night_no: *day_no,
+//                         actions: Vec::new(),
+//                     };
+//                 }
+//                 Phase::Night { night_no, .. } => {
+//                     println!("Night {} ends", night_no);
+//                     *phase = Phase::Day {
+//                         day_no: *night_no + 1,
+//                         votes: Vec::new(),
+//                     };
+//                 }
+//                 _ => {}
+//             };
+//             match phase {
+//                 Phase::Day { .. } => {
+//                     comm.tx(Event::Day);
+//                 }
+//                 Phase::Night { .. } => {
+//                     comm.tx(Event::Night);
+//                 }
+//                 Phase::End(_) => {
+//                     comm.tx(Event::End);
+//                 }
+//                 Phase::Init => {
+//                     panic!("Shouldn't ever next phase into Init")
+//                 }
+//             };
+//         }
+
+//         fn check_win(players: &Players<U>, comm: &Comm<U, S>) -> Option<Team> {
+//             let n_players = players.len();
+//             let n_mafia = players
+//                 .iter()
+//                 .filter(|p| p.role.team() == Team::Mafia)
+//                 .count();
+//             let result = match 0 {
+//                 _ if n_mafia == 0 => Some(Team::Town),
+//                 _ if n_players <= n_mafia * 2 => Some(Team::Mafia),
+//                 _ => None,
+//             };
+//             if result.is_some() {
+//                 comm.tx(Event::Win);
+//             }
+//             println!("Win condition: {:?}", result);
+//             result
+//         }
+
+//         fn strip(actions: &mut Actions, stripped: Pidx, comm: &Comm<U, S>) {
+//             for (actor, target) in actions {
+//                 if actor == &Actor::Player(stripped) {
+//                     *target = Target::Blocked;
+
+//                     comm.tx(Event::Strip);
+//                 }
+//             }
+//         }
+
+//         fn save(actions: &mut Actions, saved: Pidx, comm: &Comm<U, S>) {
+//             for (actor, target) in actions {
+//                 if let Actor::Mafia(_) = actor {
+//                     *target = match target {
+//                         Target::Player(pid) if *pid == saved => Target::Blocked,
+//                         _ => *target,
+//                     };
+
+//                     comm.tx(Event::Save);
+//                 }
+//             }
+//         }
+
+//         fn investigate(cop: Pidx, suspect: Pidx, players: &Players<U>, comm: &Comm<U, S>) {
+//             let is_mafia = players[suspect].role.investigate_mafia();
+
+//             comm.tx(Event::Investigate);
+//             // println!("Cop {:?} investigates {:?} and finds {:?}", cop, suspect, is_mafia);
+//         }
+//     }
+// }
+
+// mod test {
+//     use super::error::*;
+//     use super::game::*;
+//     use super::interface::*;
+//     use super::role::*;
+//     use std::sync::mpsc;
+//     use std::thread;
+//     use std::time::Duration;
+
+//     #[test]
+//     fn minimal() {
+//         impl RawPID for u64 {}
+//         impl Source for String {}
+//     }
+// }
