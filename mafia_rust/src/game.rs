@@ -147,35 +147,41 @@ impl<U: RawPID + 'static, S: 'static + Source> Game<U, S> {
 }
 
 impl<U: RawPID, S: Source> Game<U, S> {
+    /// Run the game thread until it returns
+    fn run(mut self) -> Self {
+        self.game_thread()
+    }
+
     fn game_thread(mut self) -> Self {
         loop {
-            match self.phase {
-                Phase::Init => {}
+            let result = match self.phase {
+                Phase::Init => Err(()),
                 Phase::Day { .. } => self.handle_day(),
                 Phase::Night { .. } => self.handle_night(),
-                Phase::End(_) => {
-                    self.comm.tx(Event::End);
-                    break;
-                }
-            }
+                Phase::End(_) => Err(()), // What to do in end state?
+            };
             if let SaveStrategy::PerChange(fname) = &self.comm.save {
                 self.save_game(fname).expect("Saving game should work");
             };
+
+            if let Err(_) = result {
+                break;
+            }
         }
         self
     }
 
-    fn handle_day(&mut self) {
-        let cmd = self.comm.rx();
-        match cmd {
+    fn handle_day(&mut self) -> Result<(), ()> {
+        match self.comm.rx() {
             Command::Vote(v, b) => self.handle_vote(v, b),
-            Command::End => self.phase = Phase::End(Winner::None),
+            Command::Halt => return Err(()),
             _ => {
                 self.comm.tx(Event::InvalidCommand(
                     "Invalid command for Day Phase".to_string(),
                 ));
             }
-        }
+        };
+        Ok(())
     }
 
     fn handle_vote(&mut self, v: U, b: Ballot<U>) {
@@ -270,16 +276,20 @@ impl<U: RawPID, S: Source> Game<U, S> {
             _ => {}
         }
         self.next_phase(Phase::new_night(day_no + 1));
-        self.phase = Phase::new_night(day_no + 1);
     }
 
-    fn handle_night(&mut self) {
+    fn handle_night(&mut self) -> Result<(), ()> {
         let cmd = self.comm.rx();
         match cmd {
             Command::Action(a, t) => self.handle_action(a, t),
-            Command::End => self.phase = Phase::End(Winner::None),
-            _ => {}
-        }
+            Command::Halt => return Err(()),
+            _ => {
+                self.comm.tx(Event::InvalidCommand(
+                    "Invalid command for Night Phase".to_string(),
+                ));
+            }
+        };
+        Ok(())
     }
 
     fn handle_action(&mut self, a: Actor<U>, t: Target<U>) {
@@ -398,8 +408,7 @@ impl<U: RawPID, S: Source> Game<U, S> {
         } else {
             self.comm.tx(Event::NoKill);
         }
-
-        self.phase = Phase::new_day(night_no + 1);
+        self.next_phase(Phase::new_day(night_no + 1));
     }
 
     fn strip(actions: &mut Actions, stripper: Pidx, comm: &Comm<U, S>) {
@@ -465,11 +474,22 @@ impl<U: RawPID, S: Source> Game<U, S> {
         // all Pidxs are now invalid...
         self.phase.clear();
 
-        return self.check_team_win();
+        let winner = self.check_team_numbers();
+        if let Some(winner) = winner {
+            self.next_phase(Phase::End(winner));
+        }
+        winner
     }
 
     fn next_phase(&mut self, next_phase: Phase) {
         self.phase = next_phase;
+
+        match self.phase {
+            Phase::Night { night_no, .. } => self.comm.tx(Event::Night { night_no }),
+            Phase::Day { day_no, .. } => self.comm.tx(Event::Day { day_no }),
+            Phase::End(winner) => self.comm.tx(Event::End { winner }),
+            _ => panic!("Should never go to Init Phase!"),
+        }
 
         if let SaveStrategy::PerPhase(fname) = &self.comm.save {
             self.save_game(fname).expect("Saving game should work");
@@ -490,15 +510,5 @@ impl<U: RawPID, S: Source> Game<U, S> {
             _ if n_mafia > (n_players - 1) / 2 => Some(Winner::Team(Team::Mafia)),
             _ => None,
         }
-    }
-
-    fn check_team_win(&mut self) -> Option<Winner> {
-        let winner = self.check_team_numbers();
-
-        if let Some(winner) = winner {
-            self.comm.tx(Event::Win { winner });
-            self.phase = Phase::End(winner);
-        }
-        winner
     }
 }

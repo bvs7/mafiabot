@@ -182,8 +182,8 @@ fn get_std_events() -> HashMap<String, Event<u64>> {
     map.insert("Eliminate".to_string(), Event::Eliminate { player: 0 });
 
     map.insert(
-        "Win".to_string(),
-        Event::Win {
+        "End".to_string(),
+        Event::End {
             winner: Winner::Team(Team::Town),
         },
     );
@@ -482,6 +482,94 @@ fn handle_day() {
     ];
 
     cmp_events(&found, &expected).expect("Votes should trigger invalid command");
+}
+
+/*
+Player::new(1u64, "p1", Role::TOWN),
+Player::new(2, "p2", Role::COP),
+Player::new(3, "p3", Role::MAFIA),
+Player::new(4, "p4", Role::DOCTOR),
+Player::new(5, "p5", Role::CELEB),
+Player::new(6, "p6", Role::MILLER),
+Player::new(7, "p7", Role::GODFATHER),
+ */
+
+#[test]
+fn handle_night() {
+    let (tx, comm, mut rx) = get_std_comm();
+    let mut game = Game {
+        players: get_std_players(7),
+        comm,
+        phase: Phase::Init,
+    };
+
+    game.phase = Phase::new_night(1);
+
+    tx.send(action_req(2, 7)).unwrap();
+    delay(10);
+    game.handle_night();
+    assert_eq!(
+        game.phase,
+        Phase::Night {
+            night_no: 1,
+            actions: vec![(Actor::Player(1), Target::Player(6))]
+        }
+    );
+
+    tx.send(action_req(4, 4)).unwrap();
+    game.handle_night();
+    assert_eq!(
+        game.phase,
+        Phase::Night {
+            night_no: 1,
+            actions: vec![
+                (Actor::Player(1), Target::Player(6)),
+                (Actor::Player(3), Target::Player(3))
+            ]
+        }
+    );
+
+    tx.send(mafia_action_req(7, 4)).unwrap();
+    game.handle_night();
+    assert_eq!(
+        game.phase,
+        Phase::Day {
+            day_no: 2,
+            votes: vec![]
+        }
+    );
+
+    empty_resp(&mut rx);
+
+    game.phase = Phase::new_night(2);
+
+    // Handle invalid actions
+    tx.send(action_req(1, 2)).unwrap();
+    game.handle_night();
+    tx.send(action_req(100, 2)).unwrap();
+    game.handle_night();
+    tx.send(action_req(2, 100)).unwrap();
+    game.handle_night();
+    tx.send(mafia_action_req(1, 2)).unwrap();
+    game.handle_night();
+    tx.send(mafia_action_req(3, 0)).unwrap();
+    game.handle_night();
+    tx.send(vote_req(2, 1)).unwrap();
+    game.handle_night();
+
+    let inv = Event::InvalidCommand("".to_string());
+
+    let found = empty_resp(&mut rx);
+    let expected = vec![
+        CmpResp::SameEventType(&inv),
+        CmpResp::SameEventType(&inv),
+        CmpResp::SameEventType(&inv),
+        CmpResp::SameEventType(&inv),
+        CmpResp::SameEventType(&inv),
+        CmpResp::SameEventType(&inv),
+    ];
+
+    cmp_events(&found, &expected).expect("Actions should trigger invalid command");
 }
 
 #[test]

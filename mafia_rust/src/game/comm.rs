@@ -31,7 +31,7 @@ pub struct Request<U: RawPID, S: Source> {
 pub enum Command<U: RawPID> {
     Vote(U, Ballot<U>),
     Action(Actor<U>, Target<U>),
-    End,
+    Halt,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -47,7 +47,9 @@ pub enum Event<U: RawPID> {
         players: Vec<Player<U>>,
         phase: Phase,
     },
-    Day,
+    Day {
+        day_no: usize,
+    },
     Vote {
         voter: Pidx,
         ballot: Ballot<Pidx>,
@@ -63,7 +65,9 @@ pub enum Event<U: RawPID> {
         electors: Vec<Pidx>,
         ballot: Ballot<Pidx>,
     },
-    Night,
+    Night {
+        night_no: usize,
+    },
     Action {
         actor: Actor<Pidx>,
         target: Target<Pidx>,
@@ -90,10 +94,10 @@ pub enum Event<U: RawPID> {
     Eliminate {
         player: Pidx,
     },
-    Win {
+    Halt,
+    End {
         winner: Winner,
     },
-    End,
     InvalidCommand(String),
 }
 
@@ -102,11 +106,11 @@ impl<U: RawPID> Event<U> {
         match (self, other) {
             (Event::Init, Event::Init) => true,
             (Event::Start { .. }, Event::Start { .. }) => true,
-            (Event::Day, Event::Day) => true,
+            (Event::Day { .. }, Event::Day { .. }) => true,
             (Event::Vote { .. }, Event::Vote { .. }) => true,
             (Event::RetractVote { .. }, Event::RetractVote { .. }) => true,
             (Event::Election { .. }, Event::Election { .. }) => true,
-            (Event::Night, Event::Night) => true,
+            (Event::Night { .. }, Event::Night { .. }) => true,
             (Event::Action { .. }, Event::Action { .. }) => true,
             (Event::Dawn, Event::Dawn) => true,
             (Event::Strip { .. }, Event::Strip { .. }) => true,
@@ -115,8 +119,7 @@ impl<U: RawPID> Event<U> {
             (Event::Kill { .. }, Event::Kill { .. }) => true,
             (Event::NoKill, Event::NoKill) => true,
             (Event::Eliminate { .. }, Event::Eliminate { .. }) => true,
-            (Event::Win { .. }, Event::Win { .. }) => true,
-            (Event::End, Event::End) => true,
+            (Event::End { .. }, Event::End { .. }) => true,
             (Event::InvalidCommand(_), Event::InvalidCommand(_)) => true,
             _ => false,
         }
@@ -157,7 +160,7 @@ impl<U: RawPID, S: Source> Comm<U, S> {
         }
     }
     pub fn tx(&self, event: Event<U>) {
-        // println!("Sending event: {:?}", event);
+        println!("Game sending event: {:?}", event);
         let resp = Response {
             event,
             src: self.src.clone(),
