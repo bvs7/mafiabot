@@ -30,20 +30,20 @@ pub enum Phase {
 }
 
 impl Phase {
-    pub fn clear(&mut self) {
+    fn clear(&mut self) {
         match self {
             Phase::Day { votes, .. } => votes.clear(),
             Phase::Night { actions, .. } => actions.clear(),
             _ => {}
         }
     }
-    pub fn new_day(day_no: usize) -> Self {
+    fn new_day(day_no: usize) -> Self {
         Self::Day {
             day_no,
             votes: Vec::new(),
         }
     }
-    pub fn new_night(night_no: usize) -> Self {
+    fn new_night(night_no: usize) -> Self {
         Self::Night {
             night_no,
             actions: Vec::new(),
@@ -147,34 +147,39 @@ impl<U: RawPID + 'static, S: 'static + Source> Game<U, S> {
 }
 
 impl<U: RawPID, S: Source> Game<U, S> {
-    /// Run the game thread until it returns
-    fn run(mut self) -> Self {
-        self.game_thread()
+    /// Handle a command from players on the game.
+    pub fn handle(&mut self, cmd: Command<U>) -> (Phase, Result<(), ()>) {
+        if let Command::Halt = cmd {
+            return (self.phase.clone(), Err(()));
+        }
+
+        let result = match self.phase {
+            Phase::Init => Err(()),
+            Phase::Day { .. } => self.handle_day(cmd),
+            Phase::Night { .. } => self.handle_night(cmd),
+            Phase::End(_) => Err(()), // What to do in end state?
+        };
+        if let SaveStrategy::PerChange(fname) = &self.comm.save {
+            self.save_game(fname).expect("Saving game should work");
+        };
+
+        return (self.phase.clone(), result);
     }
 
     fn game_thread(mut self) -> Self {
         loop {
-            let result = match self.phase {
-                Phase::Init => Err(()),
-                Phase::Day { .. } => self.handle_day(),
-                Phase::Night { .. } => self.handle_night(),
-                Phase::End(_) => Err(()), // What to do in end state?
-            };
-            if let SaveStrategy::PerChange(fname) = &self.comm.save {
-                self.save_game(fname).expect("Saving game should work");
-            };
-
-            if let Err(_) = result {
-                break;
+            let cmd = self.comm.rx();
+            match self.handle(cmd) {
+                (_, Err(())) => break,
+                _ => {}
             }
         }
         self
     }
 
-    fn handle_day(&mut self) -> Result<(), ()> {
-        match self.comm.rx() {
+    fn handle_day(&mut self, cmd: Command<U>) -> Result<(), ()> {
+        match cmd {
             Command::Vote(v, b) => self.handle_vote(v, b),
-            Command::Halt => return Err(()),
             _ => {
                 self.comm.tx(Event::InvalidCommand(
                     "Invalid command for Day Phase".to_string(),
@@ -278,11 +283,9 @@ impl<U: RawPID, S: Source> Game<U, S> {
         self.next_phase(Phase::new_night(day_no + 1));
     }
 
-    fn handle_night(&mut self) -> Result<(), ()> {
-        let cmd = self.comm.rx();
+    fn handle_night(&mut self, cmd: Command<U>) -> Result<(), ()> {
         match cmd {
             Command::Action(a, t) => self.handle_action(a, t),
-            Command::Halt => return Err(()),
             _ => {
                 self.comm.tx(Event::InvalidCommand(
                     "Invalid command for Night Phase".to_string(),

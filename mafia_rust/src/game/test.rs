@@ -400,7 +400,7 @@ fn start() -> Result<(), ()> {
     let game = game.start().expect("Should be join handle if game starts");
     delay(500);
     tx.send(Request {
-        cmd: Command::End,
+        cmd: Command::Halt,
         src: String::default(),
     })
     .unwrap();
@@ -620,7 +620,7 @@ fn try_cmp_events() -> Result<(), ()> {
     assert!(result.is_ok());
 
     expected.push(CmpResp::Wildcard);
-    expected.push(CmpResp::SameEventType(&Event::Night));
+    expected.push(CmpResp::SameEventType(&Event::Night { night_no: 1 }));
 
     assert!(result.is_ok());
 
