@@ -68,7 +68,6 @@ No Game thread!
 ## TODO!
 - Make events push Players, not just Pidx.
 - Mutex for game? If commands aren't coming through a channel, we need to worry about concurrency from a server.
-- Blocking celebs? How to handle when Pidx invalidates? Probably put in night phase, then pass to day somehow
 
 ## Game Core
 
