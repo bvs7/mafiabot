@@ -1,3 +1,4 @@
+/*
 use std::collections::HashMap;
 use std::slice::Iter;
 use std::sync::mpsc;
@@ -640,3 +641,4 @@ fn try_cmp_events() -> Result<(), ()> {
 
     Ok(())
 }
+*/

@@ -4,8 +4,10 @@ use std::{
     sync::mpsc::{Receiver, Sender},
 };
 
-use super::player::{Actor, Ballot, Election, Pidx, Player, RawPID, Role, Target, Winner};
-use super::Phase;
+use super::{
+    player::{Pidx, Player, RawPID, Role, Target, Winner},
+    PhaseKind,
+};
 
 // A generic way to store the game?
 #[derive(Default, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -28,10 +30,32 @@ pub struct Request<U: RawPID, S: Source> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CommandKind {
+    Vote,
+    Retract,
+    Reveal,
+    Target,
+    Mark,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Command<U: RawPID> {
-    Vote(U, Ballot<U>),
-    Action(Actor<U>, Target<U>),
-    Halt,
+    Vote { voter: U, ballot: Target<U> },
+    Retract { voter: U },
+    Reveal { celeb: U },
+    Target { actor: U, target: Target<U> },
+    Mark { killer: U, mark: Target<U> },
+}
+impl<U: RawPID> Command<U> {
+    pub fn kind(&self) -> CommandKind {
+        match self {
+            Command::Vote { .. } => CommandKind::Vote,
+            Command::Retract { .. } => CommandKind::Retract,
+            Command::Reveal { .. } => CommandKind::Reveal,
+            Command::Target { .. } => CommandKind::Target,
+            Command::Mark { .. } => CommandKind::Mark,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -45,37 +69,47 @@ pub enum Event<U: RawPID> {
     Init,
     Start {
         players: Vec<Player<U>>,
-        phase: Phase,
+        phase: PhaseKind,
     },
     Day {
         day_no: usize,
     },
     Vote {
         voter: Pidx,
-        ballot: Ballot<Pidx>,
-        former: Option<Ballot<Pidx>>,
+        ballot: Target<Pidx>,
+        former: Option<Target<Pidx>>,
         threshold: usize,
         count: usize,
     },
-    RetractVote {
+    Retract {
         voter: Pidx,
-        former: Option<Ballot<Pidx>>,
+        former: Option<Target<Pidx>>,
+    },
+    Reveal {
+        celeb: Pidx,
     },
     Election {
         electors: Vec<Pidx>,
-        ballot: Ballot<Pidx>,
+        ballot: Target<Pidx>,
     },
     Night {
         night_no: usize,
     },
-    Action {
-        actor: Actor<Pidx>,
+    Target {
+        actor: Pidx,
         target: Target<Pidx>,
+    },
+    Mark {
+        actor: Pidx,
+        mark: Target<Pidx>,
     },
     Dawn,
     Strip {
         stripper: Pidx,
         stripped: Pidx,
+    },
+    Block {
+        blocked: Pidx,
     },
     Save {
         doctor: Pidx,
@@ -84,11 +118,11 @@ pub enum Event<U: RawPID> {
     Investigate {
         cop: Pidx,
         suspect: Pidx,
-        role: Role<U>,
+        role: Role,
     },
     Kill {
         killer: Pidx,
-        victim: Pidx,
+        mark: Pidx,
     },
     NoKill,
     Eliminate {
@@ -98,32 +132,6 @@ pub enum Event<U: RawPID> {
     End {
         winner: Winner,
     },
-    InvalidCommand(String),
-}
-
-impl<U: RawPID> Event<U> {
-    pub fn is_same_type(&self, other: &Event<U>) -> bool {
-        match (self, other) {
-            (Event::Init, Event::Init) => true,
-            (Event::Start { .. }, Event::Start { .. }) => true,
-            (Event::Day { .. }, Event::Day { .. }) => true,
-            (Event::Vote { .. }, Event::Vote { .. }) => true,
-            (Event::RetractVote { .. }, Event::RetractVote { .. }) => true,
-            (Event::Election { .. }, Event::Election { .. }) => true,
-            (Event::Night { .. }, Event::Night { .. }) => true,
-            (Event::Action { .. }, Event::Action { .. }) => true,
-            (Event::Dawn, Event::Dawn) => true,
-            (Event::Strip { .. }, Event::Strip { .. }) => true,
-            (Event::Save { .. }, Event::Save { .. }) => true,
-            (Event::Investigate { .. }, Event::Investigate { .. }) => true,
-            (Event::Kill { .. }, Event::Kill { .. }) => true,
-            (Event::NoKill, Event::NoKill) => true,
-            (Event::Eliminate { .. }, Event::Eliminate { .. }) => true,
-            (Event::End { .. }, Event::End { .. }) => true,
-            (Event::InvalidCommand(_), Event::InvalidCommand(_)) => true,
-            _ => false,
-        }
-    }
 }
 
 #[derive(Debug)]
@@ -165,9 +173,8 @@ impl<U: RawPID, S: Source> Comm<U, S> {
             event,
             src: self.src.clone(),
         };
-        match self.tx.send(resp) {
-            Err(err) => println!("Error: {:?}", err),
-            Ok(_) => {}
+        if let Err(e) = self.tx.send(resp) {
+            println!("Error: {:?}", e);
         }
     }
 }
