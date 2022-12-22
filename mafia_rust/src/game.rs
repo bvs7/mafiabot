@@ -2,9 +2,10 @@ pub mod player;
 
 pub mod comm;
 
-mod test;
+mod core_test;
 
 use serde::Serialize;
+use std::collections::HashMap;
 use std::fmt::{Debug, Display};
 use std::fs::File;
 use std::sync::mpsc::Receiver;
@@ -79,14 +80,16 @@ impl Display for PhaseKind {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Day {
     day_no: usize,
-    votes: Vec<Action<Pidx>>,
+    votes: Votes,
+    blocked: Vec<Pidx>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Night {
     night_no: usize,
-    targets: Vec<Action<Pidx>>,
+    targets: Targets,
     scheme: Option<Action<Pidx>>,
+    blocked: Vec<Pidx>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize /*Deserialize*/)]
@@ -98,41 +101,26 @@ pub enum Phase {
 }
 
 impl Phase {
-<<<<<<< HEAD
-    fn clear(&mut self) {
-        match self {
-            Phase::Day { votes, .. } => votes.clear(),
-            Phase::Night { actions, .. } => actions.clear(),
-            _ => {}
-        }
-    }
-    fn new_day(day_no: usize) -> Self {
-        Self::Day {
-=======
     pub fn clear(&mut self) {
         match &self {
-            Phase::Day(Day { day_no, .. }) => *self = Phase::new_day(*day_no),
+            Phase::Day(Day { day_no, .. }) => *self = Phase::new_day(*day_no, Vec::new()),
             Phase::Night(Night { night_no, .. }) => *self = Phase::new_night(*night_no),
             _ => {}
         }
     }
-    pub fn new_day(day_no: usize) -> Self {
+    pub fn new_day(day_no: usize, blocked: Vec<Pidx>) -> Self {
         Self::Day(Day {
->>>>>>> 2f6c183ad9d6ff60de4f31c4b304b7203153500d
             day_no,
             votes: Vec::new(),
+            blocked,
         })
     }
-<<<<<<< HEAD
-    fn new_night(night_no: usize) -> Self {
-        Self::Night {
-=======
     pub fn new_night(night_no: usize) -> Self {
         Self::Night(Night {
->>>>>>> 2f6c183ad9d6ff60de4f31c4b304b7203153500d
             night_no,
             targets: Vec::new(),
             scheme: None,
+            blocked: Vec::new(),
         })
     }
     pub fn kind(&self) -> PhaseKind {
@@ -168,16 +156,25 @@ impl Display for Phase {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Phase::Init => write!(f, "Init"),
-            Phase::Day(Day { day_no, votes }) => write!(f, "Day {} (votes: {:?})", day_no, votes),
+            Phase::Day(Day {
+                day_no,
+                votes,
+                blocked,
+            }) => write!(
+                f,
+                "Day {} (votes: {:?}, blocked: {:?})",
+                day_no, votes, blocked
+            ),
             Phase::Night(Night {
                 night_no,
                 targets,
                 scheme,
+                blocked,
             }) => {
                 write!(
                     f,
-                    "Night {} (targets: {:?}, scheme: {:?}",
-                    night_no, targets, scheme
+                    "Night {} (targets: {:?}, scheme: {:?}, blocked: {:?})",
+                    night_no, targets, scheme, blocked
                 )
             }
             Phase::End(winner) => write!(f, "End: {}", winner),
@@ -262,7 +259,7 @@ impl<U: RawPID, S: Source> Game<U, S> {
         }
         let next_phase = match self.players.len() % 2 == 0 {
             true => Phase::new_night(1),
-            false => Phase::new_day(1),
+            false => Phase::new_day(1, Vec::new()),
         };
         self.comm.tx(Event::Start {
             players: self.players.clone(),
@@ -272,47 +269,6 @@ impl<U: RawPID, S: Source> Game<U, S> {
         Ok(())
     }
 
-<<<<<<< HEAD
-impl<U: RawPID, S: Source> Game<U, S> {
-    /// Handle a command from players on the game.
-    pub fn handle(&mut self, cmd: Command<U>) -> (Phase, Result<(), ()>) {
-        if let Command::Halt = cmd {
-            return (self.phase.clone(), Err(()));
-        }
-
-        let result = match self.phase {
-            Phase::Init => Err(()),
-            Phase::Day { .. } => self.handle_day(cmd),
-            Phase::Night { .. } => self.handle_night(cmd),
-            Phase::End(_) => Err(()), // What to do in end state?
-        };
-        if let SaveStrategy::PerChange(fname) = &self.comm.save {
-            self.save_game(fname).expect("Saving game should work");
-        };
-
-        return (self.phase.clone(), result);
-    }
-
-    fn game_thread(mut self) -> Self {
-        loop {
-            let cmd = self.comm.rx();
-            match self.handle(cmd) {
-                (_, Err(())) => break,
-                _ => {}
-            }
-        }
-        self
-    }
-
-    fn handle_day(&mut self, cmd: Command<U>) -> Result<(), ()> {
-        match cmd {
-            Command::Vote(v, b) => self.handle_vote(v, b),
-            _ => {
-                self.comm.tx(Event::InvalidCommand(
-                    "Invalid command for Day Phase".to_string(),
-                ));
-            }
-=======
     // fn game_thread(game_mutex: &Mutex<Self>, rx: Receiver<Request<U, S>>) {
     //     loop {
     //         let req = rx.recv().unwrap();
@@ -339,14 +295,12 @@ impl<U: RawPID, S: Source> Game<U, S> {
         result
     }
 
-    fn handle_vote(&mut self, v: U, b: Target<U>) -> Result<(), Error<U>> {
+    fn handle_vote(&mut self, v: U, b: Choice<U>) -> Result<(), Error<U>> {
         self.phase.is_day()?;
         let voter = self.check_player(v)?;
         let ballot = match b {
-            Target::Player(p) => Target::Player(self.check_player(p)?),
-            Target::Abstain => Target::Abstain,
-            Target::Blocked => Target::Blocked, // TODO: Err?
->>>>>>> 2f6c183ad9d6ff60de4f31c4b304b7203153500d
+            Choice::Player(p) => Choice::Player(self.check_player(p)?),
+            Choice::Abstain => Choice::Abstain,
         };
 
         // accept vote?
@@ -383,46 +337,76 @@ impl<U: RawPID, S: Source> Game<U, S> {
                 command: CommandKind::Reveal,
             });
         }
+        let day = self.phase.is_day::<U>().expect("Already checked");
+        if day.blocked.contains(&celeb) {
+            self.comm.tx(Event::Block { blocked: celeb });
+            return Ok(());
+        }
         self.comm.tx(Event::Reveal { celeb });
         Ok(())
     }
 
-    fn handle_target(&mut self, a: U, t: Target<U>) -> Result<(), Error<U>> {
+    fn handle_target(&mut self, a: U, t: Choice<U>) -> Result<(), Error<U>> {
         self.phase.is_night()?;
         let actor = self.check_player(a)?;
         let target = match t {
-            Target::Player(p) => Target::Player(self.check_player(p)?),
-            Target::Abstain => Target::Abstain,
-            Target::Blocked => Target::Blocked, // TODO: Err?
+            Choice::Player(p) => Choice::Player(self.check_player(p)?),
+            Choice::Abstain => Choice::Abstain,
         };
 
+        let role = self.players[actor].role;
+
+        self.accept_target(actor, target, role);
         // accept action
-        if self.accept_target(actor, target).is_some() {
+        if self.check_dawn().is_some() {
             self.resolve_dawn();
         }
         Ok(())
     }
 
-    fn handle_mark(&mut self, killer: U, mark: Target<U>) -> Result<(), Error<U>> {
+    fn handle_mark(&mut self, killer: U, mark: Choice<U>) -> Result<(), Error<U>> {
         self.phase.is_night()?;
         let killer = self.check_player(killer)?;
-        let mark = match mark {
-            Target::Player(p) => Target::Player(self.check_player(p)?),
-            Target::Abstain => Target::Abstain,
-            Target::Blocked => Target::Blocked, // TODO: Err?
+        let mut mark = match mark {
+            Choice::Player(p) => Choice::Player(self.check_player(p)?),
+            Choice::Abstain => Choice::Abstain,
         };
-        if self.players[killer].role.team() != Team::Mafia {
-            return Err(Error::InvalidRole {
-                role: self.players[killer].role,
-                command: CommandKind::Mark,
-            });
+        let role = self.players[killer].role;
+        let night = self.phase.is_night()?;
+        match role {
+            Role::GOON => {
+                mark = Choice::Abstain;
+            }
+            Role::STRIPPER => {
+                if let Choice::Player(_) = mark {
+                    for (actor, target, role) in &mut night.targets {
+                        if *actor == killer {
+                            *target = Choice::Abstain;
+                        }
+                    }
+                }
+            }
+            _ if role.team() == Team::Mafia => {}
+            _ => {
+                return Err(Error::InvalidRole {
+                    role,
+                    command: CommandKind::Mark,
+                })
+            }
         }
         let night = self.phase.is_night::<U>().expect("Already checked");
         night.scheme = Some((killer, mark));
+
+        self.comm.tx(Event::Mark { killer, mark });
+
+        if self.check_dawn().is_some() {
+            self.resolve_dawn();
+        }
+
         Ok(())
     }
 
-    fn accept_vote(&mut self, voter: Pidx, ballot: Target<Pidx>) -> Option<Election> {
+    fn accept_vote(&mut self, voter: Pidx, ballot: Choice<Pidx>) -> Option<Election> {
         let day = self.phase.is_day::<U>().expect("Already checked phase");
 
         let former = day
@@ -436,7 +420,7 @@ impl<U: RawPID, S: Source> Game<U, S> {
 
         let n_players = self.players.len();
         let threshold = match ballot {
-            Target::Player(_) => n_players / 2 + 1,
+            Choice::Player(_) => n_players / 2 + 1,
             _ => (n_players + 1) / 2,
         };
 
@@ -472,154 +456,160 @@ impl<U: RawPID, S: Source> Game<U, S> {
             ballot,
         });
 
-<<<<<<< HEAD
-    fn handle_night(&mut self, cmd: Command<U>) -> Result<(), ()> {
-        match cmd {
-            Command::Action(a, t) => self.handle_action(a, t),
-            _ => {
-                self.comm.tx(Event::InvalidCommand(
-                    "Invalid command for Night Phase".to_string(),
-                ));
-            }
-        };
-        Ok(())
-    }
-
-    fn handle_action(&mut self, a: Actor<U>, t: Target<U>) {
-        // Validate action
-        let (actor, target) = match self.validate_action(a, t) {
-            Ok((actor, target)) => (actor, target),
-            Err(e) => {
-                self.comm.tx(Event::InvalidCommand(e));
-=======
-        if let Target::Player(elected) = ballot {
+        if let Choice::Player(elected) = ballot {
             if self.eliminate(elected, hammer).is_some() {
                 // TODO figure out eliminate returns? As in, what if a team wins?
->>>>>>> 2f6c183ad9d6ff60de4f31c4b304b7203153500d
                 return;
             }
         }
         self.next_phase(Phase::new_night(day_no + 1));
     }
 
-    fn accept_target(&mut self, actor: Pidx, target: Target<Pidx>) -> Option<()> {
-        // Check for Goon
-        let target = match self.players[actor].role {
-            Role::GOON => Target::Abstain,
-            _ => target,
-        };
-
+    fn accept_target(&mut self, actor: Pidx, target: Choice<Pidx>, role: Role) {
         let night = self.phase.is_night::<U>().expect("Already checked phase");
-        self.comm.tx(Event::Target { actor, target });
-        night.targets.push((actor, target));
+        if role == Role::STRIPPER {
+            // Stripper can only target once
+            if let Some((killer, _)) = night.scheme {
+                if actor == killer {
+                    night.scheme = Some((killer, Choice::Abstain));
+                }
+            }
+        }
 
+        self.comm.tx(Event::Target { actor, target });
+        night.targets.push((actor, target, role));
+    }
+
+    fn check_dawn(&mut self) -> Option<()> {
+        let night = self.phase.is_night::<U>().expect("Already checked phase");
         let night_action_count =
             Self::get_players_that(&mut self.players, |(i, p)| p.role.targeting()).count();
-
         (night_action_count == night.targets.len() && night.scheme.is_some()).then(|| ())
     }
 
     fn resolve_dawn(&mut self) {
         self.comm.tx(Event::Dawn);
-        // Strip
+
         let night = self.phase.is_night::<U>().expect("Already checked phase");
 
-        // Handle Strips
-        for (stripper, target) in night.targets {
-            if self.players[stripper].role == Role::STRIPPER {
-                Self::strip(&mut night.targets, *stripper, *target);
-            }
-        }
+        let night_no = night.night_no;
 
-        // Handle Saves
-        // night
-        //     .targets
-        //     .iter()
-        //     .filter(|(actor, _)| self.players[*actor].role == Role::DOCTOR)
-        //     .for_each(|(doctor, target)| self.save(*doctor, *target));
-
-        // // Handle Investigations
-        // night
-        //     .targets
-        //     .iter()
-        //     .filter(|(actor, _)| self.players[*actor].role == Role::COP)
-        //     .for_each(|(cop, target)| self.investigate(*cop, *target));
-
-        // if let Some((killer, Target::Player(mark))) = night.scheme {
-        //     // (Copy to avoid borrow checker)
-        //     self.comm.tx(Event::Kill { killer, mark });
-        //     if self.eliminate(mark, killer).is_some() {
-        //         return;
-        //     }
-        // } else {
-        //     self.comm.tx(Event::NoKill);
-        // }
-        // self.next_phase(Phase::new_day(night.night_no + 1));
-    }
-
-    fn strip(&mut targets, stripper: Pidx, stripped: Target<Pidx>) {
-        let stripped = match stripped {
-            Target::Player(p) if self.players[p].role != Role::STRIPPER => p,
-            _ => return,
-        };
-
-        // Handle the case where stripper blocks mafia killer
-        match night.scheme {
-            Some((actor, mut target)) if actor == stripped => {
-                self.comm.tx(Event::Strip { stripper, stripped });
-                match target {
-                    Target::Player(_) | Target::Abstain => {
-                        self.comm.tx(Event::Block { blocked: stripped });
-                    }
-                    Target::Blocked => {}
-                }
-                target = Target::Blocked;
-                return;
-            }
-            _ => {}
-        }
-
-        let former = night
+        let mut targets: Vec<(Pidx, Pidx, Role)> = night
             .targets
             .iter()
-            .position(|(a, t)| *a == stripped)
-            .map(|i| night.targets.remove(i));
+            .filter_map(|(a, t, r)| t.is_player().map(|p| (*a, p, *r)))
+            .collect();
 
-        if let Some(action) = former {
-            self.comm.tx(Event::Strip { stripper, stripped });
-            match action {
-                (stripped, Target::Player(_)) | (stripped, Target::Abstain) => {
-                    self.comm.tx(Event::Block { blocked: stripped });
-                }
-                (stripped, Target::Blocked) => {}
+        let mut scheme = match &night.scheme {
+            Some((k, Choice::Player(p))) => Some((*k, *p)),
+            _ => None,
+        };
+        let blocked;
+        (targets, scheme, blocked) = self.resolve_strips(targets, scheme);
+
+        (targets, scheme) = self.resolve_saves(targets, scheme);
+
+        self.resolve_investigations(&targets);
+
+        let celebs: Vec<U> = blocked.iter().map(|p| self.players[*p].raw_pid).collect();
+
+        if let Some((killer, mark)) = scheme {
+            self.comm.tx(Event::Kill { killer, mark });
+            if self.eliminate(mark, killer).is_some() {
+                return;
             }
-            night.targets.push((stripped, Target::Blocked));
+        } else {
+            self.comm.tx(Event::NoKill);
         }
+        let blocked = celebs
+            .iter()
+            .filter_map(|c| self.check_player(*c).ok())
+            .collect();
+        self.next_phase(Phase::new_day(night_no + 1, blocked));
     }
 
-    fn save(&mut self, doctor: Pidx, patient: Target<Pidx>) {
-        let night = self.phase.is_night::<U>().expect("Already checked phase");
-        let saved = match patient {
-            Target::Player(p) => p,
-            _ => return,
-        };
-        if let Some((_, mut target)) = night.scheme {
-            if let Target::Player(mark) = target {
-                if mark == saved {
-                    self.comm.tx(Event::Save { doctor, saved });
-                    target = Target::Blocked;
-                }
+    fn resolve_strips(
+        &mut self,
+        mut targets: Vec<(Pidx, Pidx, Role)>,
+        scheme: Option<(Pidx, Pidx)>,
+    ) -> (Vec<(Pidx, Pidx, Role)>, Option<(Pidx, Pidx)>, Vec<Pidx>) {
+        let mut strips: HashMap<Pidx, Vec<Pidx>> = HashMap::new();
+        for (actor, target, role) in &targets {
+            if *role == Role::STRIPPER {
+                strips.entry(*target).or_insert(vec![]).push(*actor);
             }
         }
+        let blocked = strips.keys().cloned().collect::<Vec<_>>();
+        targets.retain(|(a, t, r)| *r != Role::STRIPPER);
+
+        let mut new_target = Vec::new();
+
+        for (blocked, target, role) in targets {
+            if let Some(strippers) = strips.get(&blocked) {
+                self.comm.tx(Event::Block { blocked });
+                for &stripper in strippers {
+                    self.comm.tx(Event::Strip { stripper, blocked })
+                }
+            } else {
+                new_target.push((blocked, target, role));
+            }
+        }
+        let new_scheme = match scheme {
+            Some((blocked, mark)) => {
+                if let Some(strippers) = strips.get(&blocked) {
+                    self.comm.tx(Event::Block { blocked });
+                    for &stripper in strippers {
+                        self.comm.tx(Event::Strip { stripper, blocked });
+                    }
+                    None
+                } else {
+                    scheme
+                }
+            }
+            _ => None,
+        };
+        (new_target, new_scheme, blocked)
     }
 
-    fn investigate(&mut self, cop: Pidx, suspect: Target<Pidx>) {
-        let suspect = match suspect {
-            Target::Player(p) => p,
-            _ => return,
+    fn resolve_saves(
+        &mut self,
+        mut targets: Vec<(Pidx, Pidx, Role)>,
+        scheme: Option<(Pidx, Pidx)>,
+    ) -> (Vec<(Pidx, Pidx, Role)>, Option<(Pidx, Pidx)>) {
+        let mut saves: HashMap<Pidx, Vec<Pidx>> = HashMap::new();
+        for (actor, target, role) in &targets {
+            if *role == Role::DOCTOR {
+                saves.entry(*target).or_insert(vec![]).push(*actor);
+            }
+        }
+        targets.retain(|(a, t, r)| *r != Role::DOCTOR);
+
+        let new_scheme = match scheme {
+            Some((blocked, saved)) => {
+                if let Some(doctors) = saves.get(&saved) {
+                    self.comm.tx(Event::Block { blocked });
+                    for &doctor in doctors {
+                        self.comm.tx(Event::Save { doctor, saved });
+                    }
+                    None
+                } else {
+                    scheme
+                }
+            }
+            _ => None,
         };
-        let role = self.players[suspect].role;
-        self.comm.tx(Event::Investigate { cop, suspect, role });
+
+        (targets, new_scheme)
+    }
+
+    fn resolve_investigations(&mut self, targets: &Vec<(Pidx, Pidx, Role)>) {
+        for (cop, suspect, role) in targets {
+            let (cop, suspect) = (*cop, *suspect);
+            if *role == Role::COP {
+                let team = self.players[suspect].role.investigate();
+                self.comm.tx(Event::Investigate { cop, suspect, team });
+            }
+        }
     }
 
     fn eliminate(&mut self, player: Pidx, proxy: Pidx) -> Option<Winner> {

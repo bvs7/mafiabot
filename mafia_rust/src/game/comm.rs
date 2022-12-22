@@ -5,7 +5,7 @@ use std::{
 };
 
 use super::{
-    player::{Pidx, Player, RawPID, Role, Target, Winner},
+    player::{Choice, Pidx, Player, RawPID, Role, Team, Winner},
     PhaseKind,
 };
 
@@ -40,11 +40,11 @@ pub enum CommandKind {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Command<U: RawPID> {
-    Vote { voter: U, ballot: Target<U> },
+    Vote { voter: U, ballot: Choice<U> },
     Retract { voter: U },
     Reveal { celeb: U },
-    Target { actor: U, target: Target<U> },
-    Mark { killer: U, mark: Target<U> },
+    Target { actor: U, target: Choice<U> },
+    Mark { killer: U, mark: Choice<U> },
 }
 impl<U: RawPID> Command<U> {
     pub fn kind(&self) -> CommandKind {
@@ -76,37 +76,37 @@ pub enum Event<U: RawPID> {
     },
     Vote {
         voter: Pidx,
-        ballot: Target<Pidx>,
-        former: Option<Target<Pidx>>,
+        ballot: Choice<Pidx>,
+        former: Option<Choice<Pidx>>,
         threshold: usize,
         count: usize,
     },
     Retract {
         voter: Pidx,
-        former: Option<Target<Pidx>>,
+        former: Option<Choice<Pidx>>,
     },
     Reveal {
         celeb: Pidx,
     },
     Election {
         electors: Vec<Pidx>,
-        ballot: Target<Pidx>,
+        ballot: Choice<Pidx>,
     },
     Night {
         night_no: usize,
     },
     Target {
         actor: Pidx,
-        target: Target<Pidx>,
+        target: Choice<Pidx>,
     },
     Mark {
-        actor: Pidx,
-        mark: Target<Pidx>,
+        killer: Pidx,
+        mark: Choice<Pidx>,
     },
     Dawn,
     Strip {
         stripper: Pidx,
-        stripped: Pidx,
+        blocked: Pidx,
     },
     Block {
         blocked: Pidx,
@@ -118,7 +118,7 @@ pub enum Event<U: RawPID> {
     Investigate {
         cop: Pidx,
         suspect: Pidx,
-        role: Role,
+        team: Team,
     },
     Kill {
         killer: Pidx,

@@ -68,7 +68,7 @@ No Game thread!
 ## TODO!
 - Make events push Players, not just Pidx.
 - Mutex for game? If commands aren't coming through a channel, we need to worry about concurrency from a server.
-- Make InvalidCommand Event an error returned from handle()
+- Blocking celebs? How to handle when Pidx invalidates? Probably put in night phase, then pass to day somehow
 
 ## Game Core
 
@@ -87,6 +87,8 @@ Night actions can be one of the following and are effected in the following orde
 - Save. A Doctor picks a player to save. If that player was also the target of the mafia's kill attempt, they do not die. The doctor alone will be informed of a successful attempt.
 - Investigate. A Cop picks a player to investigate. They learn what team (Town, Mafia, or Rogue) the suspect belongs to.. Notably, the MILLER role, which is Town Aligned, shows up as Mafia when investigated, and the GODFATHER role, which is Mafia Aligned, shows up as Town Aligned.
 - Kill. A Mafia Team member (except GOON) can choose a target for the Mafia to kill at night. Unless blocked by stripper or doctor, that target dies at dawn.
+
+- **Idea** MAYOR role. Targets one person at night. That person takes one less vote to kill the next day?
 
 ### Winning
 

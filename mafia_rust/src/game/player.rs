@@ -34,6 +34,14 @@ impl Role {
             Role::IDIOT | Role::SURVIVOR | Role::GUARD | Role::AGENT => Team::Rogue,
         }
     }
+    pub fn investigate(&self) -> Team {
+        match self {
+            Role::GODFATHER => Team::Town,
+            Role::MILLER => Team::Mafia,
+            _ => self.team(),
+        }
+    }
+
     pub fn investigate_mafia(&self) -> bool {
         match self {
             Role::GODFATHER => false,
@@ -82,15 +90,14 @@ impl Display for Winner {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize /*Deserialize*/)]
-pub enum Target<U: RawPID> {
+pub enum Choice<U: RawPID> {
     Player(U),
     Abstain,
-    Blocked,
 }
 
-impl<U: RawPID> Target<U> {
+impl<U: RawPID> Choice<U> {
     pub fn is_player(&self) -> Option<U> {
-        if let Target::Player(p) = self {
+        if let Choice::Player(p) = self {
             Some(*p)
         } else {
             None
@@ -98,11 +105,9 @@ impl<U: RawPID> Target<U> {
     }
 }
 
-pub type Action<U> = (U, Target<U>);
-pub type Election = (Vec<Pidx>, Target<Pidx>);
+pub type Action<U> = (U, Choice<U>);
+pub type Election = (Vec<Pidx>, Choice<Pidx>);
 
 pub type Votes = Vec<Action<Pidx>>;
-pub type Targets = Vec<Action<Pidx>>;
+pub type Targets = Vec<(Pidx, Choice<Pidx>, Role)>;
 pub type Scheme = Option<Action<Pidx>>;
-
-pub type Night<'a> = (usize, &'a mut Targets, &'a mut Scheme);
