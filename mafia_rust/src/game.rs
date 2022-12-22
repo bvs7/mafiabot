@@ -4,32 +4,101 @@ pub mod comm;
 
 mod test;
 
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use std::fmt::{Debug, Display};
 use std::fs::File;
-use std::io::prelude::*;
-use std::thread::{self, JoinHandle};
+use std::sync::mpsc::Receiver;
+use std::sync::Mutex;
 
 use comm::*;
 use player::*;
 
+#[derive(Debug)]
+pub enum Error<U: RawPID> {
+    InvalidPhase {
+        expected: PhaseKind,
+        found: Phase,
+    },
+    InvalidCommand {
+        command: CommandKind,
+        phase: PhaseKind,
+    },
+    PlayerNotFound {
+        pid: U,
+    },
+    InvalidRole {
+        role: Role,
+        command: CommandKind,
+    },
+}
+
+impl<U: RawPID> Display for Error<U> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Error with command: ")?;
+        match self {
+            Self::InvalidPhase { expected, found } => {
+                write!(
+                    f,
+                    "Invalid Phase (expected {:?}, found {:?}",
+                    expected, found
+                )
+            }
+            Self::InvalidCommand { command, phase } => {
+                write!(f, "Invalid Command ({:?}) for Phase ({:?})", command, phase)
+            }
+            Self::PlayerNotFound { pid } => {
+                write!(f, "Player with UserID {:?} not found", pid)
+            }
+            Self::InvalidRole { role, command } => {
+                write!(f, "Invalid Role ({:?}) for Command ({:?})", role, command)
+            }
+        }
+    }
+}
+impl<U: RawPID> std::error::Error for Error<U> {}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub enum PhaseKind {
+    Init,
+    Day,
+    Night,
+    End,
+}
+
+impl Display for PhaseKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Init => write!(f, "Init"),
+            Self::Day => write!(f, "Day"),
+            Self::Night => write!(f, "Night"),
+            Self::End => write!(f, "End"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Day {
+    day_no: usize,
+    votes: Vec<Action<Pidx>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Night {
+    night_no: usize,
+    targets: Vec<Action<Pidx>>,
+    scheme: Option<Action<Pidx>>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize /*Deserialize*/)]
 pub enum Phase {
     Init,
-    Day {
-        day_no: usize,
-        #[serde(skip)]
-        votes: Votes,
-    },
-    Night {
-        night_no: usize,
-        #[serde(skip)]
-        actions: Actions,
-    },
+    Day(Day),
+    Night(Night),
     End(Winner),
 }
 
 impl Phase {
+<<<<<<< HEAD
     fn clear(&mut self) {
         match self {
             Phase::Day { votes, .. } => votes.clear(),
@@ -39,14 +108,79 @@ impl Phase {
     }
     fn new_day(day_no: usize) -> Self {
         Self::Day {
-            day_no,
-            votes: Vec::new(),
+=======
+    pub fn clear(&mut self) {
+        match &self {
+            Phase::Day(Day { day_no, .. }) => *self = Phase::new_day(*day_no),
+            Phase::Night(Night { night_no, .. }) => *self = Phase::new_night(*night_no),
+            _ => {}
         }
     }
+    pub fn new_day(day_no: usize) -> Self {
+        Self::Day(Day {
+>>>>>>> 2f6c183ad9d6ff60de4f31c4b304b7203153500d
+            day_no,
+            votes: Vec::new(),
+        })
+    }
+<<<<<<< HEAD
     fn new_night(night_no: usize) -> Self {
         Self::Night {
+=======
+    pub fn new_night(night_no: usize) -> Self {
+        Self::Night(Night {
+>>>>>>> 2f6c183ad9d6ff60de4f31c4b304b7203153500d
             night_no,
-            actions: Vec::new(),
+            targets: Vec::new(),
+            scheme: None,
+        })
+    }
+    pub fn kind(&self) -> PhaseKind {
+        match self {
+            Phase::Init => PhaseKind::Init,
+            Phase::Day { .. } => PhaseKind::Day,
+            Phase::Night { .. } => PhaseKind::Night,
+            Phase::End(_) => PhaseKind::End,
+        }
+    }
+    pub fn is_day<U: RawPID>(&mut self) -> Result<&mut Day, Error<U>> {
+        if let Phase::Day(day) = self {
+            Ok(day)
+        } else {
+            Err(Error::InvalidPhase {
+                expected: PhaseKind::Day,
+                found: self.to_owned(),
+            })
+        }
+    }
+    pub fn is_night<U: RawPID>(&mut self) -> Result<&mut Night, Error<U>> {
+        if let Phase::Night(night) = self {
+            Ok(night)
+        } else {
+            Err(Error::InvalidPhase {
+                expected: PhaseKind::Night,
+                found: self.to_owned(),
+            })
+        }
+    }
+}
+impl Display for Phase {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Phase::Init => write!(f, "Init"),
+            Phase::Day(Day { day_no, votes }) => write!(f, "Day {} (votes: {:?})", day_no, votes),
+            Phase::Night(Night {
+                night_no,
+                targets,
+                scheme,
+            }) => {
+                write!(
+                    f,
+                    "Night {} (targets: {:?}, scheme: {:?}",
+                    night_no, targets, scheme
+                )
+            }
+            Phase::End(winner) => write!(f, "End: {}", winner),
         }
     }
 }
@@ -73,79 +207,72 @@ impl<U: RawPID, S: Source> Game<U, S> {
         game.comm.tx(Event::Init);
 
         for player in players {
-            if let Err(_) = game.add_player(player) {
-                continue;
+            if game.check_player(player.raw_pid).is_err() {
+                game.players.push(player);
             }
         }
-        return game;
+
+        game
     }
 
-    pub fn add_player(&mut self, player: Player<U>) -> Result<(), ()> {
-        if let Phase::Init = self.phase {
-            if !self
-                .players
-                .iter()
-                .map(|p| &p.raw_pid)
-                .any(|pid| pid == &player.raw_pid)
-            {
-                Ok(self.players.push(player))
-            } else {
-                self.comm
-                    .tx(Event::InvalidCommand("Player already exists".to_string()));
-                return Err(());
-            }
-        } else {
-            self.comm.tx(Event::InvalidCommand(
-                "Can't add player during game".to_string(),
-            ));
-            return Err(());
-        }
-    }
-
-    pub fn check_player(&self, raw_pid: &U) -> Result<Pidx, String> {
+    pub fn check_player(&self, raw_pid: U) -> Result<Pidx, Error<U>> {
         self.players
             .iter()
-            .position(|p| &p.raw_pid == raw_pid)
-            .ok_or_else(|| "Player not found".to_string())
+            .position(|p| p.raw_pid == raw_pid)
+            .ok_or_else(|| Error::PlayerNotFound { pid: raw_pid })
     }
 
+    pub fn get_players_that(
+        players: &mut Players<U>,
+        f: impl Fn((Pidx, &Player<U>)) -> bool,
+    ) -> impl Iterator<Item = (Pidx, &mut Player<U>)> {
+        players
+            .iter_mut()
+            .enumerate()
+            .filter(move |(i, p)| f((*i, p)))
+    }
+
+    // TODO: Custom error?
+    // Handle if directory doesn't exist?
     pub fn save_game(&self, fname: &str) -> Result<(), ()> {
         let mut f = File::create(fname).map_err(|_| ())?;
         serde_json::to_writer_pretty(&mut f, &self).map_err(|_| ())?;
         Ok(())
     }
-}
 
-impl<U: RawPID + 'static, S: 'static + Source> Game<U, S> {
-    pub fn start(mut self) -> Result<JoinHandle<Self>, Self> {
-        if self.players.len() < 3 {
-            self.comm.tx(Event::InvalidCommand(
-                "Can't start game with less than 3 players".to_string(),
-            ));
-            return Err(self);
-        }
-        if let Some(_) = self.check_team_numbers() {
-            self.comm.tx(Event::InvalidCommand(
-                "Can't start game with given roles".to_string(),
-            ));
-            return Err(self);
-        }
-
-        let even = self.players.len() % 2 == 0;
+    // Errors:
+    // Invalid phase
+    // Can't start game with these roles
+    pub fn start(&mut self) -> Result<(), ()> {
         match self.phase {
-            Phase::Init if !even => self.phase = Phase::new_day(1),
-            Phase::Init if even => self.phase = Phase::new_night(1),
-            _ => return Err(self),
+            Phase::Init => {}
+            _ => return Err(()),
+        }
+        if self.players.len() < 3 {
+            // self.comm.tx(Event::InvalidCommand(
+            //     "Can't start game with less than 3 players".to_string(),
+            // ));
+            return Err(());
+        }
+        if self.check_team_numbers().is_some() {
+            // self.comm.tx(Event::InvalidCommand(
+            //     "Can't start game with given roles".to_string(),
+            // ));
+            return Err(());
+        }
+        let next_phase = match self.players.len() % 2 == 0 {
+            true => Phase::new_night(1),
+            false => Phase::new_day(1),
         };
         self.comm.tx(Event::Start {
             players: self.players.clone(),
-            phase: self.phase.clone(),
+            phase: next_phase.kind(),
         });
-        // Start game thread
-        Ok(thread::spawn(move || self.game_thread()))
+        self.next_phase(next_phase);
+        Ok(())
     }
-}
 
+<<<<<<< HEAD
 impl<U: RawPID, S: Source> Game<U, S> {
     /// Handle a command from players on the game.
     pub fn handle(&mut self, cmd: Command<U>) -> (Phase, Result<(), ()>) {
@@ -185,64 +312,136 @@ impl<U: RawPID, S: Source> Game<U, S> {
                     "Invalid command for Day Phase".to_string(),
                 ));
             }
+=======
+    // fn game_thread(game_mutex: &Mutex<Self>, rx: Receiver<Request<U, S>>) {
+    //     loop {
+    //         let req = rx.recv().unwrap();
+    //         let mut game = game_mutex.lock().unwrap();
+    //         if let Err(e) = game.handle(req.cmd) {
+    //             // Handle error with context.
+    //             // TODO
+    //         }
+    //     }
+    // }
+
+    pub fn handle(&mut self, cmd: Command<U>) -> Result<(), Error<U>> {
+        let result = match cmd {
+            Command::Vote { voter, ballot } => self.handle_vote(voter, ballot),
+            Command::Retract { voter } => self.handle_retract(voter),
+            Command::Reveal { celeb } => self.handle_reveal(celeb),
+            Command::Target { actor, target } => self.handle_target(actor, target),
+            Command::Mark { killer, mark } => self.handle_mark(killer, mark),
         };
+
+        if let SaveStrategy::PerChange(fname) = &self.comm.save {
+            self.save_game(fname).expect("Saving game should work");
+        };
+        result
+    }
+
+    fn handle_vote(&mut self, v: U, b: Target<U>) -> Result<(), Error<U>> {
+        self.phase.is_day()?;
+        let voter = self.check_player(v)?;
+        let ballot = match b {
+            Target::Player(p) => Target::Player(self.check_player(p)?),
+            Target::Abstain => Target::Abstain,
+            Target::Blocked => Target::Blocked, // TODO: Err?
+>>>>>>> 2f6c183ad9d6ff60de4f31c4b304b7203153500d
+        };
+
+        // accept vote?
+        self.accept_vote(voter, ballot).map(|(electors, ballot)| {
+            self.resolve_election((electors, ballot));
+        });
         Ok(())
     }
 
-    fn handle_vote(&mut self, v: U, b: Ballot<U>) {
-        // Validate vote
-        let (voter, ballot) = match self.validate_vote(v, b) {
-            Ok((voter, ballot)) => (voter, ballot),
-            Err(e) => {
-                self.comm.tx(Event::InvalidCommand(e));
-                return;
-            }
-        };
-        // accept vote
-        let election = match self.accept_vote(voter, ballot) {
-            Some(election) => election,
-            None => return,
-        };
+    fn handle_retract(&mut self, v: U) -> Result<(), Error<U>> {
+        self.phase.is_day()?;
+        let voter = self.check_player(v)?;
 
-        // resolve election
-        self.resolve_election(election);
-    }
-    fn validate_vote(&mut self, v: U, b: Ballot<U>) -> Result<(Pidx, Ballot<Pidx>), String> {
-        let voter = self.check_player(&v)?;
-        let ballot = match b {
-            Ballot::Player(raw_pid) => Ballot::Player(self.check_player(&raw_pid)?),
-            Ballot::Abstain => Ballot::Abstain,
-            Ballot::Retract => Ballot::Retract,
-        };
-        Ok((voter, ballot))
-    }
+        let day = self.phase.is_day::<U>().expect("Already checked");
 
-    fn accept_vote(&mut self, voter: Pidx, ballot: Ballot<Pidx>) -> Option<Election> {
-        let votes = match &mut self.phase {
-            Phase::Day { votes, .. } => votes,
-            _ => return None,
-        };
-        let former = votes
+        let former = day
+            .votes
             .iter()
             .position(|(v, _)| v == &voter)
-            .map(|i| votes.remove(i))
-            .map(|(v, b)| b);
+            .map(|i| day.votes.remove(i))
+            .map(|(_, b)| b);
 
-        match ballot {
-            Ballot::Player(_) | Ballot::Abstain => votes.push((voter, ballot)),
-            Ballot::Retract => {
-                self.comm.tx(Event::RetractVote { voter, former });
-                return None;
-            }
+        self.comm.tx(Event::Retract { voter, former });
+
+        Ok(())
+    }
+
+    fn handle_reveal(&mut self, celeb: U) -> Result<(), Error<U>> {
+        self.phase.is_day()?;
+        let celeb = self.check_player(celeb)?;
+        if self.players[celeb].role != Role::CELEB {
+            return Err(Error::InvalidRole {
+                role: self.players[celeb].role,
+                command: CommandKind::Reveal,
+            });
         }
+        self.comm.tx(Event::Reveal { celeb });
+        Ok(())
+    }
+
+    fn handle_target(&mut self, a: U, t: Target<U>) -> Result<(), Error<U>> {
+        self.phase.is_night()?;
+        let actor = self.check_player(a)?;
+        let target = match t {
+            Target::Player(p) => Target::Player(self.check_player(p)?),
+            Target::Abstain => Target::Abstain,
+            Target::Blocked => Target::Blocked, // TODO: Err?
+        };
+
+        // accept action
+        if self.accept_target(actor, target).is_some() {
+            self.resolve_dawn();
+        }
+        Ok(())
+    }
+
+    fn handle_mark(&mut self, killer: U, mark: Target<U>) -> Result<(), Error<U>> {
+        self.phase.is_night()?;
+        let killer = self.check_player(killer)?;
+        let mark = match mark {
+            Target::Player(p) => Target::Player(self.check_player(p)?),
+            Target::Abstain => Target::Abstain,
+            Target::Blocked => Target::Blocked, // TODO: Err?
+        };
+        if self.players[killer].role.team() != Team::Mafia {
+            return Err(Error::InvalidRole {
+                role: self.players[killer].role,
+                command: CommandKind::Mark,
+            });
+        }
+        let night = self.phase.is_night::<U>().expect("Already checked");
+        night.scheme = Some((killer, mark));
+        Ok(())
+    }
+
+    fn accept_vote(&mut self, voter: Pidx, ballot: Target<Pidx>) -> Option<Election> {
+        let day = self.phase.is_day::<U>().expect("Already checked phase");
+
+        let former = day
+            .votes
+            .iter()
+            .position(|(v, _)| v == &voter)
+            .map(|i| day.votes.remove(i))
+            .map(|(_, b)| b);
+
+        day.votes.push((voter, ballot));
 
         let n_players = self.players.len();
         let threshold = match ballot {
-            Ballot::Player(_) => n_players / 2 + 1,
+            Target::Player(_) => n_players / 2 + 1,
             _ => (n_players + 1) / 2,
         };
 
-        let electors = votes
+        let electors = day
+            .votes
             .iter()
             .filter(|(_, b)| b == &ballot)
             .map(|(v, _)| *v)
@@ -257,32 +456,23 @@ impl<U: RawPID, S: Source> Game<U, S> {
             threshold,
         });
 
-        if count >= threshold {
-            Some(Election { electors, ballot })
-        } else {
-            None
-        }
-    }
-    fn resolve_election(&mut self, election: Election) {
-        let day_no = match self.phase {
-            Phase::Day { day_no, .. } => day_no,
-            _ => return,
-        };
-        self.comm.tx(Event::Election {
-            electors: election.electors.clone(),
-            ballot: election.ballot.clone(),
-        });
-        match election.ballot {
-            Ballot::Player(p) => {
-                if let Some(winner) = self.eliminate(&p) {
-                    return;
-                }
-            }
-            _ => {}
-        }
-        self.next_phase(Phase::new_night(day_no + 1));
+        (count >= threshold).then(|| (electors, ballot))
     }
 
+    fn resolve_election(&mut self, (electors, ballot): Election) {
+        let day_no = match self.phase {
+            Phase::Day(Day { day_no, .. }) => day_no,
+            _ => return,
+        };
+
+        let hammer = *electors.last().expect("At least one elector");
+
+        self.comm.tx(Event::Election {
+            electors: electors,
+            ballot,
+        });
+
+<<<<<<< HEAD
     fn handle_night(&mut self, cmd: Command<U>) -> Result<(), ()> {
         match cmd {
             Command::Action(a, t) => self.handle_action(a, t),
@@ -301,179 +491,140 @@ impl<U: RawPID, S: Source> Game<U, S> {
             Ok((actor, target)) => (actor, target),
             Err(e) => {
                 self.comm.tx(Event::InvalidCommand(e));
+=======
+        if let Target::Player(elected) = ballot {
+            if self.eliminate(elected, hammer).is_some() {
+                // TODO figure out eliminate returns? As in, what if a team wins?
+>>>>>>> 2f6c183ad9d6ff60de4f31c4b304b7203153500d
                 return;
             }
-        };
-
-        // accept action
-        match self.accept_action(actor, target) {
-            Some(_) => {}
-            None => return,
-        };
-
-        // resolve dawn
-        self.resolve_dawn();
+        }
+        self.next_phase(Phase::new_night(day_no + 1));
     }
 
-    fn validate_action(
-        &self,
-        a: Actor<U>,
-        t: Target<U>,
-    ) -> Result<(Actor<Pidx>, Target<Pidx>), String> {
-        let actor = match a {
-            Actor::Player(raw_pid) => Actor::Player(self.check_player(&raw_pid)?),
-            Actor::Mafia(raw_pid) => Actor::Mafia(self.check_player(&raw_pid)?),
-        };
-        match actor {
-            Actor::Player(p) if !self.players[p].role.has_night_action() => {
-                return Err("Player does not have a night action".to_string());
-            }
-            Actor::Mafia(p) if self.players[p].role.team() != Team::Mafia => {
-                return Err("Only Mafia Players can kill at ngiht".to_string());
-            }
-            _ => {}
-        };
-        let target = match t {
-            Target::Player(raw_pid) => Target::Player(self.check_player(&raw_pid)?),
-            Target::NoTarget => Target::NoTarget,
-            Target::Blocked => Target::Blocked,
-        };
-        Ok((actor, target))
-    }
-
-    fn accept_action(&mut self, actor: Actor<Pidx>, target: Target<Pidx>) -> Option<()> {
+    fn accept_target(&mut self, actor: Pidx, target: Target<Pidx>) -> Option<()> {
         // Check for Goon
-        let target = match actor {
-            Actor::Mafia(p) if self.players[p].role == Role::GOON => Target::Blocked,
+        let target = match self.players[actor].role {
+            Role::GOON => Target::Abstain,
             _ => target,
         };
 
-        let actions = match &mut self.phase {
-            Phase::Night { actions, .. } => actions,
-            _ => return None,
-        };
+        let night = self.phase.is_night::<U>().expect("Already checked phase");
+        self.comm.tx(Event::Target { actor, target });
+        night.targets.push((actor, target));
 
-        let former = actions
-            .iter()
-            .position(|(a, _)| a.overlaps(&actor))
-            .map(|i| actions.remove(i));
+        let night_action_count =
+            Self::get_players_that(&mut self.players, |(i, p)| p.role.targeting()).count();
 
-        self.comm.tx(Event::Action { actor, target });
-        actions.push((actor, target));
-
-        let actor_count = self
-            .players
-            .iter()
-            .filter(|p| p.role.has_night_action())
-            .count()
-            + 1; // Mafia action
-
-        (actor_count == actions.len()).then(|| ())
+        (night_action_count == night.targets.len() && night.scheme.is_some()).then(|| ())
     }
 
     fn resolve_dawn(&mut self) {
         self.comm.tx(Event::Dawn);
         // Strip
-        let (night_no, actions) = match &mut self.phase {
-            Phase::Night { night_no, actions } => (*night_no, actions),
-            _ => return,
-        };
+        let night = self.phase.is_night::<U>().expect("Already checked phase");
 
-        self.players
-            .iter()
-            .enumerate()
-            .filter(|(_, p)| p.role == Role::STRIPPER)
-            .for_each(|(stripper, _)| Self::strip(actions, stripper, &self.comm));
-
-        self.players
-            .iter()
-            .enumerate()
-            .filter(|(_, p)| p.role == Role::DOCTOR)
-            .for_each(|(doctor, _)| Self::save(actions, doctor, &self.comm));
-
-        self.players
-            .iter()
-            .enumerate()
-            .filter(|(_, p)| p.role == Role::COP)
-            .for_each(|(cop, _)| Self::investigate(&self.players, actions, cop, &self.comm));
-
-        let kill = actions
-            .iter()
-            .find_map(|(a, t)| a.is_mafia().then_some((a, t)));
-
-        if let Some((Actor::Mafia(killer), Target::Player(victim))) = kill {
-            // (Copy to avoid borrow checker)
-            let (killer, victim) = (killer.clone(), victim.clone());
-            self.comm.tx(Event::Kill { killer, victim });
-            if let Some(winner) = self.eliminate(&victim) {
-                return;
+        // Handle Strips
+        for (stripper, target) in night.targets {
+            if self.players[stripper].role == Role::STRIPPER {
+                Self::strip(&mut night.targets, *stripper, *target);
             }
-        } else {
-            self.comm.tx(Event::NoKill);
         }
-        self.next_phase(Phase::new_day(night_no + 1));
+
+        // Handle Saves
+        // night
+        //     .targets
+        //     .iter()
+        //     .filter(|(actor, _)| self.players[*actor].role == Role::DOCTOR)
+        //     .for_each(|(doctor, target)| self.save(*doctor, *target));
+
+        // // Handle Investigations
+        // night
+        //     .targets
+        //     .iter()
+        //     .filter(|(actor, _)| self.players[*actor].role == Role::COP)
+        //     .for_each(|(cop, target)| self.investigate(*cop, *target));
+
+        // if let Some((killer, Target::Player(mark))) = night.scheme {
+        //     // (Copy to avoid borrow checker)
+        //     self.comm.tx(Event::Kill { killer, mark });
+        //     if self.eliminate(mark, killer).is_some() {
+        //         return;
+        //     }
+        // } else {
+        //     self.comm.tx(Event::NoKill);
+        // }
+        // self.next_phase(Phase::new_day(night.night_no + 1));
     }
 
-    fn strip(actions: &mut Actions, stripper: Pidx, comm: &Comm<U, S>) {
-        // Get stripped Pidx
-        let stripped = actions
-            .iter()
-            .find_map(|(a, t)| a.is_player(stripper).then_some(t));
-
+    fn strip(&mut targets, stripper: Pidx, stripped: Target<Pidx>) {
         let stripped = match stripped {
-            Some(Target::Player(p)) => *p,
+            Target::Player(p) if self.players[p].role != Role::STRIPPER => p,
             _ => return,
         };
 
-        // Find strippeds action
-        for (action, target) in actions {
-            if action.is_player(stripped) {
-                comm.tx(Event::Strip { stripper, stripped });
-                *target = Target::Blocked;
-                return;
-            }
-        }
-    }
-
-    fn save(actions: &mut Actions, doctor: Pidx, comm: &Comm<U, S>) {
-        // Get saved
-        let saved = actions
-            .iter()
-            .find_map(|(a, t)| a.is_player(doctor).then_some(t));
-
-        let saved = match saved {
-            Some(Target::Player(p)) => *p,
-            _ => return,
-        };
-
-        // Find Mafia Action
-        for (action, target) in actions {
-            if action.is_mafia() && target.is_player(saved) {
-                comm.tx(Event::Save { doctor, saved });
-                *target = Target::Blocked;
-                return;
-            }
-        }
-    }
-
-    fn investigate(players: &Players<U>, actions: &mut Actions, cop: Pidx, comm: &Comm<U, S>) {
-        for (actor, target) in actions {
-            if actor.is_player(cop) {
+        // Handle the case where stripper blocks mafia killer
+        match night.scheme {
+            Some((actor, mut target)) if actor == stripped => {
+                self.comm.tx(Event::Strip { stripper, stripped });
                 match target {
-                    Target::Player(suspect) => {
-                        let suspect = suspect.clone();
-                        let role = players[suspect].role;
-                        comm.tx(Event::Investigate { cop, suspect, role });
+                    Target::Player(_) | Target::Abstain => {
+                        self.comm.tx(Event::Block { blocked: stripped });
                     }
-                    _ => {}
+                    Target::Blocked => {}
+                }
+                target = Target::Blocked;
+                return;
+            }
+            _ => {}
+        }
+
+        let former = night
+            .targets
+            .iter()
+            .position(|(a, t)| *a == stripped)
+            .map(|i| night.targets.remove(i));
+
+        if let Some(action) = former {
+            self.comm.tx(Event::Strip { stripper, stripped });
+            match action {
+                (stripped, Target::Player(_)) | (stripped, Target::Abstain) => {
+                    self.comm.tx(Event::Block { blocked: stripped });
+                }
+                (stripped, Target::Blocked) => {}
+            }
+            night.targets.push((stripped, Target::Blocked));
+        }
+    }
+
+    fn save(&mut self, doctor: Pidx, patient: Target<Pidx>) {
+        let night = self.phase.is_night::<U>().expect("Already checked phase");
+        let saved = match patient {
+            Target::Player(p) => p,
+            _ => return,
+        };
+        if let Some((_, mut target)) = night.scheme {
+            if let Target::Player(mark) = target {
+                if mark == saved {
+                    self.comm.tx(Event::Save { doctor, saved });
+                    target = Target::Blocked;
                 }
             }
         }
     }
 
-    fn eliminate(&mut self, p: &Pidx) -> Option<Winner> {
-        self.comm.tx(Event::Eliminate { player: *p });
-        self.players.remove(p.clone());
+    fn investigate(&mut self, cop: Pidx, suspect: Target<Pidx>) {
+        let suspect = match suspect {
+            Target::Player(p) => p,
+            _ => return,
+        };
+        let role = self.players[suspect].role;
+        self.comm.tx(Event::Investigate { cop, suspect, role });
+    }
+
+    fn eliminate(&mut self, player: Pidx, proxy: Pidx) -> Option<Winner> {
+        self.comm.tx(Event::Eliminate { player: player });
+        self.players.remove(player);
         // all Pidxs are now invalid...
         self.phase.clear();
 
@@ -488,8 +639,8 @@ impl<U: RawPID, S: Source> Game<U, S> {
         self.phase = next_phase;
 
         match self.phase {
-            Phase::Night { night_no, .. } => self.comm.tx(Event::Night { night_no }),
-            Phase::Day { day_no, .. } => self.comm.tx(Event::Day { day_no }),
+            Phase::Day(Day { day_no, .. }) => self.comm.tx(Event::Day { day_no }),
+            Phase::Night(Night { night_no, .. }) => self.comm.tx(Event::Night { night_no }),
             Phase::End(winner) => self.comm.tx(Event::End { winner }),
             _ => panic!("Should never go to Init Phase!"),
         }
