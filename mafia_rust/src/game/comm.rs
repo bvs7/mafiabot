@@ -5,7 +5,7 @@ use std::{
 };
 
 use super::{
-    player::{Choice, Player, RawPID, Role, Team, Winner},
+    player::{Choice, Player, RawPID, Role, Winner},
     PhaseKind,
 };
 
@@ -128,7 +128,6 @@ pub enum Event<U: RawPID> {
     Eliminate {
         player: Player<U>,
     },
-    Halt,
     End {
         winner: Winner,
     },
@@ -173,6 +172,28 @@ impl<U: RawPID> Display for Event<U> {
             Event::End { winner } => write!(f, "End: {:?}", winner),
         }
     }
+}
+
+pub EventKind{
+    Init,
+    Start,
+    Day,
+    Vote,
+    Retract,
+    Reveal,
+    Election,
+    Night,
+    Target,
+    Mark,
+    Dawn,
+    Strip,
+    Block,
+    Save,
+    Investigate,
+    Kill,
+    NoKill,
+    Eliminate,
+    End,
 }
 
 #[derive(Debug)]
@@ -233,7 +254,7 @@ impl DisplayEventHandler {
 }
 
 impl<U: RawPID, S: Source> EventHandler<U, S> for DisplayEventHandler {
-    fn handle(&mut self, event: Event<U>, src: S) {
+    fn handle(&mut self, event: Event<U>, _: S) {
         match event {
             Event::Init => println!("Game initialized"),
             Event::Start { players, phase } => {

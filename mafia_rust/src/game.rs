@@ -8,8 +8,6 @@ use serde::Serialize;
 use std::collections::HashMap;
 use std::fmt::{Debug, Display};
 use std::fs::File;
-use std::sync::mpsc::Receiver;
-use std::sync::Mutex;
 
 use comm::*;
 use player::*;
@@ -391,7 +389,7 @@ impl<U: RawPID, S: Source> Game<U, S> {
             }
             Role::STRIPPER => {
                 if let Choice::Player(_) = mark {
-                    for (actor, target, role) in &mut night.targets {
+                    for (actor, target, _) in &mut night.targets {
                         if *actor == killer {
                             *target = Choice::Abstain;
                         }
@@ -506,7 +504,7 @@ impl<U: RawPID, S: Source> Game<U, S> {
     fn check_dawn(&mut self) -> Option<()> {
         let night = self.phase.is_night().expect("Already checked phase");
         let night_action_count =
-            Self::get_players_that(&mut self.players, |(i, p)| p.role.targeting()).count();
+            Self::get_players_that(&mut self.players, |(_, p)| p.role.targeting()).count();
         (night_action_count == night.targets.len() && night.scheme.is_some()).then(|| ())
     }
 
@@ -517,7 +515,7 @@ impl<U: RawPID, S: Source> Game<U, S> {
 
         let night_no = night.night_no;
 
-        let mut targets: Vec<(Pidx, Pidx, Role)> = night
+        let targets: Vec<(Pidx, Pidx, Role)> = night
             .targets
             .iter()
             .filter_map(|(a, t, r)| t.is_player().map(|p| (*a, p, *r)))
@@ -562,8 +560,8 @@ impl<U: RawPID, S: Source> Game<U, S> {
         }
 
         // let night = self.phase.is_night::<U>().expect("Already checked phase");
-        night.targets.retain(|(a, t, r)| *r != Role::STRIPPER);
-        night.targets.retain(|(blocked, t, r)| {
+        night.targets.retain(|(_, _, r)| *r != Role::STRIPPER);
+        night.targets.retain(|(blocked, t, _)| {
             if let Choice::Player(_) = t {
                 if let Some(strippers) = strips.get(blocked) {
                     Self::strip_events(&self.comm, strippers, *blocked, &self.players);
@@ -652,7 +650,7 @@ impl<U: RawPID, S: Source> Game<U, S> {
         }
     }
 
-    fn eliminate(&mut self, players: &[Pidx], proxy: Pidx) -> Option<Winner> {
+    fn eliminate(&mut self, players: &[Pidx], _: Pidx) -> Option<Winner> {
         let mut players = players.to_owned();
         players.sort();
         // Remove from largest to smallest to avoid invalidating indices

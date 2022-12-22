@@ -1,18 +1,23 @@
 use std::sync::mpsc::Receiver;
 
 use super::{
-    comm::{Comm, Command, DisplayEventHandler, EventHandler, Response, Source},
-    player::{Choice, Player, RawPID, Role},
-    Game, Phase,
+    comm::{EventHandler, Response, Source},
+    player::RawPID,
 };
 
 impl RawPID for u64 {}
 impl Source for String {}
 
+struct DontFindHandler {
+    events: Vec<EventKind>,
+}
+
+#[allow(dead_code)]
 fn delay_milis(milis: u64) {
     std::thread::sleep(std::time::Duration::from_millis(milis));
 }
 
+#[allow(dead_code)]
 fn print_recv(rx: &mut Receiver<Response<u64, String>>) {
     delay_milis(100);
     loop {
@@ -23,6 +28,7 @@ fn print_recv(rx: &mut Receiver<Response<u64, String>>) {
     }
 }
 
+#[allow(dead_code)]
 fn empty_resp(rx: &mut Receiver<Response<u64, String>>) {
     loop {
         match rx.try_recv() {
@@ -32,6 +38,7 @@ fn empty_resp(rx: &mut Receiver<Response<u64, String>>) {
     }
 }
 
+#[allow(dead_code)]
 fn resp_handle(rx: &mut Receiver<Response<u64, String>>, eh: &mut impl EventHandler<u64, String>) {
     loop {
         match rx.try_recv() {

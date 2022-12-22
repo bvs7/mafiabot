@@ -3,22 +3,33 @@
 
 Mafiabot is a discord chatbot that facilitates a game of Mafia.
 
+## Game Design
+
+- "Block"
+    - Happens behind the scenes
+    - Night clears block list
+    - Night block list carries into day
+- "Stun"
+    - Notified at start of night, when options are listed
+    - Stun list, any Night Targets (or Marks), can only Abstain
+
+- IDIOT!Stun imparts stun at beginning of Night to electors
+- GOON always stuns self at beginning of Night
+- DOCTOR!Stun...
+    - Need a list for stunned doc? Or edit Role?
+    - DOCTOR!Stun saves self => DOCTOR!Stunned gets stun at start of night => DOCTOR!Stun
+
 ## Architecture
 
 - Server: Interfaces with Discord
 - Controller: Sets up and handles Games
 - Core: Runs game logic
 
+### Interfaces
 
-## Ideas
-Status accessibility.
-
-We need to read game data regularly to update users as to the status of a game. It might also be good to know what users are in the game at some point?
-
-Core Game is behind a mutex. It must be grabbed to do any game logic.
-
-Right now, Comm has a rx channel and a tx channel. Remove the rx channel.
-
-Game has command passed in. We used to want "Source" to know where to return info...
-
-Events should be standalone. If something requires context to be returned (i.e. Invalid Command response), that is an Err return from game.handle(). So the caller needs the context to resolve that.
+- Core
+    - Inputs are comm::Command structs
+    - Outputs
+        - comm::Event structs
+        - Errors returned from handle
+        - access mutex and check Phase status
