@@ -31,8 +31,24 @@ No game thread. Just a `fn handle(&mut self, cmd: Command<U,S>) -> Phase<U>`. Di
 No Game thread!
 
 ## TODO!
-Make events push Players, not just Pidx.
+- ~~Make events push Players, not just Pidx?~~
+- ~~block celebs in the day~~
+- Organize semantics docs
+- For roles with rules, make the rule setting a field of the role.
+- Timers
+- Rolegen
+- Rules
+    - **Idea** Have different rulesets that enable different types of games:
+        - Rolesets
+        - Rulesets
+- Discord interface
 
+## Rules
+- StartNight: Always|Even|Odd|Never
+- KnownRoles: Role|Team|Mafia|None
+- RevealOnDeath: Role|Team|Mafia|None
+- Investigation: Role|Team|Mafia
+- IdiotEvent: Dusk|Stun|Cull|None
 
 ## Ideas
 

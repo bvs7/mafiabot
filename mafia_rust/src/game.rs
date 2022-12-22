@@ -328,7 +328,10 @@ impl<U: RawPID, S: Source> Game<U, S> {
             .map(|i| day.votes.remove(i))
             .map(|(_, b)| b);
 
-        self.comm.tx(Event::Retract { voter, former });
+        self.comm.tx(Event::Retract {
+            voter: self.players[voter].to_owned(),
+            former: former.map(|f| f.to_p(&self.players)),
+        });
 
         Ok(())
     }
@@ -344,10 +347,14 @@ impl<U: RawPID, S: Source> Game<U, S> {
         }
         let day = self.phase.is_day().expect("Already checked");
         if day.blocked.contains(&celeb_) {
-            self.comm.tx(Event::Block { blocked: celeb });
+            self.comm.tx(Event::Block {
+                blocked: self.players[celeb].to_owned(),
+            });
             return Ok(());
         }
-        self.comm.tx(Event::Reveal { celeb });
+        self.comm.tx(Event::Reveal {
+            celeb: self.players[celeb].to_owned(),
+        });
         Ok(())
     }
 
@@ -402,7 +409,10 @@ impl<U: RawPID, S: Source> Game<U, S> {
         let night = self.phase.is_night().expect("Already checked");
         night.scheme = Some((killer, mark));
 
-        self.comm.tx(Event::Mark { killer, mark });
+        self.comm.tx(Event::Mark {
+            killer: self.players[killer].to_owned(),
+            mark: mark.to_p(&self.players),
+        });
 
         if self.check_dawn().is_some() {
             self.resolve_dawn();
@@ -438,9 +448,9 @@ impl<U: RawPID, S: Source> Game<U, S> {
         let count = electors.len();
 
         self.comm.tx(Event::Vote {
-            voter,
-            ballot,
-            former,
+            voter: self.players[voter].to_owned(),
+            ballot: ballot.to_p(&self.players),
+            former: former.map(|f| f.to_p(&self.players)),
             count,
             threshold,
         });
@@ -456,13 +466,18 @@ impl<U: RawPID, S: Source> Game<U, S> {
 
         let hammer = *electors.last().expect("At least one elector");
 
+        let electors = electors
+            .into_iter()
+            .map(|e| self.players[e].to_owned())
+            .collect();
+
         self.comm.tx(Event::Election {
-            electors: electors,
-            ballot,
+            electors,
+            ballot: ballot.to_p(&self.players),
         });
 
         if let Choice::Player(elected) = ballot {
-            if self.eliminate(elected, hammer).is_some() {
+            if self.eliminate(&[elected], hammer).is_some() {
                 // TODO figure out eliminate returns? As in, what if a team wins?
                 return;
             }
@@ -481,7 +496,10 @@ impl<U: RawPID, S: Source> Game<U, S> {
             }
         }
 
-        self.comm.tx(Event::Target { actor, target });
+        self.comm.tx(Event::Target {
+            actor: self.players[actor].to_owned(),
+            target: target.to_p(&self.players),
+        });
         night.targets.push((actor, target, role));
     }
 
@@ -515,8 +533,11 @@ impl<U: RawPID, S: Source> Game<U, S> {
 
         let scheme = self.phase.is_night().unwrap().scheme;
         if let Some((killer, Choice::Player(mark))) = scheme {
-            self.comm.tx(Event::Kill { killer, mark });
-            if self.eliminate(mark, killer).is_some() {
+            self.comm.tx(Event::Kill {
+                killer: self.players[killer].to_owned(),
+                mark: self.players[mark].to_owned(),
+            });
+            if self.eliminate(&[mark], killer).is_some() {
                 return;
             }
         } else {
@@ -545,7 +566,7 @@ impl<U: RawPID, S: Source> Game<U, S> {
         night.targets.retain(|(blocked, t, r)| {
             if let Choice::Player(_) = t {
                 if let Some(strippers) = strips.get(blocked) {
-                    Self::strip_events(&self.comm, strippers, *blocked);
+                    Self::strip_events(&self.comm, strippers, *blocked, &self.players);
                     return false;
                 }
             }
@@ -554,7 +575,7 @@ impl<U: RawPID, S: Source> Game<U, S> {
 
         if let Some((killer, Choice::Player(_))) = night.scheme {
             if let Some(strippers) = strips.get(&killer) {
-                Self::strip_events(&self.comm, strippers, killer);
+                Self::strip_events(&self.comm, strippers, killer, &self.players);
                 night.scheme = Some((killer, Choice::Abstain));
             }
         }
@@ -562,10 +583,20 @@ impl<U: RawPID, S: Source> Game<U, S> {
         night.blocked = strips.keys().map(|p| self.players[*p].raw_pid).collect();
     }
 
-    fn strip_events(comm: &Comm<U, S>, strippers: &Vec<Pidx>, blocked: Pidx) {
-        comm.tx(Event::Block { blocked: blocked });
-        for &stripper in strippers {
-            comm.tx(Event::Strip { stripper, blocked });
+    fn strip_events(
+        comm: &Comm<U, S>,
+        strippers: &Vec<Pidx>,
+        blocked: Pidx,
+        players: &Vec<Player<U>>,
+    ) {
+        comm.tx(Event::Block {
+            blocked: players[blocked].to_owned(),
+        });
+        for stripper in strippers {
+            comm.tx(Event::Strip {
+                stripper: players[*stripper].to_owned(),
+                blocked: players[blocked].to_owned(),
+            });
         }
     }
 
@@ -583,16 +614,27 @@ impl<U: RawPID, S: Source> Game<U, S> {
 
         if let Some((killer, Choice::Player(mark))) = night.scheme {
             if let Some(doctors) = saves.get(&mark) {
-                Self::save_events(&self.comm, doctors, killer, mark);
+                Self::save_events(&self.comm, doctors, killer, mark, &self.players);
                 night.scheme = Some((killer, Choice::Abstain));
             }
         }
     }
 
-    fn save_events(comm: &Comm<U, S>, doctors: &Vec<Pidx>, killer: Pidx, saved: Pidx) {
-        comm.tx(Event::Block { blocked: killer });
-        for &doctor in doctors {
-            comm.tx(Event::Save { doctor, saved });
+    fn save_events(
+        comm: &Comm<U, S>,
+        doctors: &Vec<Pidx>,
+        killer: Pidx,
+        saved: Pidx,
+        players: &Vec<Player<U>>,
+    ) {
+        comm.tx(Event::Block {
+            blocked: players[killer].to_owned(),
+        });
+        for doctor in doctors {
+            comm.tx(Event::Save {
+                doctor: players[*doctor].to_owned(),
+                saved: players[saved].to_owned(),
+            });
         }
     }
 
@@ -600,16 +642,26 @@ impl<U: RawPID, S: Source> Game<U, S> {
         for (cop, suspect, role) in targets {
             let (cop, suspect) = (*cop, *suspect);
             if *role == Role::COP {
-                let team = self.players[suspect].role.investigate();
-                self.comm.tx(Event::Investigate { cop, suspect, team });
+                let role = self.players[suspect].role;
+                let (cop, suspect) = (
+                    self.players[cop].to_owned(),
+                    self.players[suspect].to_owned(),
+                );
+                self.comm.tx(Event::Investigate { cop, suspect, role });
             }
         }
     }
 
-    fn eliminate(&mut self, player: Pidx, proxy: Pidx) -> Option<Winner> {
-        self.comm.tx(Event::Eliminate { player: player });
+    fn eliminate(&mut self, players: &[Pidx], proxy: Pidx) -> Option<Winner> {
+        let mut players = players.to_owned();
+        players.sort();
+        // Remove from largest to smallest to avoid invalidating indices
+        for player in players.into_iter().rev() {
+            let player_ = self.players[player].to_owned();
+            self.comm.tx(Event::Eliminate { player: player_ });
 
-        self.players.remove(player);
+            self.players.remove(player);
+        }
         // all Pidxs are now invalid...
         self.phase.clear();
 

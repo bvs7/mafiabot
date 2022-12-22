@@ -1,0 +1,55 @@
+# Mafia Rules
+
+- StartInfo: At the start of the game, role info revealed includes...
+    - None: Nothing
+    - **Mafia**: Number of Mafia Aligned vs Not Mafia Aligned
+    - Team: Number of Town, Mafia, and Rogue
+    - Role: Number of each Role
+- StartNight: The game starts in Night Phase...
+    - Always: Always.
+    - **Even**: When it starts with an even number of players.
+    - Never: Never (Always starts Day Phase).
+- DeathReveal: Upon a players death their role is revealed as...
+    - None: Nothing.
+    - Mafia: Mafia Aligned or Not Mafia Aligned.
+    - **Team**: Team of Role.
+    - Role: Role.
+- Elections:
+    - ElectionInfo
+        - **Public**: Votes are cast in the public chat
+        - Revealed: Votes are cast in private. At the end of Day, all votes are revealed.
+        - Count: Votes are cast in private. At the end of Day, vote counts are revealed.
+        - Secret: Votes are cast in private and never revealed.
+    - ElectionProcess
+        - **Dynamic**: Votes can be cast at any time. As soon as a majority makes a decision, it is enacted.
+        - Static: There are scheduled election end times. If a majority exists at that threshold, it is enacted.
+        - SingleStatic: There is one scheduled election end time. If a majority exists at that threshold, it is enacted. Otherwise, no election.
+- Investigation: A COP's investigation reveals...
+    - Mafia: Mafia Aligned or Not Mafia Aligned.
+    - **Team**: Team.
+    - Role: Role. (GODFATHER => TOWN, MILLER => MAFIA)
+- StripReveal: Upon a STRIPPER stripping a target, that target learns they were stripped...
+    - **Useful**: When it has a useful effect. (Cop/Doctor if they targeted someone, CELEB when they try to reveal)
+    - Always: When it happens during Dawn
+- SaveSelf: A DOCTOR can target themself...
+    - **Always**: Always.
+    - Once: Only if they did not target themself last Night Phase.
+    - Stun: Always, but they will be stunned the following night and won't be able to act.
+    - Never: Never.
+- SaveInfo: Upon a successful save (DOCTORs save the Mafia killer's mark)...
+    - Public: The mark is publicly revealed at the start of the day.
+    - Private: The DOCTOR(s) and mark are informed.
+    - **Doctor**: The DOCTOR(s) is/are informed (all saves are simultaneous).
+    - None: Nobody is informed.
+- IdiotElect: Upon electing an IDIOT...
+    - None: Nothing happens
+    - **Dusk**: A Dusk Phas occurs, where the IDIOT picks one player who voted for them. Both the IDIOT and that player are eliminated.
+    - Day: They die and another Day Phase begins.
+    - Stun: All those who voted for the IDIOT are Stunned for the following Night Phase and Day Phase.
+    - Cull: All those who voted for the IDIOT die
+- GuardContract: When a living GUARD's charge dies...
+    - Retire: The GUARD dies
+    - **Refocus**: The GUARD becomes an AGENT. Their new charge is who caused the death of their charge. (If self they become IDIOT!None ).
+- AgentContract: When a living AGENT's charge dies...
+    - Retire: The AGENT dies
+    - **Refocus**: The AGENT becomes a GUARD. Their new charge is who caused the death of their charge. (If self they become SURVIVOR)

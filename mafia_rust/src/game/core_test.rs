@@ -1,7 +1,7 @@
 use std::sync::mpsc::Receiver;
 
 use super::{
-    comm::{Comm, Command, Response, Source},
+    comm::{Comm, Command, DisplayEventHandler, EventHandler, Response, Source},
     player::{Choice, Player, RawPID, Role},
     Game, Phase,
 };
@@ -27,6 +27,15 @@ fn empty_resp(rx: &mut Receiver<Response<u64, String>>) {
     loop {
         match rx.try_recv() {
             Ok(_) => (),
+            Err(_) => break,
+        }
+    }
+}
+
+fn resp_handle(rx: &mut Receiver<Response<u64, String>>, eh: &mut impl EventHandler<u64, String>) {
+    loop {
+        match rx.try_recv() {
+            Ok(resp) => eh.handle(resp.event, resp.src),
             Err(_) => break,
         }
     }
@@ -117,7 +126,9 @@ fn test_dawn() -> Result<(), super::Error<u64>> {
 
     game.handle(Command::Reveal { celeb: 14 })?;
 
-    empty_resp(&mut rx);
+    let mut eh = DisplayEventHandler::new();
+
+    resp_handle(&mut rx, &mut eh);
 
     Ok(())
 }

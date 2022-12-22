@@ -1,6 +1,8 @@
 use serde::Serialize;
 use std::fmt::{Debug, Display};
 
+use super::Players;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize /*Deserialize*/)]
 pub enum Role {
     TOWN,
@@ -76,6 +78,11 @@ impl<U: RawPID> Player<U> {
         }
     }
 }
+impl<U: RawPID> Display for Player<U> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.name)
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize /*Deserialize*/)]
 pub enum Winner {
@@ -101,6 +108,14 @@ impl<U: RawPID> Choice<U> {
             Some(*p)
         } else {
             None
+        }
+    }
+}
+impl Choice<Pidx> {
+    pub fn to_p<U: RawPID>(&self, players: &Players<U>) -> Option<Player<U>> {
+        match self {
+            Choice::Player(p) => Some(players[*p].clone()),
+            Choice::Abstain => None,
         }
     }
 }
