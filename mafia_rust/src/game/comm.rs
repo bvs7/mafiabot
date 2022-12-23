@@ -168,13 +168,12 @@ impl<U: RawPID> Display for Event<U> {
             Event::Kill { killer, mark } => write!(f, "Kill: {:?} {:?}", killer, mark),
             Event::NoKill => write!(f, "NoKill"),
             Event::Eliminate { player } => write!(f, "Eliminate: {:?}", player),
-            Event::Halt => write!(f, "Halt"),
             Event::End { winner } => write!(f, "End: {:?}", winner),
         }
     }
 }
 
-pub EventKind{
+pub enum EventKind {
     Init,
     Start,
     Day,
@@ -307,7 +306,6 @@ impl<U: RawPID, S: Source> EventHandler<U, S> for DisplayEventHandler {
             Event::Kill { killer, mark } => println!("Kill: {:?} {:?}", killer, mark),
             Event::NoKill => println!("NoKill"),
             Event::Eliminate { player } => println!("Eliminate: {:?}", player),
-            Event::Halt => println!("Halt"),
             Event::End { winner } => println!("End: {:?}", winner),
         }
     }

@@ -62,25 +62,20 @@ pub trait RawPID: Debug + Display + Clone + Copy + PartialEq + Eq + Send + Seria
 pub type Pidx = usize;
 impl RawPID for Pidx {}
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize /*Deserialize*/)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize /*Deserialize*/)]
 pub struct Player<U: RawPID> {
     pub raw_pid: U,
-    pub name: String,
     pub role: Role,
 }
 
 impl<U: RawPID> Player<U> {
-    pub fn new(raw_pid: U, name: &str, role: Role) -> Self {
-        Self {
-            raw_pid,
-            name: name.to_string(),
-            role,
-        }
+    pub fn new(raw_pid: U, role: Role) -> Self {
+        Self { raw_pid, role }
     }
 }
 impl<U: RawPID> Display for Player<U> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.name)
+        write!(f, "{}", self.raw_pid)
     }
 }
 
@@ -106,6 +101,22 @@ impl<U: RawPID> Choice<U> {
     pub fn is_player(&self) -> Option<U> {
         if let Choice::Player(p) = self {
             Some(*p)
+        } else {
+            None
+        }
+    }
+    pub fn as_opt(&self) -> Option<U> {
+        if let Choice::Player(p) = self {
+            Some(*p)
+        } else {
+            None
+        }
+    }
+}
+impl Into<Option<Pidx>> for Choice<Pidx> {
+    fn into(self) -> Option<Pidx> {
+        if let Choice::Player(p) = self {
+            Some(p)
         } else {
             None
         }

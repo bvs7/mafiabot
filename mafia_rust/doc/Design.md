@@ -30,6 +30,41 @@ Mafiabot is a discord chatbot that facilitates a game of Mafia.
 - Core
     - Inputs are comm::Command structs
     - Outputs
-        - comm::Event structs
-        - Errors returned from handle
-        - access mutex and check Phase status
+        - comm::Event structs for game outputs that don't need context to be routed to users
+        - Errors returned from handle need context (Who sent wrong command and from where?) To respond
+        - access mutex and check Phase status done by exterior thread to update game status
+
+### Module Structure
+
+- Core: Facilitates the game logic.
+    - Functionality is all in the `Game` struct
+    - Type system for data.
+        - Publically accessible data?
+        - Vs internal
+    - Interface (Commands and Events)
+
+- Core Data:
+    - Players* Constructed from outside? So must be public?
+        - UID
+        - Role
+        - ~~Name~~
+    - Phase
+        - Init: Pre Start?
+        - Day:
+            - day_no
+            - votes `Vec<Pidx, Choice<Pidx>>`
+            - blocks
+        - Night:
+            - night_no
+            - strips `Vec<Pidx, Choice<Pidx>>`
+            - saves `Vec<Pidx, Choice<Pidx>>`
+            - investigations `Vec<Pidx, Choice<Pidx>>`
+            - kill `Option<Pidx, Choice<Pidx>>`
+        - Dawn?:
+            - dawn_no
+            - block_map `HashMap<Pidx, Vec<Pidx>>` // blocked -> [strippers]
+            - save_map `HashMap<Pidx, Vec<Pidx>>` // saved -> [doctors]
+            - investigations `Vec<Pidx, Pidx>`
+            - kill `Option<Pidx, Choice<Pidx>>`
+
+#### Targeting system
