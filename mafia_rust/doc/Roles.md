@@ -13,7 +13,7 @@
 #### Mafia Aligned
 - MAFIA
 - GODFATHER
-- STRIPPER!(StripReveal?)
+- STRIPPER!(StripNotify?)
     - **Useful** | Always
 - GOON
 

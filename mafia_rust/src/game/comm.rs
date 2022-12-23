@@ -4,10 +4,8 @@ use std::{
     sync::mpsc::{Receiver, Sender},
 };
 
-use super::{
-    player::{Choice, Player, RawPID, Role, Winner},
-    PhaseKind,
-};
+use super::phase::*;
+use super::player::*;
 
 // A generic way to store the game?
 #[derive(Default, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

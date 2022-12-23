@@ -68,3 +68,17 @@ Mafiabot is a discord chatbot that facilitates a game of Mafia.
             - kill `Option<Pidx, Choice<Pidx>>`
 
 #### Targeting system
+
+- handle
+    - handle_vote
+    - handle_retract
+    - handle_reveal
+    - handle_target
+    - handle_mark
+
+- Command Validation
+    - Return errors if command is invalid
+    - return translated command data
+- Command acceptance
+    - Passed to a specific phase struct, as this is where the data needs to be stored.
+    - Returns a result showing if night is over
