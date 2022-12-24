@@ -148,7 +148,6 @@ impl<U: RawPID, S: Source> Game<U, S> {
     pub fn handle(&mut self, cmd: Command<U>) -> Result<(), Error<U>> {
         let result = match cmd {
             Command::Vote { voter, ballot } => self.handle_vote(voter, ballot),
-            Command::Retract { voter } => self.handle_retract(voter),
             Command::Reveal { celeb } => self.handle_reveal(celeb),
             Command::Target { actor, target } => self.handle_target(actor, target),
             Command::Mark { killer, mark } => self.handle_mark(killer, mark),
@@ -160,56 +159,52 @@ impl<U: RawPID, S: Source> Game<U, S> {
         result
     }
 
-    fn handle_vote(&mut self, v: U, b: Choice<U>) -> Result<(), Error<U>> {
+    fn handle_vote(&mut self, v: U, b: Option<Choice<U>>) -> Result<(), Error<U>> {
         let day = self.phase.is_day()?;
         let voter = self.players.check(v)?;
         let ballot = match b {
-            Choice::Player(p) => Choice::Player(self.players.check(p)?),
-            Choice::Abstain => Choice::Abstain,
+            Some(Choice::Player(p)) => Some(Choice::Player(self.players.check(p)?)),
+            Some(Choice::Abstain) => Some(Choice::Abstain),
+            None => None,
         };
 
         // accept vote?
-        let election = day.accept_vote(&self.players, (voter, ballot), &self.comm);
-        if let Some((electors, ballot)) = election {
-            let next_phase =
-                match day.resolve_election(&self.players, (electors, ballot), &self.comm) {
-                    DayResolution::Elected(elected, electors, next_phase) => self
-                        .phase
-                        .eliminate(
-                            &mut self.players,
-                            &[elected],
-                            *electors.last().unwrap(),
-                            &self.comm,
-                        )
-                        .unwrap_or(next_phase),
-                    DayResolution::NoKill(next_phase) => next_phase,
-                };
-            self.phase.next_phase(next_phase, &self.comm);
-        }
+        let day_resolution = day.resolve_vote(&self.players, (voter, ballot), &self.comm);
+
+        let next_phase: Phase = match day_resolution {
+            Some(DayResolution::Elected(elected, electors, hammer, next_phase)) => self
+                .phase
+                .eliminate(&mut self.players, &[elected], hammer, &self.comm)
+                .unwrap_or(next_phase),
+            Some(DayResolution::NoKill(next_phase)) => next_phase,
+            None => return Ok(()),
+        };
+
+        self.phase.next_phase(next_phase, &self.comm);
         Ok(())
     }
 
-    fn handle_retract(&mut self, v: U) -> Result<(), Error<U>> {
-        self.phase.is_day()?;
-        let voter = self.players.check(v)?;
+    // fn handle_retract(&mut self, v: U) -> Result<(), Error<U>> {
+    //     self.phase.is_day()?;
+    //     let voter = self.players.check(v)?;
 
-        // How to do this without needing to reproduce day?S
-        let day = self.phase.is_day()?;
+    //     // How to do this without needing to reproduce day?S
+    //     let day = self.phase.is_day()?;
 
-        let former = day
-            .votes
-            .iter()
-            .position(|(v, _)| v == &voter)
-            .map(|i| day.votes.remove(i))
-            .map(|(_, b)| b);
+    //     let former = day
+    //         .votes
+    //         .iter()
+    //         .position(|(v, _)| v == &voter)
+    //         .map(|i| day.votes.remove(i))
+    //         .map(|(_, b)| b);
 
-        self.comm.tx(Event::Retract {
-            voter: self.players[voter].to_owned(),
-            former: former.map(|f| f.to_p(&self.players)),
-        });
+    //     self.comm.tx(Event::Retract {
+    //         voter: self.players[voter].to_owned(),
+    //         former: former.map(|f| f.to_p(&self.players)),
+    //     });
 
-        Ok(())
-    }
+    //     Ok(())
+    // }
 
     fn handle_reveal(&mut self, celeb: U) -> Result<(), Error<U>> {
         // Can we do this with a single check of day? TODO
@@ -245,25 +240,9 @@ impl<U: RawPID, S: Source> Game<U, S> {
 
         let role = self.players[actor].role;
 
-        let night_done = night.accept_target(&self.players, actor, target, role, &self.comm);
+        let night_resolution = night.resolve_target(&self.players, actor, target, role, &self.comm);
 
-        if !night_done {
-            return Ok(());
-        }
-
-        let night_resolution = night.resolve(&self.players, &self.comm);
-
-        let next_phase = match night_resolution {
-            NightResolution::Kill((killer, mark), next_phase) => self
-                .phase
-                .eliminate(&mut self.players, &[mark], killer, &self.comm)
-                .or(Some(next_phase)),
-            NightResolution::NoKill(next_phase) => Some(next_phase),
-        };
-
-        if let Some(phase) = next_phase {
-            self.phase.next_phase(phase, &self.comm);
-        }
+        self.handle_dawn(night_resolution);
 
         Ok(())
     }
@@ -290,27 +269,24 @@ impl<U: RawPID, S: Source> Game<U, S> {
             }
         };
 
-        let night_done = night.accept_mark(&self.players, killer, mark, &self.comm);
+        let night_resolution = night.resolve_mark(&self.players, killer, mark, &self.comm);
 
-        if !night_done {
-            return Ok(());
-        }
-
-        let night_resolution = night.resolve(&self.players, &self.comm);
-
-        let next_phase = match night_resolution {
-            NightResolution::Kill((killer, mark), next_phase) => self
-                .phase
-                .eliminate(&mut self.players, &[mark], killer, &self.comm)
-                .or(Some(next_phase)),
-            NightResolution::NoKill(next_phase) => Some(next_phase),
-        };
-
-        if let Some(phase) = next_phase {
-            self.phase.next_phase(phase, &self.comm);
-        }
+        self.handle_dawn(night_resolution);
 
         Ok(())
+    }
+
+    fn handle_dawn(&mut self, night_resolution: Option<NightResolution>) {
+        let phase = match night_resolution {
+            Some(NightResolution::Kill(killer, mark, next_phase)) => self
+                .phase
+                .eliminate(&mut self.players, &[mark], killer, &self.comm)
+                .unwrap_or(next_phase),
+            Some(NightResolution::NoKill(next_phase)) => next_phase,
+            None => return,
+        };
+
+        self.phase.next_phase(phase, &self.comm);
     }
 
     fn strip_events(

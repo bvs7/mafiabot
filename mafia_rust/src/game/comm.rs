@@ -38,8 +38,7 @@ pub enum CommandKind {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Command<U: RawPID> {
-    Vote { voter: U, ballot: Choice<U> },
-    Retract { voter: U },
+    Vote { voter: U, ballot: Option<Choice<U>> },
     Reveal { celeb: U },
     Target { actor: U, target: Choice<U> },
     Mark { killer: U, mark: Choice<U> },
@@ -48,7 +47,6 @@ impl<U: RawPID> Command<U> {
     pub fn kind(&self) -> CommandKind {
         match self {
             Command::Vote { .. } => CommandKind::Vote,
-            Command::Retract { .. } => CommandKind::Retract,
             Command::Reveal { .. } => CommandKind::Reveal,
             Command::Target { .. } => CommandKind::Target,
             Command::Mark { .. } => CommandKind::Mark,

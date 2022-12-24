@@ -81,4 +81,6 @@ Mafiabot is a discord chatbot that facilitates a game of Mafia.
     - return translated command data
 - Command acceptance
     - Passed to a specific phase struct, as this is where the data needs to be stored.
-    - Returns a result showing if night is over
+    - Returns a result showing if the phase would end, and how
+
+- Combine acceptance and resolution?

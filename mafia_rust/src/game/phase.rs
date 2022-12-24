@@ -28,7 +28,7 @@ impl Display for PhaseKind {
 }
 
 pub enum DayResolution {
-    Elected(Pidx, Vec<Pidx>, Phase),
+    Elected(Pidx, Vec<Pidx>, Pidx, Phase),
     NoKill(Phase),
 }
 
@@ -40,12 +40,12 @@ pub struct Day {
 }
 
 impl Day {
-    pub fn accept_vote<U: RawPID, S: Source>(
+    pub fn resolve_vote<U: RawPID, S: Source>(
         &mut self,
         players: &Players<U>,
-        (voter, ballot): (Pidx, Choice<Pidx>),
+        (voter, ballot): (Pidx, Option<Choice<Pidx>>),
         comm: &Comm<U, S>,
-    ) -> Option<Election> {
+    ) -> Option<DayResolution> {
         let former = self
             .votes
             .iter()
@@ -53,7 +53,19 @@ impl Day {
             .map(|i| self.votes.remove(i))
             .map(|(_, b)| b);
 
-        self.votes.push((voter, ballot));
+        let ballot = match ballot {
+            Some(choice) => {
+                self.votes.push((voter, choice));
+                choice
+            }
+            None => {
+                comm.tx(Event::Retract {
+                    voter: players[voter],
+                    former: former.map(|c| c.to_p(players)),
+                });
+                return None; // Vote retraction can't cause election
+            }
+        };
 
         let n_players = players.len();
         let threshold = match ballot {
@@ -77,10 +89,10 @@ impl Day {
             threshold,
         });
 
-        (count >= threshold).then(|| (electors, ballot))
+        (count >= threshold).then(|| self.resolve(players, (electors, ballot), comm))
     }
 
-    pub fn resolve_election<U: RawPID, S: Source>(
+    pub fn resolve<U: RawPID, S: Source>(
         &mut self,
         players: &Players<U>,
         (electors, ballot): Election,
@@ -96,9 +108,8 @@ impl Day {
         });
 
         let next_phase = Phase::new_night(self.day_no);
-
         if let Choice::Player(elected) = ballot {
-            DayResolution::Elected(elected, electors, next_phase)
+            DayResolution::Elected(elected, electors, hammer, next_phase)
         } else {
             DayResolution::NoKill(next_phase)
         }
@@ -122,33 +133,31 @@ pub struct Night {
     pub scheme: Option<(Pidx, Choice<Pidx>)>,
 }
 
-// type NightResolution = (Option<(Pidx, Pidx)>, Phase);
-
 pub enum NightResolution {
     NoKill(Phase),
-    Kill((Pidx, Pidx), Phase),
+    Kill(Pidx, Pidx, Phase),
 }
 
 impl Night {
-    pub fn accept_target<U: RawPID, S: Source>(
+    pub fn resolve_target<U: RawPID, S: Source>(
         &mut self,
         players: &Players<U>,
         actor: Pidx,
         target: Choice<Pidx>,
         role: Role,
         comm: &Comm<U, S>,
-    ) -> bool {
+    ) -> Option<NightResolution> {
         // If actor has already targeted tonight, retract that target.
         if let Some((killer, _)) = self.scheme {
             if killer == actor {
                 self.scheme = Some((killer, Choice::Abstain));
             }
         }
-
         comm.tx(Event::Target {
             actor: players[actor].to_owned(),
             target: target.to_p(&players),
         });
+
         let t = match (role, target) {
             (_, Choice::Abstain) => Target::Abstain,
             (Role::COP, Choice::Player(p)) => Target::Investigate(p),
@@ -159,15 +168,16 @@ impl Night {
         self.targets.insert(actor, t);
 
         self.check_dawn(players)
+            .then(|| self.resolve(players, comm))
     }
 
-    pub fn accept_mark<U: RawPID, S: Source>(
+    pub fn resolve_mark<U: RawPID, S: Source>(
         &mut self,
         players: &Players<U>,
         killer: Pidx,
         mark: Choice<Pidx>,
         comm: &Comm<U, S>,
-    ) -> bool {
+    ) -> Option<NightResolution> {
         // If killer has already targeted tonight, retract that target.
         if let Entry::Occupied(mut e) = self.targets.entry(killer) {
             *e.get_mut() = Target::Abstain;
@@ -181,11 +191,12 @@ impl Night {
         });
 
         self.check_dawn(players)
+            .then(|| self.resolve(players, comm))
     }
 
     fn check_dawn<U: RawPID>(&self, players: &Players<U>) -> bool {
         let night_action_count = get_players_that(players, |(_, p)| p.role.targeting()).count();
-        (night_action_count <= self.targets.len() || self.scheme.is_none())
+        night_action_count <= self.targets.len() || self.scheme.is_none()
     }
 
     pub fn resolve<U: RawPID, S: Source>(
@@ -261,19 +272,28 @@ impl Night {
         );
 
         // Enact Kill
-        if let Some((killer, Choice::Player(mark))) = self.scheme {
-            if let Entry::Occupied(e) = save_map.entry(mark) {
-                Game::save_events(comm, e.get(), killer, mark, players);
-            } else {
-                comm.tx(Event::Kill {
-                    killer: players[killer],
-                    mark: players[mark],
-                });
-                return NightResolution::Kill((killer, mark), next_phase);
+        let night_resolution = match self.scheme {
+            Some((killer, Choice::Player(mark))) => {
+                if let Entry::Occupied(e) = save_map.entry(mark) {
+                    Game::save_events(comm, e.get(), killer, mark, players);
+
+                    NightResolution::NoKill(next_phase)
+                } else {
+                    NightResolution::Kill(killer, mark, next_phase)
+                }
+            }
+            _ => NightResolution::NoKill(next_phase),
+        };
+        match night_resolution {
+            NightResolution::NoKill(_) => {
+                comm.tx(Event::NoKill);
+            }
+            NightResolution::Kill(killer, mark, _) => {
+                let (killer, mark) = (players[killer], players[mark]);
+                comm.tx(Event::Kill { killer, mark });
             }
         }
-        comm.tx(Event::NoKill);
-        NightResolution::NoKill(next_phase)
+        night_resolution
     }
 }
 

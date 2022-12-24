@@ -36,6 +36,3 @@
     - New Roles
 
 ### Proposals
-- Split Targets into Strips Saves and Investigations?
-    - Have to check strips on two lists, but might be easier?
-    - Figure out the semantics for filtering to make stuff easy
