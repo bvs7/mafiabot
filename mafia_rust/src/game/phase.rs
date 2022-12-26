@@ -2,7 +2,6 @@ use serde::Serialize;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::fmt::{Debug, Display};
-use std::fs::File;
 
 use super::comm::*;
 use super::player::*;
@@ -89,29 +88,26 @@ impl Day {
             threshold,
         });
 
-        (count >= threshold).then(|| self.resolve(players, (electors, ballot), comm))
-    }
+        if count < threshold {
+            return None;
+        }
 
-    pub fn resolve<U: RawPID, S: Source>(
-        &mut self,
-        players: &Players<U>,
-        (electors, ballot): Election,
-        comm: &Comm<U, S>,
-    ) -> DayResolution {
-        let hammer = *electors.last().expect("At least one elector");
+        let &hammer = electors.last().expect("At least one elector");
 
-        let electors_ = electors.iter().map(|e| players[*e].to_owned()).collect();
+        let electors_p: Vec<Player<U>> = electors.iter().map(|e| players[*e].to_owned()).collect();
 
         comm.tx(Event::Election {
-            electors: electors_,
+            electors: electors_p,
             ballot: ballot.to_p(&players),
         });
 
         let next_phase = Phase::new_night(self.day_no);
         if let Choice::Player(elected) = ballot {
-            DayResolution::Elected(elected, electors, hammer, next_phase)
+            Some(DayResolution::Elected(
+                elected, electors, hammer, next_phase,
+            ))
         } else {
-            DayResolution::NoKill(next_phase)
+            Some(DayResolution::NoKill(next_phase))
         }
     }
 }
@@ -167,8 +163,7 @@ impl Night {
         };
         self.targets.insert(actor, t);
 
-        self.check_dawn(players)
-            .then(|| self.resolve(players, comm))
+        self.resolve_dawn(players, comm)
     }
 
     pub fn resolve_mark<U: RawPID, S: Source>(
@@ -189,22 +184,21 @@ impl Night {
             killer: players[killer].to_owned(),
             mark: mark.to_p(players),
         });
-
-        self.check_dawn(players)
-            .then(|| self.resolve(players, comm))
+        self.resolve_dawn(players, comm)
     }
 
-    fn check_dawn<U: RawPID>(&self, players: &Players<U>) -> bool {
-        let night_action_count = get_players_that(players, |(_, p)| p.role.targeting()).count();
-        night_action_count <= self.targets.len() || self.scheme.is_none()
-    }
-
-    pub fn resolve<U: RawPID, S: Source>(
+    pub fn resolve_dawn<U: RawPID, S: Source>(
         &mut self,
         players: &Players<U>,
         comm: &Comm<U, S>,
-    ) -> NightResolution {
+    ) -> Option<NightResolution> {
         type T = Targets;
+
+        let night_action_players = get_players_that(players, |(_, p)| p.role.targeting()).count();
+        let night_actions = self.targets.len();
+        if (night_actions < night_action_players || self.scheme.is_none()) {
+            return None;
+        }
 
         comm.tx(Event::Dawn);
 
@@ -293,7 +287,7 @@ impl Night {
                 comm.tx(Event::Kill { killer, mark });
             }
         }
-        night_resolution
+        Some(night_resolution)
     }
 }
 
