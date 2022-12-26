@@ -184,31 +184,7 @@ impl<U: RawPID, S: Source> Game<U, S> {
         Ok(())
     }
 
-    // fn handle_retract(&mut self, v: U) -> Result<(), Error<U>> {
-    //     self.phase.is_day()?;
-    //     let voter = self.players.check(v)?;
-
-    //     // How to do this without needing to reproduce day?S
-    //     let day = self.phase.is_day()?;
-
-    //     let former = day
-    //         .votes
-    //         .iter()
-    //         .position(|(v, _)| v == &voter)
-    //         .map(|i| day.votes.remove(i))
-    //         .map(|(_, b)| b);
-
-    //     self.comm.tx(Event::Retract {
-    //         voter: self.players[voter].to_owned(),
-    //         former: former.map(|f| f.to_p(&self.players)),
-    //     });
-
-    //     Ok(())
-    // }
-
     fn handle_reveal(&mut self, celeb: U) -> Result<(), Error<U>> {
-        // Can we do this with a single check of day? TODO
-
         let day = self.phase.is_day()?;
         let celeb = self.players.check(celeb)?;
         if self.players[celeb].role != Role::CELEB {
@@ -277,51 +253,16 @@ impl<U: RawPID, S: Source> Game<U, S> {
     }
 
     fn handle_dawn(&mut self, night_resolution: Option<NightResolution>) {
-        let phase = match night_resolution {
-            Some(NightResolution::Kill(killer, mark, next_phase)) => self
+        let next_phase = match night_resolution {
+            Some(NightResolution::Kill(killer, mark, phase)) => self
                 .phase
                 .eliminate(&mut self.players, &[mark], killer, &self.comm)
-                .unwrap_or(next_phase),
-            Some(NightResolution::NoKill(next_phase)) => next_phase,
+                .unwrap_or(phase),
+            Some(NightResolution::NoKill(phase)) => phase,
             None => return,
         };
 
-        self.phase.next_phase(phase, &self.comm);
-    }
-
-    fn strip_events(
-        comm: &Comm<U, S>,
-        strippers: &Vec<Pidx>,
-        blocked: Pidx,
-        players: &Vec<Player<U>>,
-    ) {
-        comm.tx(Event::Block {
-            blocked: players[blocked].to_owned(),
-        });
-        for stripper in strippers {
-            comm.tx(Event::Strip {
-                stripper: players[*stripper].to_owned(),
-                blocked: players[blocked].to_owned(),
-            });
-        }
-    }
-
-    fn save_events(
-        comm: &Comm<U, S>,
-        doctors: &Vec<Pidx>,
-        killer: Pidx,
-        saved: Pidx,
-        players: &Vec<Player<U>>,
-    ) {
-        comm.tx(Event::Block {
-            blocked: players[killer].to_owned(),
-        });
-        for doctor in doctors {
-            comm.tx(Event::Save {
-                doctor: players[*doctor].to_owned(),
-                saved: players[saved].to_owned(),
-            });
-        }
+        self.phase.next_phase(next_phase, &self.comm);
     }
 }
 

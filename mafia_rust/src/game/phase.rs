@@ -225,7 +225,7 @@ impl Night {
                 match target {
                     Target::Save(_) | Target::Investigate(_) => {
                         // RULE StripNotify Useful
-                        Game::strip_events(&comm, e.get(), *actor, &players);
+                        strip_events(&comm, e.get(), *actor, &players);
                         *target = Target::Abstain;
                     }
                     _ => {}
@@ -269,7 +269,7 @@ impl Night {
         let night_resolution = match self.scheme {
             Some((killer, Choice::Player(mark))) => {
                 if let Entry::Occupied(e) = save_map.entry(mark) {
-                    Game::save_events(comm, e.get(), killer, mark, players);
+                    save_events(comm, e.get(), killer, mark, players);
 
                     NightResolution::NoKill(next_phase)
                 } else {
@@ -288,6 +288,41 @@ impl Night {
             }
         }
         Some(night_resolution)
+    }
+}
+
+fn strip_events<U: RawPID, S: Source>(
+    comm: &Comm<U, S>,
+    strippers: &Vec<Pidx>,
+    blocked: Pidx,
+    players: &Vec<Player<U>>,
+) {
+    comm.tx(Event::Block {
+        blocked: players[blocked].to_owned(),
+    });
+    for stripper in strippers {
+        comm.tx(Event::Strip {
+            stripper: players[*stripper].to_owned(),
+            blocked: players[blocked].to_owned(),
+        });
+    }
+}
+
+fn save_events<U: RawPID, S: Source>(
+    comm: &Comm<U, S>,
+    doctors: &Vec<Pidx>,
+    killer: Pidx,
+    saved: Pidx,
+    players: &Vec<Player<U>>,
+) {
+    comm.tx(Event::Block {
+        blocked: players[killer].to_owned(),
+    });
+    for doctor in doctors {
+        comm.tx(Event::Save {
+            doctor: players[*doctor].to_owned(),
+            saved: players[saved].to_owned(),
+        });
     }
 }
 
