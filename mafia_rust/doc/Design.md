@@ -3,6 +3,14 @@
 
 Mafiabot is a discord chatbot that facilitates a game of Mafia.
 
+## Gameplay Overview
+
+Mafia is a hidden information game between typically two teams. The "Mafia" and the "Town". The Town are trying to discover who the Mafia are and kill them, while the Mafia know who each other are, and are trying to kill town.
+
+The game commences in Phases, typically alternately Day and Night. During a Day phase, all players may publicly vote for other players. Once a player has received a majority of votes, they are elected and eliminated and the game proceeds to the Night phase. During a Night phase, the Mafia will target somebody to be killed. At the end of Night, the targeted player will be eliminated.
+
+Aside from the Mafia aligned normal MAFIA role and the Town aligned normal TOWN role, there are other special roles, such as COP, DOCTOR, CELEB, GODFATHER, etc. Some roles also have night actions, such as investigating or saving other players. All night actions are selected during the night, then resolved at the end of Night, which happens once all selections have been made. Some roles are also not aligned with either Town or Mafia. These Rogue roles have specific goals, such as getting voted out, protecting another player, or causing another player's death.
+
 ## Game Design
 
 - "Block"

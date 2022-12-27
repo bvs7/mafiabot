@@ -19,7 +19,7 @@
 
 #### Rogue (Unaligned)
 - IDIOT!(IdiotElect)
-    - Win| Cull | **Dusk** | Day | Stun | None
+    - Win | Cull | **Dusk** | Day | Stun | None
 
 ## Planned 
 - MASON
@@ -42,17 +42,9 @@
 - COURTESAN!(CourtesanContract?)
     - **Refocus** | Retire
 - VIGILANTE!(VigilanteKill)
-    - **Infinite**|Three|Two|One|Half
+    - **Infinite** | Three | Two | One | Stun
 - KILLER
 - WITCH
-
-### Transistions
-- VIGILANTE!Three => VIGILANTE!Two => VIGILANTE!One => TOWN
-- GUARD(x)!Refocus => AGENT(y)!Refocus => GUARD(z)!Refocus
-- GUARD(self)!Refocus -> SURVIVOR
-- AGENT(self)!Refocus -> IDIOT!None
-- LOVER(x)!Refocus -> AGENT(y)!Refocus
-- COURTESAN(x) -> AGENT(y)!Refocus
 
 ## Role Explanations
 - __TOWN__: A basic townsperson with no special abilities.
