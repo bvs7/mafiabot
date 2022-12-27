@@ -448,7 +448,7 @@ impl<U: RawPID> Display for Phase<U> {
 mod test {
     use super::*;
 
-    fn basics() -> Comm<u64, String> {
+    fn _basics() -> Comm<u64, String> {
         let (_, rx) = std::sync::mpsc::channel();
         let (tx, _) = std::sync::mpsc::channel();
 
@@ -459,7 +459,7 @@ mod test {
     #[test]
     fn phase_next_phase() {
         let mut phase = Phase::new_night(1);
-        let comm = basics();
+        let comm = _basics();
 
         phase.next_phase(Phase::new_day(2, vec![]), &comm);
 

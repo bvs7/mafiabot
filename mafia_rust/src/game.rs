@@ -282,7 +282,7 @@ impl<U: RawPID, S: Source> Game<U, S> {
         let day_resolution = day.resolve_vote(&self.players, (voter, ballot), &self.comm);
 
         let next_phase: Phase<U> = match day_resolution {
-            Some(DayResolution::Elected(elected, electors, hammer, next_phase)) => {
+            Some(DayResolution::Elected(elected, _electors, hammer, next_phase)) => {
                 self.check_elect_contract(elected);
                 self.eliminate(&[elected], hammer).unwrap_or(next_phase)
             }
@@ -450,7 +450,7 @@ mod test {
     impl RawPID for u64 {}
     impl Source for String {}
 
-    fn basics() -> (
+    fn _basics() -> (
         Comm<u64, String>,
         Receiver<Response<u64, String>>,
         DisplayEventHandler,
@@ -548,7 +548,7 @@ mod test {
             },
         ];
 
-        let (comm, mut rx, mut deh) = basics();
+        let (comm, mut _rx, mut _deh) = _basics();
 
         let mut game = Game {
             players,
