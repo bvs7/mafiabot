@@ -67,4 +67,19 @@ Mafiabot is a discord chatbot that facilitates a game of Mafia.
             - investigations `Vec<Pidx, Pidx>`
             - kill `Option<Pidx, Choice<Pidx>>`
 
-#### Targeting system
+#### Contracts
+
+Semantics
+- Contracts given at beginning of game
+- Type can be `Assassinate` `Protect` `Elect`
+- When that is met, (election or elimination)
+    - Search contracts for a charge that died/elected
+    - Note the outcome on contract?
+    - Potentially refocus...
+
+Store in player? Or store in a separate field?
+Need separate field, mut retain info after player deaths
+
+How to handle contract wins?
+
+Must announce win/lose for each of them at the end of the game, so do we even need to declare some special win?

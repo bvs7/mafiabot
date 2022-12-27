@@ -5,8 +5,6 @@ pub mod player;
 mod core_test;
 
 use serde::Serialize;
-use std::collections::hash_map::Entry;
-use std::collections::HashMap;
 use std::fmt::{Debug, Display};
 use std::fs::File;
 
@@ -18,7 +16,7 @@ use player::*;
 pub enum Error<U: RawPID> {
     InvalidPhase {
         expected: PhaseKind,
-        found: Phase,
+        found: Phase<U>,
     },
     InvalidCommand {
         command: CommandKind,
@@ -58,6 +56,116 @@ impl<U: RawPID> Display for Error<U> {
 }
 impl<U: RawPID> std::error::Error for Error<U> {}
 
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, Serialize /*Deserialize*/)]
+pub enum ChargeStatus {
+    #[default]
+    Alive,
+    Dead,
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, Serialize /*Deserialize*/)]
+pub enum IdiotStatus {
+    #[default]
+    Unelected,
+    Elected,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize /*Deserialize*/)]
+pub enum Contract<U: RawPID> {
+    Protect {
+        holder: U,
+        charge: U,
+        status: ChargeStatus,
+    },
+    Assassinate {
+        holder: U,
+        charge: U,
+        status: ChargeStatus,
+    },
+    Elect {
+        holder: U,
+        status: IdiotStatus,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize /*Deserialize*/)]
+pub enum ContractResult<U: RawPID> {
+    Win { holder: U },
+    Loss { holder: U },
+}
+
+impl<U: RawPID> Contract<U> {
+    pub fn refocus<S: Source>(
+        &mut self,
+        players: &Players<U>,
+        died: U,
+        proxy: U,
+        comm: &Comm<U, S>,
+    ) {
+        match self {
+            Contract::Assassinate {
+                holder,
+                charge,
+                status,
+            }
+            | Contract::Protect {
+                holder,
+                charge,
+                status,
+            } if *charge == died => {
+                // Check if alive
+                if players.check(*holder).is_ok() {
+                    let new_charge = if players.check(proxy).is_ok() {
+                        proxy
+                    } else {
+                        *holder
+                    };
+                    *self = self.to_refocused(new_charge);
+                    comm.tx(Event::Refocus {
+                        new_contract: *self,
+                    })
+                } else {
+                    *status = ChargeStatus::Dead;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    pub fn to_refocused(&self, charge: U) -> Self {
+        match self {
+            Contract::Assassinate { holder, .. } => Contract::Protect {
+                holder: *holder,
+                charge,
+                status: ChargeStatus::Alive,
+            },
+            Contract::Protect { holder, .. } => Contract::Assassinate {
+                holder: *holder,
+                charge,
+                status: ChargeStatus::Alive,
+            },
+            _ => panic!("Should not refocus this contract"),
+        }
+    }
+
+    fn check_win(&self) -> ContractResult<U> {
+        match self {
+            Contract::Assassinate { holder, status, .. } if *status == ChargeStatus::Dead => {
+                ContractResult::Win { holder: *holder }
+            }
+            Contract::Protect { holder, status, .. } if *status == ChargeStatus::Alive => {
+                ContractResult::Win { holder: *holder }
+            }
+            Contract::Elect { holder, status } if *status == IdiotStatus::Elected => {
+                ContractResult::Win { holder: *holder }
+            }
+            Contract::Assassinate { holder, .. }
+            | Contract::Protect { holder, .. }
+            | Contract::Elect { holder, .. } => ContractResult::Loss { holder: *holder },
+        }
+    }
+}
+
 pub trait PlayerCheck<U: RawPID> {
     fn check(&self, raw_pid: U) -> Result<Pidx, Error<U>>;
 }
@@ -76,7 +184,8 @@ impl<U: RawPID> PlayerCheck<U> for Players<U> {
 #[derive(Debug, Serialize /*Deserialize*/)]
 pub struct Game<U: RawPID, S: Source> {
     players: Players<U>,
-    phase: Phase,
+    phase: Phase<U>,
+    contracts: Vec<Contract<U>>,
     #[serde(skip)]
     comm: Comm<U, S>,
 }
@@ -86,6 +195,7 @@ impl<U: RawPID, S: Source> Game<U, S> {
         let mut game = Self {
             players: Vec::new(),
             phase: Phase::Init,
+            contracts: Vec::new(),
             comm,
         };
 
@@ -93,7 +203,7 @@ impl<U: RawPID, S: Source> Game<U, S> {
 
         for player in &players {
             if players.check(player.raw_pid).is_err() {
-                game.players.push(*player);
+                game.players.push(player.to_owned());
             }
         }
 
@@ -171,11 +281,11 @@ impl<U: RawPID, S: Source> Game<U, S> {
         // accept vote?
         let day_resolution = day.resolve_vote(&self.players, (voter, ballot), &self.comm);
 
-        let next_phase: Phase = match day_resolution {
-            Some(DayResolution::Elected(elected, electors, hammer, next_phase)) => self
-                .phase
-                .eliminate(&mut self.players, &[elected], hammer, &self.comm)
-                .unwrap_or(next_phase),
+        let next_phase: Phase<U> = match day_resolution {
+            Some(DayResolution::Elected(elected, electors, hammer, next_phase)) => {
+                self.check_elect_contract(elected);
+                self.eliminate(&[elected], hammer).unwrap_or(next_phase)
+            }
             Some(DayResolution::NoKill(next_phase)) => next_phase,
             None => return Ok(()),
         };
@@ -184,12 +294,23 @@ impl<U: RawPID, S: Source> Game<U, S> {
         Ok(())
     }
 
+    fn check_elect_contract(&mut self, elected: Pidx) {
+        let elected_id = self.players[elected].raw_pid;
+        for contract in self.contracts.iter_mut() {
+            if let Contract::Elect { holder, status } = contract {
+                if *holder == elected_id {
+                    *status = IdiotStatus::Elected;
+                }
+            }
+        }
+    }
+
     fn handle_reveal(&mut self, celeb: U) -> Result<(), Error<U>> {
         let day = self.phase.is_day()?;
         let celeb = self.players.check(celeb)?;
         if self.players[celeb].role != Role::CELEB {
             return Err(Error::InvalidRole {
-                role: self.players[celeb].role,
+                role: self.players[celeb].role.to_owned(),
                 command: CommandKind::Reveal,
             });
         }
@@ -214,7 +335,7 @@ impl<U: RawPID, S: Source> Game<U, S> {
             Choice::Abstain => Choice::Abstain,
         };
 
-        let role = self.players[actor].role;
+        let role = self.players[actor].role.to_owned();
 
         let night_resolution = night.resolve_target(&self.players, actor, target, role, &self.comm);
 
@@ -230,7 +351,7 @@ impl<U: RawPID, S: Source> Game<U, S> {
             Choice::Player(p) => Choice::Player(self.players.check(p)?),
             Choice::Abstain => Choice::Abstain,
         };
-        let role = self.players[killer].role;
+        let role = self.players[killer].role.to_owned();
 
         match role {
             Role::GOON => {
@@ -252,17 +373,54 @@ impl<U: RawPID, S: Source> Game<U, S> {
         Ok(())
     }
 
-    fn handle_dawn(&mut self, night_resolution: Option<NightResolution>) {
+    fn handle_dawn(&mut self, night_resolution: Option<NightResolution<U>>) {
         let next_phase = match night_resolution {
-            Some(NightResolution::Kill(killer, mark, phase)) => self
-                .phase
-                .eliminate(&mut self.players, &[mark], killer, &self.comm)
-                .unwrap_or(phase),
+            Some(NightResolution::Kill(killer, mark, phase)) => {
+                self.eliminate(&[mark], killer).unwrap_or(phase)
+            }
             Some(NightResolution::NoKill(phase)) => phase,
             None => return,
         };
 
         self.phase.next_phase(next_phase, &self.comm);
+    }
+
+    pub fn eliminate(&mut self, to_die: &[Pidx], proxy: Pidx) -> Option<Phase<U>> {
+        let mut to_die = to_die.to_owned();
+        to_die.sort();
+
+        let mut to_die_ids = Vec::<U>::new();
+        let proxy_id = self.players[proxy].raw_pid;
+
+        // Remove from largest to smallest to avoid invalidating indices
+        for p in to_die.into_iter().rev() {
+            let player = self.players[p].to_owned();
+            to_die_ids.push(player.raw_pid);
+            self.comm.tx(Event::Eliminate { player });
+
+            self.players.remove(p);
+        }
+        // all Pidxs are now invalid...
+        self.phase.clear();
+
+        // Check contracts
+        for p_id in to_die_ids {
+            self.check_contracts(p_id, proxy_id)
+        }
+
+        let winner = check_team_numbers(&self.players);
+
+        if let Some(win) = winner {
+            let contract_results: Vec<_> = self.contracts.iter().map(|c| c.check_win()).collect();
+            return Some(Phase::End(win, contract_results));
+        }
+        None
+    }
+
+    fn check_contracts(&mut self, died: U, proxy: U) {
+        for contract in self.contracts.iter_mut() {
+            contract.refocus(&self.players, died, proxy, &self.comm);
+        }
     }
 }
 
@@ -273,10 +431,210 @@ fn check_team_numbers<U: RawPID>(players: &Players<U>) -> Option<Winner> {
         .filter(|p| p.role.team() == Team::Mafia)
         .count();
 
-    match 0 {
-        _ if n_mafia == 0 => Some(Winner::Team(Team::Town)),
-        // True if: 3/5, 3/6. False if: 2/5, 2/6
-        _ if n_mafia > (n_players - 1) / 2 => Some(Winner::Team(Team::Mafia)),
-        _ => None,
+    if n_mafia == 0 {
+        Some(Winner::Team(Team::Town))
+    } else if n_mafia > (n_players - 1) / 2 {
+        Some(Winner::Team(Team::Mafia))
+    } else {
+        None
+    }
+}
+
+mod test {
+    use super::comm::DisplayEventHandler;
+    use super::*;
+    use std::sync::mpsc::Receiver;
+    use std::thread;
+    use std::time::Duration;
+
+    impl RawPID for u64 {}
+    impl Source for String {}
+
+    fn basics() -> (
+        Comm<u64, String>,
+        Receiver<Response<u64, String>>,
+        DisplayEventHandler,
+    ) {
+        let (_, rx) = std::sync::mpsc::channel();
+        let (tx, rx_out) = std::sync::mpsc::channel();
+
+        let comm: Comm<u64, String> = Comm::new(rx, tx);
+        let deh = DisplayEventHandler::new();
+        return (comm, rx_out, deh);
+    }
+
+    #[allow(dead_code)]
+    fn resp_handle(
+        rx: &mut Receiver<Response<u64, String>>,
+        eh: &mut impl EventHandler<u64, String>,
+    ) {
+        loop {
+            thread::sleep(Duration::from_millis(50));
+            match rx.try_recv() {
+                Ok(resp) => eh.handle(resp.event, resp.src),
+                Err(_) => break,
+            }
+        }
+    }
+    #[test]
+    fn test_refocus() {
+        let players = vec![
+            Player {
+                raw_pid: 1u64,
+                role: Role::TOWN,
+            },
+            Player {
+                raw_pid: 2u64,
+                role: Role::GUARD,
+            },
+            Player {
+                raw_pid: 3u64,
+                role: Role::GUARD,
+            },
+            Player {
+                raw_pid: 4u64,
+                role: Role::AGENT,
+            },
+            Player {
+                raw_pid: 5u64,
+                role: Role::AGENT,
+            },
+            Player {
+                raw_pid: 6u64,
+                role: Role::IDIOT,
+            },
+            Player {
+                raw_pid: 7u64,
+                role: Role::IDIOT,
+            },
+            Player {
+                raw_pid: 8u64,
+                role: Role::MAFIA,
+            },
+            Player {
+                raw_pid: 9u64,
+                role: Role::MAFIA,
+            },
+        ];
+
+        let mut contracts = vec![
+            Contract::Protect {
+                holder: 2u64,
+                charge: 1,
+                status: ChargeStatus::Alive,
+            },
+            Contract::Protect {
+                holder: 3,
+                charge: 8,
+                status: ChargeStatus::Alive,
+            },
+            Contract::Assassinate {
+                holder: 4,
+                charge: 1,
+                status: ChargeStatus::Alive,
+            },
+            Contract::Assassinate {
+                holder: 5,
+                charge: 8,
+                status: ChargeStatus::Alive,
+            },
+            Contract::Elect {
+                holder: 6,
+                status: IdiotStatus::Unelected,
+            },
+            Contract::Elect {
+                holder: 7,
+                status: IdiotStatus::Unelected,
+            },
+        ];
+
+        let (comm, mut rx, mut deh) = basics();
+
+        let mut game = Game {
+            players,
+            phase: Phase::new_night(1),
+            contracts: contracts.clone(),
+            comm,
+        };
+
+        assert_eq!(game.contracts, contracts);
+
+        assert!(game.handle_mark(8, Choice::Player(1)).is_ok());
+
+        assert!(matches!(game.phase, Phase::Day(_)));
+
+        contracts[0] = Contract::Assassinate {
+            holder: 2,
+            charge: 8,
+            status: ChargeStatus::Alive,
+        };
+        contracts[2] = Contract::Protect {
+            holder: 4,
+            charge: 8,
+            status: ChargeStatus::Alive,
+        };
+
+        assert_eq!(game.contracts, contracts);
+
+        game.phase = Phase::new_night(2);
+        assert!(game.handle_mark(9, Choice::Player(2)).is_ok());
+        game.phase = Phase::new_night(3);
+        assert!(game.handle_mark(9, Choice::Player(4)).is_ok());
+
+        game.phase = Phase::new_night(4);
+        assert!(game.handle_mark(9, Choice::Player(8)).is_ok());
+
+        contracts[0] = Contract::Assassinate {
+            holder: 2,
+            charge: 8,
+            status: ChargeStatus::Dead,
+        };
+        contracts[1] = Contract::Assassinate {
+            holder: 3,
+            charge: 9,
+            status: ChargeStatus::Alive,
+        };
+        contracts[2] = Contract::Protect {
+            holder: 4,
+            charge: 8,
+            status: ChargeStatus::Dead,
+        };
+        contracts[3] = Contract::Protect {
+            holder: 5,
+            charge: 9,
+            status: ChargeStatus::Alive,
+        };
+
+        // 3,5,6,7,9
+
+        assert_eq!(game.contracts, contracts);
+
+        assert!(game.handle_vote(3, Some(Choice::Player(6))).is_ok());
+        assert!(game.handle_vote(5, Some(Choice::Player(6))).is_ok());
+        assert!(game.handle_vote(6, Some(Choice::Player(6))).is_ok());
+
+        contracts[4] = Contract::Elect {
+            holder: 6,
+            status: IdiotStatus::Elected,
+        };
+
+        assert_eq!(game.contracts, contracts);
+
+        assert!(game.handle_mark(9, Choice::Player(9)).is_ok());
+
+        assert_eq!(
+            game.phase,
+            Phase::End(
+                Winner::Team(Team::Town),
+                vec![
+                    ContractResult::Win { holder: 2 },
+                    ContractResult::Win { holder: 3 },
+                    ContractResult::Loss { holder: 4 },
+                    ContractResult::Loss { holder: 5 },
+                    ContractResult::Win { holder: 6 },
+                    ContractResult::Loss { holder: 7 },
+                ]
+            )
+        );
     }
 }

@@ -28,11 +28,6 @@
     - Only Rogue?
 - Core
     - Contracts/Rogue victories
-    - "Stun" Semantics...
-        - Celeb getting stripped?
-        - Idiot "Stun" Vengeance
-        - Stripping as "Stun"?
-        - Doctor saves self stun next night?
     - New Roles
 
 ### Proposals

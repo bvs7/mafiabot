@@ -4,8 +4,8 @@ use std::{
     sync::mpsc::{Receiver, Sender},
 };
 
-use super::phase::*;
-use super::player::*;
+use super::{phase::*, Contract};
+use super::{player::*, ContractResult};
 
 // A generic way to store the game?
 #[derive(Default, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -124,8 +124,12 @@ pub enum Event<U: RawPID> {
     Eliminate {
         player: Player<U>,
     },
+    Refocus {
+        new_contract: Contract<U>,
+    },
     End {
         winner: Winner,
+        contract_results: Vec<ContractResult<U>>,
     },
 }
 
@@ -164,31 +168,15 @@ impl<U: RawPID> Display for Event<U> {
             Event::Kill { killer, mark } => write!(f, "Kill: {:?} {:?}", killer, mark),
             Event::NoKill => write!(f, "NoKill"),
             Event::Eliminate { player } => write!(f, "Eliminate: {:?}", player),
-            Event::End { winner } => write!(f, "End: {:?}", winner),
+            Event::Refocus { new_contract } => write!(f, "Refocus: {:?}", new_contract),
+            Event::End {
+                winner,
+                contract_results,
+            } => {
+                write!(f, "End: {:?}, contracts: {:?}", winner, contract_results)
+            }
         }
     }
-}
-
-pub enum EventKind {
-    Init,
-    Start,
-    Day,
-    Vote,
-    Retract,
-    Reveal,
-    Election,
-    Night,
-    Target,
-    Mark,
-    Dawn,
-    Strip,
-    Block,
-    Save,
-    Investigate,
-    Kill,
-    NoKill,
-    Eliminate,
-    End,
 }
 
 #[derive(Debug)]
@@ -250,59 +238,6 @@ impl DisplayEventHandler {
 
 impl<U: RawPID, S: Source> EventHandler<U, S> for DisplayEventHandler {
     fn handle(&mut self, event: Event<U>, _: S) {
-        match event {
-            Event::Init => println!("Game initialized"),
-            Event::Start { players, phase } => {
-                println!(
-                    "Game started in phase {} with players: {}",
-                    phase,
-                    players
-                        .iter()
-                        .map(|p| p.to_string())
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                )
-            }
-            Event::Day { day_no } => println!("Day {}", day_no),
-            Event::Vote {
-                voter,
-                ballot,
-                former,
-                threshold,
-                count,
-            } => println!(
-                "Vote: {:?} {:?} {:?} {} {}",
-                voter, ballot, former, threshold, count
-            ),
-            Event::Retract { voter, former } => println!("Retract: {:?} {:?}", voter, former),
-            Event::Reveal { celeb } => println!("Reveal: {:?}", celeb),
-            Event::Election { electors, ballot } => {
-                println!("Election: {:?} {:?}", electors, ballot)
-            }
-            Event::Night { night_no } => println!("Night {}", night_no),
-            Event::Target { actor, target } => {
-                println!(
-                    "Target: {} {}",
-                    actor,
-                    target.map(|t| t.to_string()).unwrap_or("None".to_string())
-                )
-            }
-            Event::Mark { killer, mark } => println!(
-                "Mark: {} {}",
-                killer,
-                mark.map(|t| t.to_string()).unwrap_or("None".to_string())
-            ),
-            Event::Dawn => println!("Dawn"),
-            Event::Strip { stripper, blocked } => println!("Strip: {:?} {:?}", stripper, blocked),
-            Event::Block { blocked } => println!("Block: {:?}", blocked),
-            Event::Save { doctor, saved } => println!("Save: {:?} {:?}", doctor, saved),
-            Event::Investigate { cop, suspect, role } => {
-                println!("Investigate: {:?} {:?} {:?}", cop, suspect, role)
-            }
-            Event::Kill { killer, mark } => println!("Kill: {:?} {:?}", killer, mark),
-            Event::NoKill => println!("NoKill"),
-            Event::Eliminate { player } => println!("Eliminate: {:?}", player),
-            Event::End { winner } => println!("End: {:?}", winner),
-        }
+        println!("{}", event.to_string());
     }
 }

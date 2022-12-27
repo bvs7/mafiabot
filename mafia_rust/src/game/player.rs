@@ -3,7 +3,7 @@ use std::fmt::{Debug, Display};
 
 use super::Players;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize /*Deserialize*/)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize /*Deserialize*/)]
 pub enum Role {
     TOWN,
     COP,
@@ -62,7 +62,7 @@ pub trait RawPID: Debug + Display + Clone + Copy + PartialEq + Eq + Send + Seria
 pub type Pidx = usize;
 impl RawPID for Pidx {}
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize /*Deserialize*/)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize /*Deserialize*/)]
 pub struct Player<U: RawPID> {
     pub raw_pid: U,
     pub role: Role,

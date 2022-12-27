@@ -26,9 +26,9 @@ impl Display for PhaseKind {
     }
 }
 
-pub enum DayResolution {
-    Elected(Pidx, Vec<Pidx>, Pidx, Phase),
-    NoKill(Phase),
+pub enum DayResolution<U: RawPID> {
+    Elected(Pidx, Vec<Pidx>, Pidx, Phase<U>),
+    NoKill(Phase<U>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -44,7 +44,7 @@ impl Day {
         players: &Players<U>,
         (voter, ballot): (Pidx, Option<Choice<Pidx>>),
         comm: &Comm<U, S>,
-    ) -> Option<DayResolution> {
+    ) -> Option<DayResolution<U>> {
         let former = self
             .votes
             .iter()
@@ -59,7 +59,7 @@ impl Day {
             }
             None => {
                 comm.tx(Event::Retract {
-                    voter: players[voter],
+                    voter: players[voter].to_owned(),
                     former: former.map(|c| c.to_p(players)),
                 });
                 return None; // Vote retraction can't cause election
@@ -129,9 +129,9 @@ pub struct Night {
     pub scheme: Option<(Pidx, Choice<Pidx>)>,
 }
 
-pub enum NightResolution {
-    NoKill(Phase),
-    Kill(Pidx, Pidx, Phase),
+pub enum NightResolution<U: RawPID> {
+    NoKill(Phase<U>),
+    Kill(Pidx, Pidx, Phase<U>),
 }
 
 impl Night {
@@ -142,7 +142,7 @@ impl Night {
         target: Choice<Pidx>,
         role: Role,
         comm: &Comm<U, S>,
-    ) -> Option<NightResolution> {
+    ) -> Option<NightResolution<U>> {
         // If actor has already targeted tonight, retract that target.
         if let Some((killer, _)) = self.scheme {
             if killer == actor {
@@ -172,7 +172,7 @@ impl Night {
         killer: Pidx,
         mark: Choice<Pidx>,
         comm: &Comm<U, S>,
-    ) -> Option<NightResolution> {
+    ) -> Option<NightResolution<U>> {
         // If killer has already targeted tonight, retract that target.
         if let Entry::Occupied(mut e) = self.targets.entry(killer) {
             *e.get_mut() = Target::Abstain;
@@ -191,12 +191,12 @@ impl Night {
         &mut self,
         players: &Players<U>,
         comm: &Comm<U, S>,
-    ) -> Option<NightResolution> {
+    ) -> Option<NightResolution<U>> {
         type T = Targets;
 
         let night_action_players = get_players_that(players, |(_, p)| p.role.targeting()).count();
         let night_actions = self.targets.len();
-        if (night_actions < night_action_players || self.scheme.is_none()) {
+        if night_actions < night_action_players || self.scheme.is_none() {
             return None;
         }
 
@@ -255,7 +255,11 @@ impl Night {
         // Enact Investigations
         for (cop, target) in searches {
             if let Target::Investigate(suspect) = target {
-                let (cop, suspect, role) = (players[cop], players[suspect], players[suspect].role);
+                let (cop, suspect, role) = (
+                    players[cop].to_owned(),
+                    players[suspect].to_owned(),
+                    players[suspect].role.to_owned(),
+                );
                 comm.tx(Event::Investigate { cop, suspect, role })
             }
         }
@@ -283,7 +287,7 @@ impl Night {
                 comm.tx(Event::NoKill);
             }
             NightResolution::Kill(killer, mark, _) => {
-                let (killer, mark) = (players[killer], players[mark]);
+                let (killer, mark) = (players[killer].to_owned(), players[mark].to_owned());
                 comm.tx(Event::Kill { killer, mark });
             }
         }
@@ -327,14 +331,14 @@ fn save_events<U: RawPID, S: Source>(
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize /*Deserialize*/)]
-pub enum Phase {
+pub enum Phase<U: RawPID> {
     Init,
     Day(Day),
     Night(Night),
-    End(Winner),
+    End(Winner, Vec<ContractResult<U>>),
 }
 
-impl Phase {
+impl<U: RawPID> Phase<U> {
     pub fn clear(&mut self) {
         match self {
             Phase::Day(Day { votes, .. }) => votes.clear(),
@@ -366,10 +370,10 @@ impl Phase {
             Phase::Init => PhaseKind::Init,
             Phase::Day { .. } => PhaseKind::Day,
             Phase::Night { .. } => PhaseKind::Night,
-            Phase::End(_) => PhaseKind::End,
+            Phase::End(..) => PhaseKind::End,
         }
     }
-    pub fn is_day<U: RawPID>(&mut self) -> Result<&mut Day, Error<U>> {
+    pub fn is_day(&mut self) -> Result<&mut Day, Error<U>> {
         if let Phase::Day(day) = self {
             Ok(day)
         } else {
@@ -379,7 +383,7 @@ impl Phase {
             })
         }
     }
-    pub fn is_night<U: RawPID>(&mut self) -> Result<&mut Night, Error<U>> {
+    pub fn is_night(&mut self) -> Result<&mut Night, Error<U>> {
         if let Phase::Night(night) = self {
             Ok(night)
         } else {
@@ -390,46 +394,27 @@ impl Phase {
         }
     }
 
-    pub fn eliminate<U: RawPID, S: Source>(
-        &mut self,
-        players: &mut Players<U>,
-        to_die: &[Pidx],
-        _proxy: Pidx,
-        comm: &Comm<U, S>,
-    ) -> Option<Phase> {
-        let mut to_die = to_die.to_owned();
-        to_die.sort();
-        // Remove from largest to smallest to avoid invalidating indices
-        for p in to_die.into_iter().rev() {
-            let player = players[p].to_owned();
-            comm.tx(Event::Eliminate { player });
-
-            players.remove(p);
-        }
-        // all Pidxs are now invalid...
-        self.clear();
-
-        let winner = check_team_numbers(players);
-
-        winner.map(|w| Phase::End(w))
-    }
-
-    pub fn next_phase<U: RawPID, S: Source>(&mut self, next_phase: Phase, comm: &Comm<U, S>) {
+    pub fn next_phase<S: Source>(&mut self, next_phase: Phase<U>, comm: &Comm<U, S>) {
         *self = next_phase;
 
-        match *self {
-            Phase::Day(Day { day_no, .. }) => comm.tx(Event::Day { day_no }),
-            Phase::Night(Night { night_no, .. }) => comm.tx(Event::Night { night_no }),
-            Phase::End(winner) => comm.tx(Event::End { winner }),
+        match self {
+            Phase::Day(Day { day_no, .. }) => comm.tx(Event::Day { day_no: *day_no }),
+            Phase::Night(Night { night_no, .. }) => comm.tx(Event::Night {
+                night_no: *night_no,
+            }),
+            Phase::End(winner, contract_results) => comm.tx(Event::End {
+                winner: *winner,
+                contract_results: contract_results.to_owned(),
+            }),
             _ => panic!("Should never go to Init Phase!"),
         }
 
-        if let SaveStrategy::PerPhase(fname) = &comm.save {
-            // self.save_game(fname).expect("Saving game should work");
+        if let SaveStrategy::PerPhase(_fname) = &comm.save {
+            // self.save_game(_fname).expect("Saving game should work");
         };
     }
 }
-impl Display for Phase {
+impl<U: RawPID> Display for Phase<U> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Phase::Init => write!(f, "Init"),
@@ -453,7 +438,31 @@ impl Display for Phase {
                     night_no, targets, scheme
                 )
             }
-            Phase::End(winner) => write!(f, "End: {}", winner),
+            Phase::End(winner, contracts) => {
+                write!(f, "End: {:?}, contracts: {:?}", winner, contracts)
+            }
         }
+    }
+}
+
+mod test {
+    use super::*;
+
+    fn basics() -> Comm<u64, String> {
+        let (_, rx) = std::sync::mpsc::channel();
+        let (tx, _) = std::sync::mpsc::channel();
+
+        let comm: Comm<u64, String> = Comm::new(rx, tx);
+        return comm;
+    }
+
+    #[test]
+    fn phase_next_phase() {
+        let mut phase = Phase::new_night(1);
+        let comm = basics();
+
+        phase.next_phase(Phase::new_day(2, vec![]), &comm);
+
+        assert!(matches!(phase, Phase::Day(Day{day_no, .. }) if day_no == 2));
     }
 }
