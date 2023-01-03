@@ -243,7 +243,7 @@ fn get_set_mafia_roles(n_mafia: usize, roleset: &RoleSet) -> Vec<RoleGen> {
 }
 
 fn get_teams_score(n_town: usize, n_mafia: usize, n_rogue: usize) -> i32 {
-    let n = -10 + ((n_town + n_mafia + n_rogue) % 2) as i32 * 10;
+    let n = -8 + ((n_town + n_mafia + n_rogue) % 2) as i32 * 8;
     (n_town as i32 - 1 - n_mafia as i32 * 2) * 10 + n
 }
 
@@ -272,9 +272,9 @@ fn get_score_of_roles(roles: &Vec<RoleGen>) -> i32 {
 fn create_score_map() -> HashMap<RoleGen, i32> {
     vec![
         (RoleGen::TOWN, 0),
-        (RoleGen::COP, 20),
-        (RoleGen::DOCTOR, 20),
-        (RoleGen::CELEB, 15),
+        (RoleGen::COP, 16),
+        (RoleGen::DOCTOR, 16),
+        (RoleGen::CELEB, 12),
         (RoleGen::MILLER, 0),
         (RoleGen::MAFIA, 0),
         (RoleGen::GODFATHER, 0),
@@ -297,7 +297,7 @@ fn get_score(roles: &Vec<RoleGen>) -> i32 {
         let cop_score = score_map.get(&RoleGen::COP).unwrap_or(&20);
         score_map.insert(
             RoleGen::COP,
-            ((cop_score - 5) * 10) / 2i32.pow(n_deceive as u32) / 10 + 5,
+            ((cop_score - 8) * 10) / 2i32.pow(n_deceive as u32) / 10 + 8,
         );
     }
     let n_strippers = count_roles(roles, |r| matches!(r, RoleGen::STRIPPER));
@@ -305,7 +305,7 @@ fn get_score(roles: &Vec<RoleGen>) -> i32 {
         let cop_score = score_map.get(&RoleGen::COP).unwrap_or(&20);
         score_map.insert(
             RoleGen::COP,
-            ((cop_score - 5) * 10) / 2i32.pow(n_deceive as u32) / 10 + 5,
+            ((cop_score - 8) * 10) / 2i32.pow(n_deceive as u32) / 10 + 8,
         );
         let doc_score = score_map.get(&RoleGen::DOCTOR).unwrap_or(&20);
         score_map.insert(
@@ -549,18 +549,18 @@ fn create_spice_list(roleset: &RoleSet) -> Vec<RoleGen> {
     let mut spice_list = vec![];
     for role in roleset {
         let mut addition = match role {
-            RoleGen::COP => vec![RoleGen::COP; 20],
-            RoleGen::DOCTOR => vec![RoleGen::DOCTOR; 20],
-            RoleGen::CELEB => vec![RoleGen::CELEB; 15],
-            RoleGen::MILLER => vec![RoleGen::MILLER; 15],
-            RoleGen::GODFATHER => vec![RoleGen::GODFATHER; 15],
-            RoleGen::STRIPPER => vec![RoleGen::STRIPPER; 20],
-            RoleGen::GOON => vec![RoleGen::GOON; 15],
+            RoleGen::COP => vec![RoleGen::COP; 30],
+            RoleGen::DOCTOR => vec![RoleGen::DOCTOR; 30],
+            RoleGen::CELEB => vec![RoleGen::CELEB; 20],
+            RoleGen::MILLER => vec![RoleGen::MILLER; 10],
+            RoleGen::GODFATHER => vec![RoleGen::GODFATHER; 10],
+            RoleGen::STRIPPER => vec![RoleGen::STRIPPER; 25],
+            RoleGen::GOON => vec![RoleGen::GOON; 20],
             RoleGen::IDIOT => vec![RoleGen::IDIOT; 10],
-            RoleGen::GUARD_Town => vec![RoleGen::GUARD_Town; 15],
-            RoleGen::GUARD_Mafia => vec![RoleGen::GUARD_Mafia; 10],
-            RoleGen::AGENT_Town => vec![RoleGen::AGENT_Town; 15],
-            RoleGen::AGENT_Mafia => vec![RoleGen::AGENT_Mafia; 10],
+            RoleGen::GUARD_Town => vec![RoleGen::GUARD_Town; 8],
+            RoleGen::GUARD_Mafia => vec![RoleGen::GUARD_Mafia; 5],
+            RoleGen::AGENT_Town => vec![RoleGen::AGENT_Town; 8],
+            RoleGen::AGENT_Mafia => vec![RoleGen::AGENT_Mafia; 5],
             _ => vec![],
         };
         spice_list.append(&mut addition);
@@ -614,7 +614,8 @@ fn gen_role_set(
 
         if n_town > max_town || n_mafia > max_mafia || n_rogue > max_rogue {
             tries += 1;
-            if tries >= 100 {
+            if tries >= 1000 {
+                // TODO: Have fallback??
                 return Err(());
             }
             continue;
@@ -831,7 +832,7 @@ mod test {
 
     #[test]
     fn gen_sets_n_spice() {
-        let spice = 0.5;
+        let spice = 0.3;
         let roleset = full_roleset();
         let mut rng = rand::thread_rng();
         for n_players in 3..15 {
