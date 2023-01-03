@@ -27,7 +27,7 @@
 - Joining during a game
     - Only Rogue?
 - Core
-    - Contracts/Rogue victories
+    - ~~Contracts/Rogue victories~~
     - New Roles
 
 ### Proposals

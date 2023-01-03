@@ -91,3 +91,72 @@ Need separate field, mut retain info after player deaths
 How to handle contract wins?
 
 Must announce win/lose for each of them at the end of the game, so do we even need to declare some special win?
+
+#### Rolegen
+
+Want to generate fair roles for a game.
+
+Factors involved in generating roles:
+- Number of roles to generate.
+- "Roleset", Or roles we are allowed to add
+- Ruleset determines the strength of certain roles, or the bias towards/against Town
+
+Process gen
+- Max 1 COP/DOC per X in game?
+    - Probability distribution...
+    - `(N + A) / X where...
+        - N is a uniform random number between 0 and number of players
+        - A is a const for COP/DOC
+        - X is const for COP/DOC
+        - For example, if X is 7, A is 3, for a 9 player game...
+            - 0 COP: 40%
+            - 1 COP: 60%
+            - 2 COP: 0%
+        - Another example, X: 7, A: 3, a 15 p game
+            - 0 COP: 4/16
+            - 1 COP: 7/16
+            - 2 COP: 3/16
+- Also, let other roles generated affect this?
+    - How to gen MILLER and GODFATHER relative to COP?
+    - Do them before cop. Adjust A based on # of them?
+
+So, for each role we have
+- X (Scale)
+- A (Offset)
+- V (Variance)
+
+To get the number of a role...
+- `num_role = (N + V + A) // X`
+
+Now, just figure out how roles affect each other and ordering
+- MILLER/GODFATHER
+    - Weakens COP, so allow more COPs (A+~4 per?)
+- CELEB
+    - Just strengthens Town... Lower Town A's and raise Maf A's
+- GOON
+    - Strengthens Town a lot in small games? Negative offset? Until you get to more than one maf, 
+- IDIOT
+    - 1/2 maf... High scale
+- GF, STR, Maf?
+
+- Assign # of maf.
+- Choose types of maf?
+
+- num maf
+- MILLER
+- GF 
+- COP
+- CELEB
+- Rogue
+- STR
+- DOC
+
+|Factor| Base X   | V  | a  |
+|---|---|---|---|
+| Number of Mafia | ~3.5 | 1? | 0 |
+| Cop? | 7 | 5 | 4 |
+
+
+
+
+        

@@ -12,6 +12,20 @@ use comm::*;
 use phase::*;
 use player::*;
 
+mod rolegen {
+    use super::player::{RawPID, Role};
+    use super::Contract;
+
+    pub fn rolegen<U: RawPID>(user_ids: Vec<U>) -> (Vec<Role>, Vec<Contract<U>>) {
+        let mut roles = Vec::new();
+        let mut contracts = Vec::new();
+
+        // Role gen...
+
+        (roles, contracts)
+    }
+}
+
 #[derive(Debug)]
 pub enum Error<U: RawPID> {
     InvalidPhase {
