@@ -94,69 +94,31 @@ Must announce win/lose for each of them at the end of the game, so do we even ne
 
 #### Rolegen
 
-Want to generate fair roles for a game.
+Rolegen is done in two phases:
 
-Factors involved in generating roles:
-- Number of roles to generate.
-- "Roleset", Or roles we are allowed to add
-- Ruleset determines the strength of certain roles, or the bias towards/against Town
+- First, the number of rogue then number of mafia players out of the number playing. The rest will be town.
+    - This is done using an equation: `n_maf = (n_players + R) / 3.0` where R is a normal random variable with mu 0.0 and sigma 1.5
+    - Number of rogue roles is determined by `n_rogue = (ln(n_players) * R) / 8.0` with R being normal(3.0, 5.0)
+- Second, the rogue roles are determined.
+    - Each possible Rogue role has a +/- town modifier associated with it. GUARDs with a Town charge and AGENTs with a Mafia charge are positive (good for town) while IDIOTs, GUARDs with Mafia charges, and AGENTs with Town charges are negative (bad for town). 
+    - The possible values for the Rogue roles are generated 10 times and compared to a quick hieuristic from the Town vs Maf matchup. The most fair generated set wins.
+- Third, the team roles are determined.
+    - Using more normal distributions with specific equations to tune the odds, the number of each possible special roles are generated.
+    - **Idea** Similarly to the Rogue role generation, generate X number of sets of team roles. Use a hieuristic to determine which set seems best.
+    - **Idea** Generate a "spiciness" level. Generate sets of Town teams and Mafia teams. Find the one that best matches spiciness levels.
+        - Spiciness could be a percentage? 0% means all TOWN/MAFIA. 100% means all special roles?
 
-Process gen
-- Max 1 COP/DOC per X in game?
-    - Probability distribution...
-    - `(N + A) / X where...
-        - N is a uniform random number between 0 and number of players
-        - A is a const for COP/DOC
-        - X is const for COP/DOC
-        - For example, if X is 7, A is 3, for a 9 player game...
-            - 0 COP: 40%
-            - 1 COP: 60%
-            - 2 COP: 0%
-        - Another example, X: 7, A: 3, a 15 p game
-            - 0 COP: 4/16
-            - 1 COP: 7/16
-            - 2 COP: 3/16
-- Also, let other roles generated affect this?
-    - How to gen MILLER and GODFATHER relative to COP?
-    - Do them before cop. Adjust A based on # of them?
-
-So, for each role we have
-- X (Scale)
-- A (Offset)
-- V (Variance)
-
-To get the number of a role...
-- `num_role = (N + V + A) // X`
-
-Now, just figure out how roles affect each other and ordering
-- MILLER/GODFATHER
-    - Weakens COP, so allow more COPs (A+~4 per?)
-- CELEB
-    - Just strengthens Town... Lower Town A's and raise Maf A's
-- GOON
-    - Strengthens Town a lot in small games? Negative offset? Until you get to more than one maf, 
-- IDIOT
-    - 1/2 maf... High scale
-- GF, STR, Maf?
-
-- Assign # of maf.
-- Choose types of maf?
-
-- num maf
-- MILLER
-- GF 
-- COP
-- CELEB
-- Rogue
-- STR
-- DOC
-
-|Factor| Base X   | V  | a  |
-|---|---|---|---|
-| Number of Mafia | ~3.5 | 1? | 0 |
-| Cop? | 7 | 5 | 4 |
+Main ideas for rolegen:
+- Nothing (within reason) should be specifically "impossible". But some things will be very unlikely.
+    - Use normal distributions so that extreme outliers are possible
+    - Numbers of Teams determined by normal distribution
+    - Using Spiciness, determine a number of special roles?
+        - Randomly generate spicy roles 2*n times. Use hieuristic to determine the best. Backfill with basic TOWN and MAFIA roles?
+        - Use Team numbers in hieuristic calculation, too.
 
 
+    
 
+    
 
         

@@ -1,9 +1,9 @@
-use std::collections::HashSet;
-
-use crate::game::player::*;
+use std::collections::{HashMap, HashSet};
 
 use rand::{seq::SliceRandom, *};
 
+#[allow(non_camel_case_types)]
+#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum RoleGen {
     TOWN,
@@ -22,6 +22,7 @@ pub enum RoleGen {
     AGENT_Mafia,
 }
 
+#[allow(dead_code)]
 type RoleSet = HashSet<RoleGen>;
 
 fn new_roleset() -> RoleSet {
@@ -107,6 +108,13 @@ fn create_rogue_list(roleset: &RoleSet) -> Vec<RoleGen> {
     rogue_list
 }
 
+fn count_roles<F>(roles: &Vec<RoleGen>, f: F) -> usize
+where
+    F: Fn(&RoleGen) -> bool,
+{
+    roles.iter().filter(|&r| f(r)).count()
+}
+
 fn get_normal_boxmullar() -> (f64, f64) {
     let r: f64 = rand::random();
     let p: f64 = rand::random();
@@ -123,6 +131,9 @@ fn get_normal_dist_rand(u: f64, s: f64) -> f64 {
 }
 
 fn get_n_mafia(n: usize) -> usize {
+    if n <= 5 {
+        return 1;
+    }
     loop {
         let r = get_normal_dist_rand(0.0, 1.5);
         let m = ((n as f64) + r) / 3.0;
@@ -231,6 +242,11 @@ fn get_set_mafia_roles(n_mafia: usize, roleset: &RoleSet) -> Vec<RoleGen> {
     mafia_roles
 }
 
+fn get_teams_score(n_town: usize, n_mafia: usize, n_rogue: usize) -> i32 {
+    let n = -10 + ((n_town + n_mafia + n_rogue) % 2) as i32 * 10;
+    (n_town as i32 - 1 - n_mafia as i32 * 2) * 10 + n
+}
+
 fn get_n_score(n_town: usize, n_mafia: usize, rogue_score: i32) -> i32 {
     (n_town as i32 - 1 - n_mafia as i32 * 2) * 10 + rogue_score
 }
@@ -251,6 +267,58 @@ fn get_score_of_roles(roles: &Vec<RoleGen>) -> i32 {
         }
     }
     score_mod
+}
+
+fn create_score_map() -> HashMap<RoleGen, i32> {
+    vec![
+        (RoleGen::TOWN, 0),
+        (RoleGen::COP, 20),
+        (RoleGen::DOCTOR, 20),
+        (RoleGen::CELEB, 15),
+        (RoleGen::MILLER, 0),
+        (RoleGen::MAFIA, 0),
+        (RoleGen::GODFATHER, 0),
+        (RoleGen::STRIPPER, -20),
+        (RoleGen::GOON, 20),
+        (RoleGen::IDIOT, -5),
+        (RoleGen::GUARD_Town, 10),
+        (RoleGen::GUARD_Mafia, -10),
+        (RoleGen::AGENT_Town, -10),
+        (RoleGen::AGENT_Mafia, 10),
+    ]
+    .into_iter()
+    .collect()
+}
+
+fn get_score(roles: &Vec<RoleGen>) -> i32 {
+    let mut score_map = create_score_map();
+    let n_deceive = count_roles(roles, |r| matches!(r, RoleGen::GODFATHER | RoleGen::MILLER));
+    if n_deceive > 0 {
+        let cop_score = score_map.get(&RoleGen::COP).unwrap_or(&20);
+        score_map.insert(
+            RoleGen::COP,
+            ((cop_score - 5) * 10) / 2i32.pow(n_deceive as u32) / 10 + 5,
+        );
+    }
+    let n_strippers = count_roles(roles, |r| matches!(r, RoleGen::STRIPPER));
+    if n_strippers > 0 {
+        let cop_score = score_map.get(&RoleGen::COP).unwrap_or(&20);
+        score_map.insert(
+            RoleGen::COP,
+            ((cop_score - 5) * 10) / 2i32.pow(n_deceive as u32) / 10 + 5,
+        );
+        let doc_score = score_map.get(&RoleGen::DOCTOR).unwrap_or(&20);
+        score_map.insert(
+            RoleGen::DOCTOR,
+            ((doc_score - 5) * 10) / 2i32.pow(n_deceive as u32) / 10 + 5,
+        );
+        let celeb_score = score_map.get(&RoleGen::CELEB).unwrap_or(&20);
+        score_map.insert(
+            RoleGen::CELEB,
+            ((celeb_score - 8) * 10) / 2i32.pow(n_deceive as u32) / 10 + 8,
+        );
+    }
+    roles.iter().map(|r| score_map[r]).sum()
 }
 
 fn get_score_mod(roles: &Vec<RoleGen>, new_roles: &Vec<RoleGen>) -> i32 {
@@ -385,7 +453,7 @@ where
 fn get_team_roles_normals(
     n_town: usize,
     n_mafia: usize,
-    rogue_score: i32,
+    _: i32,
     roleset: &RoleSet,
 ) -> (i32, Vec<RoleGen>) {
     let mut rng = rand::thread_rng();
@@ -477,6 +545,155 @@ fn get_n_miller(n_town: usize, n_cop: usize) -> usize {
     })
 }
 
+fn create_spice_list(roleset: &RoleSet) -> Vec<RoleGen> {
+    let mut spice_list = vec![];
+    for role in roleset {
+        let mut addition = match role {
+            RoleGen::COP => vec![RoleGen::COP; 20],
+            RoleGen::DOCTOR => vec![RoleGen::DOCTOR; 20],
+            RoleGen::CELEB => vec![RoleGen::CELEB; 15],
+            RoleGen::MILLER => vec![RoleGen::MILLER; 15],
+            RoleGen::GODFATHER => vec![RoleGen::GODFATHER; 15],
+            RoleGen::STRIPPER => vec![RoleGen::STRIPPER; 20],
+            RoleGen::GOON => vec![RoleGen::GOON; 15],
+            RoleGen::IDIOT => vec![RoleGen::IDIOT; 10],
+            RoleGen::GUARD_Town => vec![RoleGen::GUARD_Town; 15],
+            RoleGen::GUARD_Mafia => vec![RoleGen::GUARD_Mafia; 10],
+            RoleGen::AGENT_Town => vec![RoleGen::AGENT_Town; 15],
+            RoleGen::AGENT_Mafia => vec![RoleGen::AGENT_Mafia; 10],
+            _ => vec![],
+        };
+        spice_list.append(&mut addition);
+    }
+    spice_list
+}
+
+fn gen_role_set(
+    max_town: usize,
+    max_mafia: usize,
+    max_rogue: usize,
+    n: usize,
+    roleset: &RoleSet,
+    rng: &mut rand::rngs::ThreadRng,
+) -> Result<Vec<RoleGen>, ()> {
+    let mut tries = 0;
+    loop {
+        let roles: Vec<RoleGen> = create_spice_list(roleset)
+            .choose_multiple(rng, n)
+            .map(|r| *r)
+            .collect();
+        // Check role counts first
+        let n_town = roles
+            .iter()
+            .filter(|r| {
+                matches!(
+                    r,
+                    RoleGen::COP | RoleGen::DOCTOR | RoleGen::CELEB | RoleGen::MILLER
+                )
+            })
+            .count();
+
+        let n_mafia = roles
+            .iter()
+            .filter(|r| matches!(r, RoleGen::GODFATHER | RoleGen::STRIPPER | RoleGen::GOON))
+            .count();
+
+        let n_rogue = roles
+            .iter()
+            .filter(|r| {
+                matches!(
+                    r,
+                    RoleGen::IDIOT
+                        | RoleGen::GUARD_Town
+                        | RoleGen::GUARD_Mafia
+                        | RoleGen::AGENT_Town
+                        | RoleGen::AGENT_Mafia
+                )
+            })
+            .count();
+
+        if n_town > max_town || n_mafia > max_mafia || n_rogue > max_rogue {
+            tries += 1;
+            if tries >= 100 {
+                return Err(());
+            }
+            continue;
+        }
+        return Ok(roles);
+    }
+}
+
+fn get_n_spice(n_players: usize, spice: f64) -> usize {
+    get_n_normal(1.0, 0.25, |r| {
+        let u = (r * spice * (n_players as f64) + 0.5) as usize;
+        u.max(0).min(n_players)
+    })
+}
+
+fn get_roles_spice(
+    n: usize,
+    spice: f64,
+    roleset: &RoleSet,
+    rng: &mut rand::rngs::ThreadRng,
+) -> Result<(i32, Vec<RoleGen>), ()> {
+    let mut n_rogue = get_n_rogue(n);
+    let n_mafia = get_n_mafia(n);
+    let mut n_town = n - n_mafia - n_rogue;
+    if n_town == 0 {
+        n_town = n_rogue;
+        n_rogue = 0;
+    }
+    let n_spice = get_n_spice(n, spice);
+
+    let team_score = get_teams_score(n_town, n_mafia, n_rogue);
+
+    let mut best_set = gen_role_set(n_town, n_mafia, n_rogue, n_spice, roleset, rng)?;
+    let mut best_score = get_score(&best_set) + team_score;
+
+    for _ in 0..(2 * n) {
+        // Generate a set
+        let set = gen_role_set(n_town, n_mafia, n_rogue, n_spice, roleset, rng)?;
+        // Check score
+        let score = get_score(&set) + team_score;
+        // Compare score
+        if best_score.abs() > score.abs() {
+            best_score = score;
+            best_set = set;
+        }
+    }
+
+    let current_town = count_roles(&best_set, |r| {
+        matches!(
+            r,
+            RoleGen::TOWN | RoleGen::COP | RoleGen::DOCTOR | RoleGen::CELEB | RoleGen::MILLER
+        )
+    });
+    let current_mafia = count_roles(&best_set, |r| {
+        matches!(
+            r,
+            RoleGen::MAFIA | RoleGen::GODFATHER | RoleGen::STRIPPER | RoleGen::GOON
+        )
+    });
+    let current_rogue = count_roles(&best_set, |r| {
+        matches!(
+            r,
+            RoleGen::IDIOT
+                | RoleGen::GUARD_Town
+                | RoleGen::GUARD_Mafia
+                | RoleGen::AGENT_Town
+                | RoleGen::AGENT_Mafia
+        )
+    });
+
+    let mut extra_town = vec![RoleGen::TOWN; n_town + n_rogue - current_town - current_rogue];
+    let mut extra_mafia = vec![RoleGen::MAFIA; n_mafia - current_mafia];
+
+    best_set.append(&mut extra_town);
+    best_set.append(&mut extra_mafia);
+
+    Ok((best_score, best_set))
+}
+
 fn get_roles_normals(n: usize, roleset: &RoleSet) -> (i32, Vec<RoleGen>) {
     let n_mafia = get_n_mafia(n);
     let n_rogue = get_n_rogue(n - n_mafia);
@@ -505,7 +722,7 @@ fn get_roles_set(n: usize, roleset: &RoleSet) -> Vec<RoleGen> {
     let n_rogue = get_n_rogue(n - n_mafia);
     let n_town = n - n_mafia - n_rogue;
     // println!("{}v{},{}", n_town, n_mafia, n_rogue);
-    let (rogue_score, rogue_roles) = get_rogue_roles(n_town, n_mafia, n_rogue, roleset);
+    let (_rogue_score, rogue_roles) = get_rogue_roles(n_town, n_mafia, n_rogue, roleset);
     let town_roles = get_set_town_roles(n_town, roleset);
     // println!("..");
     let mafia_roles = get_set_mafia_roles(n_mafia, roleset);
@@ -514,16 +731,16 @@ fn get_roles_set(n: usize, roleset: &RoleSet) -> Vec<RoleGen> {
 }
 
 mod test {
-    use std::collections::HashMap;
-
+    #[allow(unused_imports)]
     use super::*;
+    use std::collections::HashMap;
 
     #[test]
     #[ignore]
     fn basic() {
         for n in 5..=15 {
             if n % 2 == 1 {
-                for i in 0..3 {
+                for _ in 0..3 {
                     print!("{}: ", n);
                     println!("{}: {:?}", n, get_roles(n))
                 }
@@ -532,27 +749,30 @@ mod test {
     }
 
     #[test]
+    #[ignore]
     fn basic_normal() {
         let mut roleset = new_roleset();
         roleset.extend(vec![RoleGen::COP, RoleGen::DOCTOR]);
         for n in 5..=15 {
-            for i in 0..3 {
+            for _ in 0..3 {
                 println!("{}: {:?}", n, get_roles_normals(n, &roleset))
             }
         }
     }
 
     #[test]
+    #[ignore]
     fn basic_set() {
-        let mut roleset = full_roleset();
+        let roleset = full_roleset();
         for n in 5..=15 {
-            for i in 0..3 {
+            for _ in 0..3 {
                 println!("{}: {:?}", n, get_roles_set(n, &roleset))
             }
         }
     }
 
     #[test]
+    #[ignore]
     fn gen_example_n_cop() {
         for n_town in 2..=15 {
             let mut counts = HashMap::new();
@@ -575,6 +795,7 @@ mod test {
     }
 
     #[test]
+    #[ignore]
     fn gen_example_n_miller() {
         for n_cop in 0..=3 {
             for n_town in 3..=15 {
@@ -589,6 +810,34 @@ mod test {
                 counts_sorted.sort_by(|(k1, _), (k2, _)| k1.cmp(k2));
                 println!("{}, {}: {:?}", n_town, n_cop, counts_sorted);
             }
+        }
+    }
+    #[test]
+    fn gen_example_n_spice() {
+        let spice = 0.33;
+        for n_players in 3..15 {
+            let mut counts = HashMap::new();
+            for _ in 0..10000 {
+                let n_special = get_n_spice(n_players, spice);
+                let v = counts.get(&n_special).unwrap_or(&0);
+                counts.insert(n_special, v + 1);
+            }
+
+            let mut counts_sorted: Vec<_> = counts.into_iter().collect();
+            counts_sorted.sort_by(|(k1, _), (k2, _)| k1.cmp(k2));
+            println!("{}: {:?}", n_players, counts_sorted);
+        }
+    }
+
+    #[test]
+    fn gen_sets_n_spice() {
+        let spice = 0.5;
+        let roleset = full_roleset();
+        let mut rng = rand::thread_rng();
+        for n_players in 3..15 {
+            let (score, roles) =
+                get_roles_spice(n_players, spice, &roleset, &mut rng).expect("Should not fail?");
+            println!("{}: ({}){:?}", n_players, score, roles);
         }
     }
 }

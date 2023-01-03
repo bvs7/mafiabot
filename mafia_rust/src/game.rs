@@ -16,9 +16,9 @@ mod rolegen {
     use super::player::{RawPID, Role};
     use super::Contract;
 
-    pub fn rolegen<U: RawPID>(user_ids: Vec<U>) -> (Vec<Role>, Vec<Contract<U>>) {
-        let mut roles = Vec::new();
-        let mut contracts = Vec::new();
+    pub fn _rolegen<U: RawPID>(_user_ids: Vec<U>) -> (Vec<Role>, Vec<Contract<U>>) {
+        let roles = Vec::new();
+        let contracts = Vec::new();
 
         // Role gen...
 
