@@ -116,9 +116,54 @@ Main ideas for rolegen:
         - Randomly generate spicy roles 2*n times. Use hieuristic to determine the best. Backfill with basic TOWN and MAFIA roles?
         - Use Team numbers in hieuristic calculation, too.
 
+Spice Method
+- Determine # of Spicy roles
+- Determine # of Rogue roles (spicy)
+    - Generate sets of rogue roles
+    - Order them
+- Generate sets of spicy roles
+    - Randomly assigned from probabilities.
+    - Order them?
+- Generate sets of maf-town split
+    - Order them?
+- Now we have 3 ordered sets of collections
+    - Take the median of each
+    - Loop of the following X number of times?
+        - Find score,
+        - Adjust a random of the three up or down
 
-    
+Ideas for rolegen
+- Full Generation: Gen a bunch of full games fully randomly, and choose the best
+- Partial Gen: Calculate some parameters, then generate sets and choose the best
+    - Number of Mafia
+    - Number of Rogue
+- Bit by bit: Calculate full game one thing at a time
 
+- Spice
+- Fairness
+- Number of Players
+
+- Calculate number of Mafia
+    - Higher spice value leads to more mafia
+- Calculate number of Rogue
+    - Higher spice value leads to more as well?
+
+How spicy are the following roles?
+- COP. Full spice
+- DOCTOR. Full spice
+- CELEB. Mostly spice
+- MILLER. With COP, a little spice
+- GODFATHER. With COP, a little spice
+- STRIPPER. With any COP, DOCTOR, CELEB, Full spice
+
+Calculate Spice value
+- Grab one role at a time until spice level is met.
+- Fill in with remaining mafia and rogue to optimize score?
+- First add rogue, if it is involved, as that might be +/- limited based on roles...
+- Then fill in remaining TOWN, MAFIA
+- Potentially replace MAFIA with GOON? If town needs some help?
+
+Can't determine spice of GOON until later...
     
 
         
