@@ -1,34 +1,13 @@
-# Compiled python modules
-*.pyc
-
-# Setuptools distribution folder
-/dist/
-
-# Virtual Environment
-env/*
-
-# Python egg metadata, regenerated from source files by setuptools
-/*.egg-info
-
 # VSCode settings
 
 .vs/*
 .vscode/*
 
-# Test outputs
-*.out
-*.err
-
-.vs/*
-build/*
-
-*.sh
-
 # Saved Games
 *.maf
 
 # Rust target
-mafia_rust/target
+target/
 
 # Rust data
-mafia_rust/data
+data
