@@ -1,19 +1,11 @@
-pub mod comm;
-pub mod phase;
-pub mod player;
-
-mod core_test;
-
 use serde::Serialize;
 use std::fmt::{Debug, Display};
 use std::fs::File;
 
-use comm::*;
-use phase::*;
-use player::*;
+use super::*;
 
 mod rolegen {
-    use super::player::{RawPID, Role};
+    use super::super::player::{RawPID, Role};
     use super::Contract;
 
     pub fn _rolegen<U: RawPID>(_user_ids: Vec<U>) -> (Vec<Role>, Vec<Contract<U>>) {

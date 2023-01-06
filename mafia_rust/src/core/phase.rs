@@ -41,7 +41,7 @@ pub struct Day {
 impl Day {
     pub fn resolve_vote<U: RawPID, S: Source>(
         &mut self,
-        players: &Players<U>,
+        players: &Vec<Player<U>>,
         (voter, ballot): (Pidx, Option<Choice<Pidx>>),
         comm: &Comm<U, S>,
     ) -> Option<DayResolution<U>> {
@@ -137,7 +137,7 @@ pub enum NightResolution<U: RawPID> {
 impl Night {
     pub fn resolve_target<U: RawPID, S: Source>(
         &mut self,
-        players: &Players<U>,
+        players: &Vec<Player<U>>,
         actor: Pidx,
         target: Choice<Pidx>,
         role: Role,
@@ -168,7 +168,7 @@ impl Night {
 
     pub fn resolve_mark<U: RawPID, S: Source>(
         &mut self,
-        players: &Players<U>,
+        players: &Vec<Player<U>>,
         killer: Pidx,
         mark: Choice<Pidx>,
         comm: &Comm<U, S>,
@@ -189,7 +189,7 @@ impl Night {
 
     pub fn resolve_dawn<U: RawPID, S: Source>(
         &mut self,
-        players: &Players<U>,
+        players: &Vec<Player<U>>,
         comm: &Comm<U, S>,
     ) -> Option<NightResolution<U>> {
         type T = Targets;

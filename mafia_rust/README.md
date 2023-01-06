@@ -1,4 +1,6 @@
 
+See doc/Design.md for gameplay goals
+
 ## TODO!
 - Saving
     - Figure out exact technicalities of saving
@@ -29,5 +31,3 @@
 - Core
     - ~~Contracts/Rogue victories~~
     - New Roles
-
-### Proposals

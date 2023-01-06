@@ -1,4 +1,4 @@
-use crate::game::player::Role;
+use crate::core::player::Role;
 
 use super::{get_normal_dist_rand, RoleGen, RoleSet};
 use rand::{rngs::ThreadRng, seq::SliceRandom};

@@ -5,27 +5,56 @@ Mafiabot is a discord chatbot that facilitates a game of Mafia.
 
 ## Gameplay Overview
 
-Mafia is a hidden information game between typically two teams. The "Mafia" and the "Town". The Town are trying to discover who the Mafia are and kill them, while the Mafia know who each other are, and are trying to kill town.
+Mafia is a hidden information game between two teams. The "Mafia" and the "Town". The Town are trying to discover who the Mafia are and kill them, while the Mafia know who each other are, and are trying to kill town.
 
-The game commences in Phases, typically alternately Day and Night. During a Day phase, all players may publicly vote for other players. Once a player has received a majority of votes, they are elected and eliminated and the game proceeds to the Night phase. During a Night phase, the Mafia will target somebody to be killed. At the end of Night, the targeted player will be eliminated.
+The game commences in Phases, alternately Day and Night. During a Day phase, all players may publicly cast a single transferrable vote for other players. Once a player has received a majority of votes, they are elected and eliminated and the game proceeds to the Night phase. During a Night phase, the Mafia will target somebody to be killed. At the end of Night, the targeted player will be eliminated.
 
 Aside from the Mafia aligned normal MAFIA role and the Town aligned normal TOWN role, there are other special roles, such as COP, DOCTOR, CELEB, GODFATHER, etc. Some roles also have night actions, such as investigating or saving other players. All night actions are selected during the night, then resolved at the end of Night, which happens once all selections have been made. Some roles are also not aligned with either Town or Mafia. These Rogue roles have specific goals, such as getting voted out, protecting another player, or causing another player's death.
 
-## Game Design
+## Gameplay Experience
 
-- "Block"
-    - Happens behind the scenes
-    - Night clears block list
-    - Night block list carries into day
-- "Stun"
-    - Notified at start of night, when options are listed
-    - Stun list, any Night Targets (or Marks), can only Abstain
+Currently unimplemented, the plan is to use Discord to facilitate the communication and game mechanics.
 
-- IDIOT!Stun imparts stun at beginning of Night to electors
-- GOON always stuns self at beginning of Night
-- DOCTOR!Stun...
-    - Need a list for stunned doc? Or edit Role?
-    - DOCTOR!Stun saves self => DOCTOR!Stunned gets stun at start of night => DOCTOR!Stun
+When a game is created, two channels will be created for the game. A "Main" channel which includes all players, and a "Mafia" channel which includes only mafia members. Using discord permissions.
+
+Additionally, a separate channel is created for each player with a role that has a night action (COP, DOCTOR, and STRIPPER)
+
+The bot sends messages as the Moderator
+
+At the start of the Day phase, Moderator announces the day
+- Moderator: `Day #2. 7 players alive, 4 votes needed to elect`
+
+During the Day phase of the game players can send various voting commands to direct their vote accordingly:
+- Alice sends `!vote @Bob`
+- Moderator responds `Alice votes for Bob, 2/3 votes to elect Bob`
+- Alice sends `!unvote`
+- Moderator response `Alice retracts vote`
+- Alice sends `!vote nokill`
+- Moderator responds `Alice votes for peace, 1/2 votes for no election`
+
+When enough votes are garnered, Moderator announces the result
+- Moderator: `Charlie votes for Bob, 3/3 votes to elect Bob`
+- Moderator: `Bob has been elected to die`
+- Moderator: `Bob was Town aligned`
+
+At the start of Night phase, Moderator sends out options to the Mafia channel, and to night role channels:
+```
+Choose someone to kill:
+A: Alice
+B: Charlie
+C: David
+D: Ellie
+E: No Target
+```
+
+Players can send their target during the night phase:
+- Alice: `!target D`
+- Moderator: `You have targeted Ellie`
+
+Once all night actions have been completed, night is resolved. This involves various things, such as STRIPPERs blocking other targeting roles, COPs investigating, DOCTORs saving, and the Mafia targeting a player.
+- Moderator to Alice: `Ellie is Town Aligned`
+- Moderator to Main Channel: `Charlie has been killed!`
+- Moderator to Main Channel: `Day #4, 3 players alive, 2 votes needed to elect`
 
 ## Architecture
 
@@ -64,16 +93,9 @@ Aside from the Mafia aligned normal MAFIA role and the Town aligned normal TOWN 
             - blocks
         - Night:
             - night_no
-            - strips `Vec<Pidx, Choice<Pidx>>`
-            - saves `Vec<Pidx, Choice<Pidx>>`
-            - investigations `Vec<Pidx, Choice<Pidx>>`
-            - kill `Option<Pidx, Choice<Pidx>>`
-        - Dawn?:
-            - dawn_no
-            - block_map `HashMap<Pidx, Vec<Pidx>>` // blocked -> [strippers]
-            - save_map `HashMap<Pidx, Vec<Pidx>>` // saved -> [doctors]
-            - investigations `Vec<Pidx, Pidx>`
-            - kill `Option<Pidx, Choice<Pidx>>`
+            - targets `HashMap<Pidx, Target>`
+            - scheme `Option<Pidx, Choice<Pidx>>`
+    - Contracts - List of Rogue roles, goals, and victory status
 
 ### Contracts
 
@@ -94,29 +116,9 @@ Must announce win/lose for each of them at the end of the game, so do we even ne
 
 ## Rolegen
 
-The Spice Strategy for rolegen involves the following inputs:
-- Number of Players
-- Roleset (Set of available Roles)
-- "Spiciness" Percentage, or approximation of how many non TOWN/MAFIA roles there will be
-- "Fairness" Percentage, or approximation of how fair the game needs to be
+### Spice Rolegen
 
-Being able to calculate the game "score" or how likely it is for either team to win, is also useful for generating roles
-
-### Simplest Rolegen
-
-Pick number of mafia/rogue in the usual way.
-
-Assign 1 COP and 1 DOCTOR. That's it
-
-### Per role Rolegen
-
-Pick number of mafia/rogue in the usual way.
-
-Based on number of players, use a normal distribution and math to determine separately the number of each special role.
-
-Potentially change things at the end to fix unbalanced games
-
-### Pick Spice Rolegen
+Provide a "spice" level from 0.0 to 1.0. 
 
 Pick number of mafia/rogue in the usual way.
 

@@ -1,8 +1,6 @@
 use serde::Serialize;
 use std::fmt::{Debug, Display};
 
-use super::Players;
-
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize /*Deserialize*/)]
 pub enum Role {
     TOWN,
@@ -123,7 +121,7 @@ impl Into<Option<Pidx>> for Choice<Pidx> {
     }
 }
 impl Choice<Pidx> {
-    pub fn to_p<U: RawPID>(&self, players: &Players<U>) -> Option<Player<U>> {
+    pub fn to_p<U: RawPID>(&self, players: &Vec<Player<U>>) -> Option<Player<U>> {
         match self {
             Choice::Player(p) => Some(players[*p].clone()),
             Choice::Abstain => None,
