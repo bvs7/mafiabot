@@ -1,7 +1,90 @@
-use crate::core::player::Role;
+use std::collections::HashSet;
 
-use super::{get_normal_dist_rand, RoleGen, RoleSet};
+use crate::core::roles::Role;
+
 use rand::{rngs::ThreadRng, seq::SliceRandom};
+
+fn get_normal_boxmullar() -> (f64, f64) {
+    let r: f64 = rand::random();
+    let p: f64 = rand::random();
+    let tmp: f64 = (-2.0 * r.ln()).sqrt();
+    (
+        tmp * f64::cos(p * 2.0 * std::f64::consts::PI),
+        tmp * f64::sin(p * 2.0 * std::f64::consts::PI),
+    )
+}
+
+fn get_normal_dist_rand(u: f64, s: f64) -> f64 {
+    let (a, _) = get_normal_boxmullar();
+    a * s + u
+}
+
+#[allow(non_camel_case_types)]
+#[allow(dead_code)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum RoleGen {
+    TOWN,
+    COP,
+    DOCTOR,
+    CELEB,
+    MILLER,
+    MAFIA,
+    GODFATHER,
+    STRIPPER,
+    GOON,
+    IDIOT,
+    SURVIVOR,
+    GUARD,
+    GUARD_Mafia,
+    AGENT,
+    AGENT_Mafia,
+}
+
+impl Into<Role> for RoleGen {
+    fn into(self) -> Role {
+        match self {
+            RoleGen::TOWN => Role::GUARD,
+            _ => Role::TOWN,
+        }
+    }
+}
+
+#[allow(dead_code)]
+type RoleSet = HashSet<RoleGen>;
+
+fn new_roleset() -> RoleSet {
+    let mut roleset = HashSet::new();
+    roleset.insert(RoleGen::TOWN);
+    roleset.insert(RoleGen::MAFIA);
+    roleset
+}
+
+fn minimal_roleset() -> RoleSet {
+    let mut roleset = new_roleset();
+    roleset.insert(RoleGen::COP);
+    roleset.insert(RoleGen::DOCTOR);
+    roleset
+}
+
+fn basic_roleset() -> RoleSet {
+    let mut roleset = minimal_roleset();
+    roleset.insert(RoleGen::CELEB);
+    roleset.insert(RoleGen::MILLER);
+    roleset.insert(RoleGen::GODFATHER);
+    roleset.insert(RoleGen::STRIPPER);
+    roleset.insert(RoleGen::IDIOT);
+    roleset
+}
+
+fn full_roleset() -> RoleSet {
+    let mut roleset = basic_roleset();
+    roleset.insert(RoleGen::GOON);
+    roleset.insert(RoleGen::GUARD);
+    roleset.insert(RoleGen::GUARD_Mafia);
+    roleset.insert(RoleGen::AGENT);
+    roleset.insert(RoleGen::AGENT_Mafia);
+    roleset
+}
 
 fn create_spicy_town_list(roleset: &RoleSet) -> Vec<RoleGen> {
     let mut roles = vec![];
@@ -191,7 +274,6 @@ mod test {
 
     use std::collections::HashMap;
 
-    use super::super::{basic_roleset, full_roleset, minimal_roleset};
     use super::*;
     use rand;
 

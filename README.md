@@ -16,7 +16,7 @@ See doc/Design.md for gameplay goals
         - Rolegen
         - Creating channels and editing permissions
     - Passing Commands to Game
-        - InvalidCommandError handling
+        - InvalidActionError handling
     - Handling Core Events and outputting messages
     - Testing
     - *Saving and Loading Games*
@@ -35,20 +35,20 @@ See doc/Design.md for gameplay goals
 ## Core
 The core logic of the mafia game is encapsulated in the core module.
 
-The core can be interacted with by calling the `handle(Command)` method of the `Game` struct. This returns a `Result` of either `Ok` or an `Error`, if the Command was invalid. The `Error` explains why the Command was invalid.
+The core can be interacted with by calling the `handle(Action)` method of the `Game` struct. This returns a `Result` of either `Ok` or an `Error`, if the Action was invalid. The `InvalidActionError` explains why the Action was invalid.
 
 After any call to `handle()`, the core may generate Events and push them to a thread safe queue. Events are how the core outputs information to the players.
 
 This general form of encapsulation is meant to allow the Core to use different mediums for gameplay. Mafiabot has previously used GroupMe, but Discord currently seems like the best option.
 
-### Core Inputs: **Commands**
-Commands are actions players can take to change the state of the mafia game. Currently, the available commands are:
+### Core Inputs: **Actions**
+Actions are things players can do to change the state of the mafia game. Currently, the available actions are:
 - **Vote**. A vote cast by a Player during the day
 - **Reveal**. A CELEB's ability to prove their role during the day
 - **Target**. A COP, DOCTOR, or STRIPPER selecting the target of their night action
 - **Mark**. A Mafia Aligned Player selecting the Player that will be killed in the night
 
-Potential Future Commands include:
+Potential Future Actions include:
 - **EndPhase**. An immediate end to the current phase (Usually because a time limit was reached)
 - **Guess**. A way for a Player to guess the role of another player (See the WITCH role idea)
 
@@ -65,11 +65,11 @@ Therefore, the data associated with a Vote is:
 
 Where `Choice<U>` is an enum of either `Player(U)` or `Abstain`
 
-Handling this Vote Command updates the player's vote publicly, and possibly results in an election.
+Handling this Vote Action updates the player's vote publicly, and possibly results in an election.
 
 #### **Reveal**
 
-"Revealing" is an action a player with a CELEB role can take. It can only occur during a Day phase. It involves sending a `!reveal` message to the Moderator in a private channel. If the CELEB is able to reveal, the Moderator will send a message to the Main Channel saying "[player] is CELEB", proving that the player is Town Aligned. The only data associated with a Reveal is the `UserID` of the CELEB revealing.
+"Revealing" is an Action a player with a CELEB role can take. It can only occur during a Day phase. It involves sending a `!reveal` message to the Moderator in a private channel. If the CELEB is able to reveal, the Moderator will send a message to the Main Channel saying "[player] is CELEB", proving that the player is Town Aligned. The only data associated with a Reveal is the `UserID` of the CELEB revealing.
 
 #### **Target**
 
@@ -91,7 +91,7 @@ Data associated with a Mark:
 
 ### Core Outputs: **Events**
 
-Events are generated and added to a queue as the core handles different commands.
+Events are generated and added to a queue as the core handles different Actions.
 
 Events will usually generate a message in one or more game channel.
 
@@ -118,7 +118,7 @@ Events:
 
 ## Controller
 
-Currently unimplemented, the Controller handles all of the bot operation that is not game logic. It implements "Lobby" commands, where players can create and start a game, request game stats, etc. It routes Game Commands into Game Cores, and handles error responses for invalid Commands. Once timers are implemented, it spawns the timers/alarms when requested.
+Currently unimplemented, the Controller handles all of the bot operation that is not game logic. It implements "Lobby" commands, where players can create and start a game, request game stats, etc. It routes Game Actions into Game Cores, and handles error responses for invalid Actions. Once timers are implemented, it spawns the timers/alarms when requested.
 
 ### Lobbies
 
@@ -170,7 +170,7 @@ The requirements for the MVP of the controller are:
 - Can create ONE game at a time via a very simple `!init` -> `!start` command system, where reacting to the `!init` response with *️⃣ lets you join.
 - Does not touch Discord Roles for now.
 - Must be able to create channels for games.
-- Parses commands from server into Lobby Commands or Game Commands
+- Parses commands from server into Lobby Commands or Game Actions
     - `!init`
     - `!start`
     - `!vote`
@@ -178,7 +178,7 @@ The requirements for the MVP of the controller are:
     - `!target` or `!mark`
     - `!reveal`
     - `!status` (Temporary command until status of game can always be displayed by editing a message?)
-- Handles Invalid Game Command Errors and responds to sender appropriately.
+- Handles Invalid Game Action Errors and responds to sender appropriately.
 - Cannot set Rules or Roles for games. Merely uses a standard set
 
 ## Server
