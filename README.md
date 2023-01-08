@@ -130,7 +130,7 @@ In the past, the method of starting a game had a User send a `!start` command. T
 
 I foresee a similar method being used in discord, with potentially more control. When a user sends a `!start` (Or maybe `!init`) command, the Moderator sends a message that says "React to this to join a game". Users can then react to that message to attempt to join the game. There can be unique reactions that specify intents as well.
 - *️⃣ Could be used to join a game with any number of players
-- 3️⃣4️⃣5️⃣6️⃣7️⃣8️⃣9️⃣🔟 Could be used to join a game with at least that number of players?
+- 3️⃣ 4️⃣ 5️⃣ 6️⃣ 7️⃣ 8️⃣ 9️⃣ 🔟 Could be used to join a game with at least that number of players?
 - ▶ Could be used to specify that players were ready to begin?
 - Other Emoji could specify other preferences?
 
