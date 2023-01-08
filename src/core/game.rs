@@ -34,18 +34,19 @@ pub struct Game<U: RawPID> {
 }
 
 impl<U: RawPID> Game<U> {
-    pub fn new(players: Players<U>, comm: Comm<U>) -> Self {
+    pub fn new(players: Players<U>, contracts: Vec<Contract<U>>, comm: Comm<U>) -> Self {
         let mut game = Self {
             players: Vec::new(),
             phase: Phase::Init,
-            contracts: Vec::new(),
+            contracts,
             comm,
         };
 
         game.comm.tx(Event::Init);
 
-        for player in &players {
-            if players.check(player.raw_pid).is_err() {
+        // Ensure no duplicate players
+        for player in players {
+            if game.players.check(player.raw_pid).is_err() {
                 game.players.push(player.to_owned());
             }
         }

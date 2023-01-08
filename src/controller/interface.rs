@@ -1,10 +1,13 @@
-use crate::discord_::types::{ChannelID, UserID};
+use crate::discord::{ChannelID, MessageID, UserID};
 
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Command {
-    sender: UserID,
-    channel: ChannelID,
-    kind: CommandKind,
+    pub sender: UserID,
+    pub channel: ChannelID,
+    pub kind: CommandKind,
 }
+
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub enum CommandKind {
     Init,
     Start,

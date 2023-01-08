@@ -16,6 +16,12 @@ impl RawPID for UserID {}
 pub type ChannelID = u64;
 pub type MessageID = u64;
 
+pub enum Access {
+    None,
+    View,
+    Message,
+}
+
 pub fn send_to_channel(channel: ChannelID, msg: String) -> MessageID {
     println!("send_to_channel({}, {})", channel, msg);
 
@@ -36,5 +42,9 @@ pub fn add_users_to_channel(channel: ChannelID, user: Vec<UserID>) -> Result<(),
 
 pub fn get_reacts_to_message(channel: ChannelID, message: MessageID, emoji: String) -> Vec<UserID> {
     println!("get_reacts_to_message({}, {}, {})", channel, message, emoji);
+    todo!();
+}
+
+pub fn change_permission(channel: ChannelID, user: UserID, access: Access) {
     todo!();
 }

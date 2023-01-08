@@ -8,8 +8,8 @@ use std::fmt::Debug;
 use std::fs::File;
 
 // TODO: decide exactly what to export!!
-use game::*;
-use interface::{action::*, error::*, event::*, *};
+pub use game::*;
+pub use interface::{action::*, error::*, event::*, *};
 
-pub use game::Game;
-pub use game::RawPID;
+pub use game::{Game, Player, Players, RawPID};
+pub use rules::*;

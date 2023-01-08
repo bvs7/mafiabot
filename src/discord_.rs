@@ -4,6 +4,7 @@ pub mod types {
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
     pub struct UserID(pub u64);
 
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
     pub struct ChannelID(pub u64);
 
     impl Display for UserID {

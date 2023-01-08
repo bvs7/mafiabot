@@ -1,6 +1,9 @@
 use std::collections::HashSet;
 
-use crate::core::roles::Role;
+use crate::core::{
+    game::{ChargeStatus, Contract, IdiotStatus, Role, Team},
+    Player, RawPID,
+};
 
 use rand::{rngs::ThreadRng, seq::SliceRandom};
 
@@ -40,11 +43,34 @@ pub enum RoleGen {
     AGENT_Mafia,
 }
 
+impl RoleGen {
+    fn team(&self) -> Team {
+        match self {
+            RoleGen::TOWN | RoleGen::COP | RoleGen::DOCTOR | RoleGen::CELEB | RoleGen::MILLER => {
+                Team::Town
+            }
+            RoleGen::GODFATHER | RoleGen::MAFIA | RoleGen::STRIPPER | RoleGen::GOON => Team::Mafia,
+            _ => Team::Rogue,
+        }
+    }
+}
+
 impl Into<Role> for RoleGen {
     fn into(self) -> Role {
         match self {
-            RoleGen::TOWN => Role::GUARD,
-            _ => Role::TOWN,
+            RoleGen::TOWN => Role::TOWN,
+            RoleGen::COP => Role::COP,
+            RoleGen::DOCTOR => Role::DOCTOR,
+            RoleGen::CELEB => Role::CELEB,
+            RoleGen::MILLER => Role::MILLER,
+            RoleGen::MAFIA => Role::MAFIA,
+            RoleGen::GODFATHER => Role::GODFATHER,
+            RoleGen::STRIPPER => Role::STRIPPER,
+            RoleGen::GOON => Role::GOON,
+            RoleGen::IDIOT => Role::IDIOT,
+            RoleGen::SURVIVOR => Role::SURVIVOR,
+            RoleGen::GUARD | RoleGen::GUARD_Mafia => Role::GUARD,
+            RoleGen::AGENT | RoleGen::AGENT_Mafia => Role::AGENT,
         }
     }
 }
@@ -52,21 +78,21 @@ impl Into<Role> for RoleGen {
 #[allow(dead_code)]
 type RoleSet = HashSet<RoleGen>;
 
-fn new_roleset() -> RoleSet {
+pub fn new_roleset() -> RoleSet {
     let mut roleset = HashSet::new();
     roleset.insert(RoleGen::TOWN);
     roleset.insert(RoleGen::MAFIA);
     roleset
 }
 
-fn minimal_roleset() -> RoleSet {
+pub fn minimal_roleset() -> RoleSet {
     let mut roleset = new_roleset();
     roleset.insert(RoleGen::COP);
     roleset.insert(RoleGen::DOCTOR);
     roleset
 }
 
-fn basic_roleset() -> RoleSet {
+pub fn basic_roleset() -> RoleSet {
     let mut roleset = minimal_roleset();
     roleset.insert(RoleGen::CELEB);
     roleset.insert(RoleGen::MILLER);
@@ -76,7 +102,7 @@ fn basic_roleset() -> RoleSet {
     roleset
 }
 
-fn full_roleset() -> RoleSet {
+pub fn full_roleset() -> RoleSet {
     let mut roleset = basic_roleset();
     roleset.insert(RoleGen::GOON);
     roleset.insert(RoleGen::GUARD);
@@ -249,7 +275,7 @@ fn get_rogue(n_rogue: usize, score: i32, roleset: &RoleSet) -> Vec<RoleGen> {
     return best_set;
 }
 
-fn get_roles(n_players: usize, spice: f64, roleset: &RoleSet) -> Vec<RoleGen> {
+pub fn get_roles(n_players: usize, spice: f64, roleset: &RoleSet) -> Vec<RoleGen> {
     // Guards for invariants?
     let n_mafia = get_n_mafia(n_players, spice);
     let n_rogue = get_n_rogue(n_players - n_mafia, spice);
@@ -268,6 +294,64 @@ fn get_roles(n_players: usize, spice: f64, roleset: &RoleSet) -> Vec<RoleGen> {
     roles.extend(get_mafia(n_mafia, mafia_spice, roleset));
 
     roles
+}
+
+pub fn get_players<U: RawPID>(
+    users: Vec<U>,
+    mut roles: Vec<RoleGen>,
+) -> (Vec<Player<U>>, Vec<Contract<U>>) {
+    roles.shuffle(&mut ThreadRng::default());
+    let pairs: Vec<(U, RoleGen)> = users.into_iter().zip(roles.into_iter()).collect();
+    let mut non_mafia = Vec::new();
+    let mut mafia = Vec::new();
+    let mut players = Vec::new();
+    for (user, rolegen) in pairs.iter() {
+        match rolegen.team() {
+            Team::Mafia => mafia.push(user.clone()),
+            Team::Town | Team::Rogue => non_mafia.push(user.clone()),
+        }
+        players.push(Player {
+            raw_pid: user.clone(),
+            role: rolegen.clone().into(),
+        });
+    }
+    let mut contracts = Vec::new();
+    for (holder, rolegen) in pairs {
+        let charge = match rolegen {
+            RoleGen::SURVIVOR => holder.clone(),
+            RoleGen::GUARD | RoleGen::AGENT => {
+                non_mafia.choose(&mut ThreadRng::default()).unwrap().clone()
+            }
+            RoleGen::GUARD_Mafia | RoleGen::AGENT_Mafia => {
+                mafia.choose(&mut ThreadRng::default()).unwrap().clone()
+            }
+            _ => holder.clone(),
+        };
+        let status = ChargeStatus::default();
+        match rolegen {
+            RoleGen::IDIOT => contracts.push(Contract::Elect {
+                holder,
+                status: IdiotStatus::default(),
+            }),
+            RoleGen::SURVIVOR | RoleGen::GUARD | RoleGen::GUARD_Mafia => {
+                contracts.push(Contract::Protect {
+                    holder,
+                    charge,
+                    status,
+                })
+            }
+            RoleGen::AGENT | RoleGen::AGENT_Mafia => {
+                let target = non_mafia.choose(&mut ThreadRng::default()).unwrap();
+                contracts.push(Contract::Assassinate {
+                    holder,
+                    charge,
+                    status,
+                });
+            }
+            _ => {}
+        }
+    }
+    (players, contracts)
 }
 
 mod test {
