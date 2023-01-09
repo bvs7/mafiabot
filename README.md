@@ -200,3 +200,11 @@ The Server is what receives Discord Bot API callback HTTP requests. It identifie
 - Allows requests to get the reactions to a specific message
 - Allows creating channels and changing permissions for those channels
 
+### Notes
+
+How to test discord?
+
+Library does not easily compile on windows (but this will run on a Raspberry Pi)
+
+So server implementation probably needs to wait...
+

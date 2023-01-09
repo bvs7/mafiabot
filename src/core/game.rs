@@ -178,12 +178,11 @@ impl<U: RawPID> Game<U> {
         Ok(())
     }
 
-    fn handle_target(&mut self, a: U, t: Choice<Pidx>) -> Result<(), InvalidActionError<U>> {
+    fn handle_target(&mut self, a: U, t: Choice<U>) -> Result<(), InvalidActionError<U>> {
         let night = self.phase.is_night()?;
         let actor = self.players.check(a)?;
         let target = match t {
-            Choice::Player(p) if p < self.players.len() => Choice::Player(p),
-            Choice::Player(p) => return Err(InvalidActionError::InvalidTarget { target: p }),
+            Choice::Player(p) => Choice::Player(self.players.check(p)?),
             Choice::Abstain => Choice::Abstain,
         };
 
@@ -196,12 +195,11 @@ impl<U: RawPID> Game<U> {
         Ok(())
     }
 
-    fn handle_mark(&mut self, killer: U, mark: Choice<Pidx>) -> Result<(), InvalidActionError<U>> {
+    fn handle_mark(&mut self, killer: U, mark: Choice<U>) -> Result<(), InvalidActionError<U>> {
         let night = self.phase.is_night()?;
         let killer = self.players.check(killer)?;
         let mut mark = match mark {
-            Choice::Player(p) if p < self.players.len() => Choice::Player(p),
-            Choice::Player(p) => return Err(InvalidActionError::InvalidTarget { target: p }),
+            Choice::Player(p) => Choice::Player(self.players.check(p)?),
             Choice::Abstain => Choice::Abstain,
         };
         let role = self.players[killer].role.to_owned();

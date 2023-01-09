@@ -15,6 +15,7 @@ impl RawPID for UserID {}
 
 pub type ChannelID = u64;
 pub type MessageID = u64;
+pub type GuildID = u64;
 
 pub enum Access {
     None,
@@ -28,7 +29,7 @@ pub fn send_to_channel(channel: ChannelID, msg: String) -> MessageID {
     todo!();
 }
 
-pub fn create_channel(name: String) -> ChannelID {
+pub fn create_channel(guild: GuildID, name: String) -> ChannelID {
     println!("create_channel({})", name);
 
     todo!();
