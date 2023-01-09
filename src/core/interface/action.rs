@@ -13,8 +13,8 @@ pub enum ActionKind {
 pub enum Action<U: RawPID> {
     Vote { voter: U, ballot: Option<Choice<U>> },
     Reveal { celeb: U },
-    Target { actor: U, target: Choice<U> },
-    Mark { killer: U, mark: Choice<U> },
+    Target { actor: U, target: Choice<Pidx> },
+    Mark { killer: U, mark: Choice<Pidx> },
 }
 impl<U: RawPID> Action<U> {
     pub fn kind(&self) -> ActionKind {

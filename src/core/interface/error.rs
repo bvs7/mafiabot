@@ -19,6 +19,13 @@ pub enum InvalidActionError<U: RawPID> {
         role: Role,
         action: ActionKind,
     },
+    NoGame,
+    InvalidTargetText {
+        text: String,
+    },
+    InvalidTarget {
+        target: Pidx,
+    },
 }
 
 impl<U: RawPID> Display for InvalidActionError<U> {
@@ -33,13 +40,22 @@ impl<U: RawPID> Display for InvalidActionError<U> {
                 )
             }
             Self::InvalidAction { action, phase } => {
-                write!(f, "Invalid Command ({:?}) for Phase ({:?})", action, phase)
+                write!(f, "Invalid Action ({:?}) for Phase ({:?})", action, phase)
             }
             Self::PlayerNotFound { pid } => {
                 write!(f, "Player with UserID {:?} not found", pid)
             }
             Self::InvalidRole { role, action } => {
-                write!(f, "Invalid Role ({:?}) for Command ({:?})", role, action)
+                write!(f, "Invalid Role ({:?}) for Action ({:?})", role, action)
+            }
+            Self::NoGame => {
+                write!(f, "No Game")
+            }
+            Self::InvalidTargetText { text } => {
+                write!(f, "Invalid Target: {}", text)
+            }
+            Self::InvalidTarget { target } => {
+                write!(f, "Invalid Target: {}", target)
             }
         }
     }

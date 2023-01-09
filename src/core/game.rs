@@ -26,16 +26,23 @@ impl<U: RawPID> PlayerCheck<U> for Players<U> {
 
 #[derive(Debug, Serialize /*Deserialize*/)]
 pub struct Game<U: RawPID> {
-    players: Players<U>,
-    phase: Phase<U>,
-    contracts: Vec<Contract<U>>,
+    pub game_id: usize,
+    pub players: Players<U>,
+    pub phase: Phase<U>,
+    pub contracts: Vec<Contract<U>>,
     #[serde(skip)]
     comm: Comm<U>,
 }
 
 impl<U: RawPID> Game<U> {
-    pub fn new(players: Players<U>, contracts: Vec<Contract<U>>, comm: Comm<U>) -> Self {
+    pub fn new(
+        game_id: usize,
+        players: Players<U>,
+        contracts: Vec<Contract<U>>,
+        comm: Comm<U>,
+    ) -> Self {
         let mut game = Self {
+            game_id,
             players: Vec::new(),
             phase: Phase::Init,
             contracts,
@@ -171,11 +178,12 @@ impl<U: RawPID> Game<U> {
         Ok(())
     }
 
-    fn handle_target(&mut self, a: U, t: Choice<U>) -> Result<(), InvalidActionError<U>> {
+    fn handle_target(&mut self, a: U, t: Choice<Pidx>) -> Result<(), InvalidActionError<U>> {
         let night = self.phase.is_night()?;
         let actor = self.players.check(a)?;
         let target = match t {
-            Choice::Player(p) => Choice::Player(self.players.check(p)?),
+            Choice::Player(p) if p < self.players.len() => Choice::Player(p),
+            Choice::Player(p) => return Err(InvalidActionError::InvalidTarget { target: p }),
             Choice::Abstain => Choice::Abstain,
         };
 
@@ -188,11 +196,12 @@ impl<U: RawPID> Game<U> {
         Ok(())
     }
 
-    fn handle_mark(&mut self, killer: U, mark: Choice<U>) -> Result<(), InvalidActionError<U>> {
+    fn handle_mark(&mut self, killer: U, mark: Choice<Pidx>) -> Result<(), InvalidActionError<U>> {
         let night = self.phase.is_night()?;
         let killer = self.players.check(killer)?;
         let mut mark = match mark {
-            Choice::Player(p) => Choice::Player(self.players.check(p)?),
+            Choice::Player(p) if p < self.players.len() => Choice::Player(p),
+            Choice::Player(p) => return Err(InvalidActionError::InvalidTarget { target: p }),
             Choice::Abstain => Choice::Abstain,
         };
         let role = self.players[killer].role.to_owned();

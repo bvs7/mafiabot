@@ -34,6 +34,10 @@ pub fn create_channel(name: String) -> ChannelID {
     todo!();
 }
 
+pub fn create_single_user_channel(user: UserID) -> ChannelID {
+    todo!();
+}
+
 pub fn add_users_to_channel(channel: ChannelID, user: Vec<UserID>) -> Result<(), ()> {
     println!("add_users_to_channel({}, {:?})", channel, user);
 
@@ -46,5 +50,10 @@ pub fn get_reacts_to_message(channel: ChannelID, message: MessageID, emoji: Stri
 }
 
 pub fn change_permission(channel: ChannelID, user: UserID, access: Access) {
+    todo!();
+}
+
+/// Get a list of all channel IDs this bot is a part of
+pub fn get_all_channels() -> Vec<ChannelID> {
     todo!();
 }

@@ -9,3 +9,7 @@ edition = "2021"
 serde = { version = "1.0", features = ["derive", "alloc"] }
 serde_json = "1.0"
 rand = "0.8.5"
+
+# Unix discord library, does not compile easily on windows
+[target.'cfg(unix)'.dependencies]
+discord = { git = "https://github.com/SpaceManiac/discord-rs" }
