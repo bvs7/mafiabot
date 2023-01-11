@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use crate::core::{ContractResult, Role, Team};
 use crate::discord::*;
 use crate::{
@@ -10,22 +8,20 @@ use crate::{
 use super::GameChannels;
 
 trait EventHandler {
-    fn handle_event(&mut self, event: Event<UserID>) -> Result<(), ()>;
+    fn handle_event(&mut self, event: Event<UserID>) -> Result<(), DiscordError>;
 }
 
 pub struct ResponseEventHandler {
     channels: GameChannels,
     start_players: Vec<Player<UserID>>,
-    rules: (), // Todo...
+    _rules: (), // Todo...
 }
 
 impl EventHandler for ResponseEventHandler {
     fn handle_event(&mut self, event: Event<UserID>) -> Result<(), DiscordError> {
         match event {
             Event::Start {
-                players,
-                contracts,
-                phase,
+                players, contracts, ..
             } => {
                 self.start_players = players.clone();
                 let mafia_users = players

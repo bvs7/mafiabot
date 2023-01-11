@@ -56,11 +56,15 @@ pub enum GameState {
 }
 
 impl LobbyController {
-    fn handle(&mut self, cmd: LobbyCommand, game_state: &mut GameState) {
+    fn handle(
+        &mut self,
+        cmd: LobbyCommand,
+        game_state: &mut GameState,
+    ) -> Result<(), DiscordError> {
         match cmd {
             LobbyCommand::Init => match game_state {
                 GameState::None => {
-                    let channels = create_game_channels(self.category).expect("TODO");
+                    let channels = create_game_channels(self.category)?;
                     *game_state = GameState::Init {
                         channels,
                         users: HashSet::new(),
@@ -72,7 +76,7 @@ impl LobbyController {
             LobbyCommand::Join(user) => match game_state {
                 GameState::Init { channels, users } => {
                     users.insert(user);
-                    add_users_to_channel(channels.main, vec![user]);
+                    add_users_to_channel(channels.main, vec![user])?;
                 }
                 GameState::Game(game_controller) => {
                     todo!("Add user to game.");
@@ -82,7 +86,7 @@ impl LobbyController {
             LobbyCommand::Leave(user) => match game_state {
                 GameState::Init { channels, users } => {
                     users.remove(&user);
-                    remove_users_from_channel(channels.main, vec![user]);
+                    remove_users_from_channel(channels.main, vec![user])?;
                 }
                 GameState::Game(game_controller) => {
                     todo!("Remove user from game if either they are dead or it has ended.");
@@ -102,7 +106,7 @@ impl LobbyController {
             },
             LobbyCommand::Close => match game_state {
                 GameState::Init { channels, users } => {
-                    delete_game_channels(channels.clone());
+                    delete_game_channels(channels.clone())?;
                     *game_state = GameState::None;
                 }
                 GameState::Game(game_controller) => {
@@ -111,11 +115,12 @@ impl LobbyController {
                 _ => todo!("No game to close"),
             },
         }
+        Ok(())
     }
 }
 
 impl GameController {
-    fn handle(&mut self, act: Action<UserID>) {
+    fn handle(&mut self, act: Action<UserID>) -> Result<(), ()> {
         let result = self.game.handle(act);
 
         if let Err(_err) = result {
@@ -130,6 +135,7 @@ impl GameController {
             };
             todo!("Handle event: {:?}", event);
         }
+        Ok(())
     }
 }
 
@@ -162,15 +168,16 @@ impl Controller {
             };
 
             // Handle command.
-            match cmd {
+            let result = match cmd {
                 Command::Lobby(cmd) => {
                     self.lobby.handle(cmd, &mut self.game_state);
                     if let GameState::None = self.game_state {
-                        let channels = create_game_channels(self.lobby.category).expect("TODO");
-                        self.game_state = GameState::Init {
-                            channels,
-                            users: HashSet::new(),
-                        };
+                        create_game_channels(self.lobby.category).map(|channels| {
+                            self.game_state = GameState::Init {
+                                channels,
+                                users: HashSet::new(),
+                            };
+                        })
                     } else {
                         todo!("Game can't be initialized");
                     }
@@ -179,6 +186,10 @@ impl Controller {
                     GameState::Game(game_controller) => game_controller.handle(act),
                     _ => todo!("No game to handle action"),
                 },
+            };
+
+            if let Err(err) = result {
+                todo!("Handle error: {:?}", err);
             }
         }
     }
