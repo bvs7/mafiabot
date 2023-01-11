@@ -10,30 +10,21 @@ impl RawPID for Pidx {}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize /*Deserialize*/)]
 pub struct Player<U: RawPID> {
-    pub raw_pid: U,
+    pub user_id: U,
     pub role: Role,
 }
 
 impl<U: RawPID> Player<U> {
     pub fn new(raw_pid: U, role: Role) -> Self {
-        Self { raw_pid, role }
+        Self {
+            user_id: raw_pid,
+            role,
+        }
     }
 }
 impl<U: RawPID> Display for Player<U> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.raw_pid)
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize /*Deserialize*/)]
-pub enum Winner {
-    Team(Team),
-    Player(Pidx),
-    None,
-}
-impl Display for Winner {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", self)
+        write!(f, "{}", self.user_id)
     }
 }
 

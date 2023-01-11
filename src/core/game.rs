@@ -19,7 +19,7 @@ pub trait PlayerCheck<U: RawPID> {
 impl<U: RawPID> PlayerCheck<U> for Players<U> {
     fn check(&self, raw_pid: U) -> Result<Pidx, InvalidActionError<U>> {
         self.iter()
-            .position(|p| p.raw_pid == raw_pid)
+            .position(|p| p.user_id == raw_pid)
             .ok_or_else(|| InvalidActionError::PlayerNotFound { pid: raw_pid })
     }
 }
@@ -53,7 +53,7 @@ impl<U: RawPID> Game<U> {
 
         // Ensure no duplicate players
         for player in players {
-            if game.players.check(player.raw_pid).is_err() {
+            if game.players.check(player.user_id).is_err() {
                 game.players.push(player.to_owned());
             }
         }
@@ -100,9 +100,10 @@ impl<U: RawPID> Game<U> {
         };
         self.comm.tx(Event::Start {
             players: self.players.clone(),
+            contracts: self.contracts.clone(),
             phase: next_phase.kind(),
         });
-        self.phase.next_phase(next_phase, &self.comm);
+        self.phase.next_phase(next_phase, &self.players, &self.comm);
         Ok(())
     }
 
@@ -134,24 +135,21 @@ impl<U: RawPID> Game<U> {
 
         let next_phase: Phase<U> = match day_resolution {
             Some(DayResolution::Elected(elected, _electors, hammer, next_phase)) => {
-                self.check_elect_contract(elected);
+                self.check_elect_contract(self.players[elected].user_id);
                 self.eliminate(&[elected], hammer).unwrap_or(next_phase)
             }
             Some(DayResolution::NoKill(next_phase)) => next_phase,
             None => return Ok(()),
         };
 
-        self.phase.next_phase(next_phase, &self.comm);
+        self.phase.next_phase(next_phase, &self.players, &self.comm);
         Ok(())
     }
 
-    fn check_elect_contract(&mut self, elected: Pidx) {
-        let elected_id = self.players[elected].raw_pid;
-        for contract in self.contracts.iter_mut() {
-            if let Contract::Elect { holder, status } = contract {
-                if *holder == elected_id {
-                    *status = IdiotStatus::Elected;
-                }
+    fn check_elect_contract(&mut self, elected: U) {
+        for contract in &mut self.contracts {
+            if contract.get_charge() == elected {
+                contract.charge_elected(&self.comm);
             }
         }
     }
@@ -233,7 +231,7 @@ impl<U: RawPID> Game<U> {
             None => return,
         };
 
-        self.phase.next_phase(next_phase, &self.comm);
+        self.phase.next_phase(next_phase, &self.players, &self.comm);
     }
 
     pub fn eliminate(&mut self, to_die: &[Pidx], proxy: Pidx) -> Option<Phase<U>> {
@@ -241,12 +239,12 @@ impl<U: RawPID> Game<U> {
         to_die.sort();
 
         let mut to_die_ids = Vec::<U>::new();
-        let proxy_id = self.players[proxy].raw_pid;
+        let proxy_id = self.players[proxy].user_id;
 
         // Remove from largest to smallest to avoid invalidating indices
         for p in to_die.into_iter().rev() {
             let player = self.players[p].to_owned();
-            to_die_ids.push(player.raw_pid);
+            to_die_ids.push(player.user_id);
             self.comm.tx(Event::Eliminate { player });
 
             self.players.remove(p);
@@ -269,13 +267,15 @@ impl<U: RawPID> Game<U> {
     }
 
     fn check_contracts(&mut self, died: U, proxy: U) {
-        for contract in self.contracts.iter_mut() {
-            contract.refocus(&self.players, died, proxy, &self.comm);
+        for contract in &mut self.contracts {
+            if died == contract.get_charge() {
+                contract.charge_eliminated(&mut self.players, proxy, &self.comm);
+            }
         }
     }
 }
 
-fn check_team_numbers<U: RawPID>(players: &Players<U>) -> Option<Winner> {
+fn check_team_numbers<U: RawPID>(players: &Players<U>) -> Option<Team> {
     let n_players = players.len();
     let n_mafia = players
         .iter()
@@ -283,9 +283,9 @@ fn check_team_numbers<U: RawPID>(players: &Players<U>) -> Option<Winner> {
         .count();
 
     if n_mafia == 0 {
-        Some(Winner::Team(Team::Town))
+        Some(Team::Town)
     } else if n_mafia > (n_players - 1) / 2 {
-        Some(Winner::Team(Team::Mafia))
+        Some(Team::Mafia)
     } else {
         None
     }

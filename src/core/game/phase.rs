@@ -360,7 +360,7 @@ pub enum Phase<U: RawPID> {
     Init,
     Day(Day),
     Night(Night),
-    End(Winner, Vec<ContractResult<U>>),
+    End(Team, Vec<ContractResult<U>>),
 }
 
 impl<U: RawPID> Phase<U> {
@@ -419,13 +419,17 @@ impl<U: RawPID> Phase<U> {
         }
     }
 
-    pub fn next_phase(&mut self, next_phase: Phase<U>, comm: &Comm<U>) {
+    pub fn next_phase(&mut self, next_phase: Phase<U>, players: &Vec<Player<U>>, comm: &Comm<U>) {
         *self = next_phase;
 
         match self {
-            Phase::Day(Day { day_no, .. }) => comm.tx(Event::Day { day_no: *day_no }),
+            Phase::Day(Day { day_no, .. }) => comm.tx(Event::Day {
+                day_no: *day_no,
+                players: players.clone(),
+            }),
             Phase::Night(Night { night_no, .. }) => comm.tx(Event::Night {
                 night_no: *night_no,
+                players: players.clone(),
             }),
             Phase::End(winner, contract_results) => comm.tx(Event::End {
                 winner: *winner,

@@ -127,3 +127,48 @@ Assign Rogue roles according to game scoring
 Pick a number of spicy town and mafia roles.
 
 Randomly pull spicy town and mafia roles.
+
+
+## Controller
+
+Idea. Split controller functionality up.
+
+- Controller
+    - `lobby`
+    - `GameState`
+    - `rules`
+
+- Lobby. Starts games.
+    - Handle fn signature: `lobby.handle(cmd: LobbyCommand, game_state: &mut GameState)`
+    - Commands
+        - `/init` - Creates (or clears) main and mafia channels.
+        - `/join` - Adds someone to the (not started) game, or add someone to a started game
+        - `/leave` - Removes someone from a not started game, or removes a dead person from a game, or removes someone from an ended game
+        - `/start` - Starts the game
+        - `/close` - Removes the channels of an ended game
+    - Data needed?
+        - `lobby` - info about lobby that might start game
+        - `GameState` - enum of state of game.
+            - `None`
+            - `Init`
+                - `users: Vec<UserID>` - List of users that will join game
+                - `GameChannels` - Main and mafia channels
+            - `Play`
+                - `Game`
+                - `GameChannels`
+                - `Receiver<Event<UserID>>`
+- GamePlayer. Handles a game in progress.
+    - Handle fn signature: `player.handle(cmd: PlayCommand, game_state: &mut GameState)`
+    - Commands
+        - `/vote`, `/reveal`, `/target`, `/mark`
+        - `/timer` (eventually...)
+    - Data
+        - `Game`
+        - `GameChannels`
+        - `Receiver<Event<UserID>>`
+        - `players` for Event responses?? (Or maybe this is inside eventhandler)
+- Help. Handles help messages
+    - `/help [subject]`
+- Rules Handles rule changes
+    - `/rule [rule] [setting]` (Or dropdown menu?)
+    - `/role [command] [role]` (Or checkbox menu?)

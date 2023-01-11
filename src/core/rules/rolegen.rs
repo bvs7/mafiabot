@@ -311,7 +311,7 @@ pub fn get_players<U: RawPID>(
             Team::Town | Team::Rogue => non_mafia.push(user.clone()),
         }
         players.push(Player {
-            raw_pid: user.clone(),
+            user_id: user.clone(),
             role: rolegen.clone().into(),
         });
     }

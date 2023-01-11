@@ -120,6 +120,23 @@ Events:
 
 Currently unimplemented, the Controller handles all of the bot operation that is not game logic. It implements "Lobby" commands, where players can create and start a game, request game stats, etc. It routes Game Actions into Game Cores, and handles error responses for invalid Actions. Once timers are implemented, it spawns the timers/alarms when requested.
 
+### Commands
+
+The Discord interface will provide commands to the Controller
+- Init: Initialize a game
+- Join(UserID): Join an initialized game
+- Leave(UserID): Leave an initialized game (or a game you are dead in)
+- Start: Start an initialized game
+- Close: Delete an ended game
+- Vote(UserID, Option<Choice<UserID>>): A vote action in a game
+- Reveal(UserID): A reveal action in a game
+- Target(UserID, Choice<UserID>): A target action in a game
+- Mark(UserID, Choice<UserID>): A mark action in a game
+
+### Functions
+
+- Create Game Category, Main, and Mafia Chats?
+
 ### Lobbies
 
 Users are collectively part of a channel called a Lobby, where games can be created.

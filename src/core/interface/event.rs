@@ -5,10 +5,12 @@ pub enum Event<U: RawPID> {
     Init,
     Start {
         players: Vec<Player<U>>,
+        contracts: Vec<Contract<U>>,
         phase: PhaseKind,
     },
     Day {
         day_no: usize,
+        players: Vec<Player<U>>,
     },
     Vote {
         voter: Player<U>,
@@ -30,6 +32,7 @@ pub enum Event<U: RawPID> {
     },
     Night {
         night_no: usize,
+        players: Vec<Player<U>>,
     },
     Target {
         actor: Player<U>,
@@ -68,7 +71,7 @@ pub enum Event<U: RawPID> {
         new_contract: Contract<U>,
     },
     End {
-        winner: Winner,
+        winner: Team,
         contract_results: Vec<ContractResult<U>>,
     },
 }
@@ -77,8 +80,12 @@ impl<U: RawPID> Display for Event<U> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Event::Init => write!(f, "Init"),
-            Event::Start { players, phase } => write!(f, "Start: {:?} {:?}", players, phase),
-            Event::Day { day_no } => write!(f, "Day: {}", day_no),
+            Event::Start {
+                players,
+                contracts,
+                phase,
+            } => write!(f, "Start: {:?} {:?} {:?}", players, contracts, phase),
+            Event::Day { day_no, players } => write!(f, "Day {}: {:?}", day_no, players),
             Event::Vote {
                 voter,
                 ballot,
@@ -95,7 +102,7 @@ impl<U: RawPID> Display for Event<U> {
             Event::Election { electors, ballot } => {
                 write!(f, "Election: {:?} {:?}", electors, ballot)
             }
-            Event::Night { night_no } => write!(f, "Night: {}", night_no),
+            Event::Night { night_no, players } => write!(f, "Night {}: {:?}", night_no, players),
             Event::Target { actor, target } => write!(f, "Target: {:?} {:?}", actor, target),
             Event::Mark { killer, mark } => write!(f, "Mark: {:?} {:?}", killer, mark),
             Event::Dawn => write!(f, "Dawn"),

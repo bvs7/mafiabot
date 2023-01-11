@@ -1,4 +1,4 @@
-use crate::{controller::Command, discord::UserID};
+use crate::{controller::GameCommand, discord::UserID};
 
 use super::*;
 
@@ -25,19 +25,6 @@ impl<U: RawPID> Action<U> {
             Action::Reveal { .. } => ActionKind::Reveal,
             Action::Target { .. } => ActionKind::Target,
             Action::Mark { .. } => ActionKind::Mark,
-        }
-    }
-}
-
-impl TryFrom<Command> for Action<UserID> {
-    type Error = ();
-    fn try_from(value: Command) -> Result<Self, Self::Error> {
-        match value {
-            Command::Vote { voter, ballot } => Ok(Action::Vote { voter, ballot }),
-            Command::Reveal { celeb } => Ok(Action::Reveal { celeb }),
-            Command::Target { actor, target } => Ok(Action::Target { actor, target }),
-            Command::Mark { killer, mark } => Ok(Action::Mark { killer, mark }),
-            _ => Err(()),
         }
     }
 }
