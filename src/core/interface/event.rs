@@ -125,3 +125,54 @@ impl<U: RawPID> Display for Event<U> {
         }
     }
 }
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum EventKind {
+    Init,
+    Start,
+    Day,
+    Vote,
+    Retract,
+    Reveal,
+    Election,
+    Night,
+    Target,
+    Mark,
+    Dawn,
+    Strip,
+    Block,
+    Save,
+    Investigate,
+    Kill,
+    NoKill,
+    Eliminate,
+    Refocus,
+    End,
+}
+
+impl Event<u64> {
+    pub fn kind(&self) -> EventKind {
+        match self {
+            Event::Init => EventKind::Init,
+            Event::Start { .. } => EventKind::Start,
+            Event::Day { .. } => EventKind::Day,
+            Event::Vote { .. } => EventKind::Vote,
+            Event::Retract { .. } => EventKind::Retract,
+            Event::Reveal { .. } => EventKind::Reveal,
+            Event::Election { .. } => EventKind::Election,
+            Event::Night { .. } => EventKind::Night,
+            Event::Target { .. } => EventKind::Target,
+            Event::Mark { .. } => EventKind::Mark,
+            Event::Dawn => EventKind::Dawn,
+            Event::Strip { .. } => EventKind::Strip,
+            Event::Block { .. } => EventKind::Block,
+            Event::Save { .. } => EventKind::Save,
+            Event::Investigate { .. } => EventKind::Investigate,
+            Event::Kill { .. } => EventKind::Kill,
+            Event::NoKill => EventKind::NoKill,
+            Event::Eliminate { .. } => EventKind::Eliminate,
+            Event::Refocus { .. } => EventKind::Refocus,
+            Event::End { .. } => EventKind::End,
+        }
+    }
+}
