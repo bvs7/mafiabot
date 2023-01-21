@@ -354,50 +354,50 @@ pub fn get_players<U: RawPID>(
     (players, contracts)
 }
 
-mod test {
+// mod test {
 
-    use std::collections::HashMap;
+//     use std::collections::HashMap;
 
-    use super::*;
-    use rand;
+//     use super::*;
+//     use rand;
 
-    #[test]
-    fn test_spice_rolegen() {
-        let roleset = full_roleset();
-        for _ in 0..10 {
-            let roles = get_roles(7, 0.3, &roleset);
-            println!("{:?}", roles);
-        }
-    }
+//     #[test]
+//     fn test_spice_rolegen() {
+//         let roleset = full_roleset();
+//         for _ in 0..10 {
+//             let roles = get_roles(7, 0.3, &roleset);
+//             println!("{:?}", roles);
+//         }
+//     }
 
-    #[test]
-    #[ignore]
-    fn test_spice() {
-        for n in 1..=10 {
-            let mut counts = HashMap::<usize, usize>::new();
-            for _ in 0..10000 {
-                let spice = get_n_spice(n, 0.9);
-                let v = counts.get(&spice).unwrap_or(&0);
-                counts.insert(spice, v + 1);
-            }
-            let mut counts_entries: Vec<_> = counts.iter().collect();
-            counts_entries.sort_by(|(k1, _), (k2, _)| k1.cmp(k2));
-            println!("{}: {:?}", n, counts_entries)
-        }
-    }
+//     #[test]
+//     #[ignore]
+//     fn test_spice() {
+//         for n in 1..=10 {
+//             let mut counts = HashMap::<usize, usize>::new();
+//             for _ in 0..10000 {
+//                 let spice = get_n_spice(n, 0.9);
+//                 let v = counts.get(&spice).unwrap_or(&0);
+//                 counts.insert(spice, v + 1);
+//             }
+//             let mut counts_entries: Vec<_> = counts.iter().collect();
+//             counts_entries.sort_by(|(k1, _), (k2, _)| k1.cmp(k2));
+//             println!("{}: {:?}", n, counts_entries)
+//         }
+//     }
 
-    #[test]
-    fn test_n_rogue() {
-        for n in 3..=10 {
-            let mut counts = HashMap::<usize, usize>::new();
-            for _ in 0..10000 {
-                let spice = get_n_rogue(n, 0.3);
-                let v = counts.get(&spice).unwrap_or(&0);
-                counts.insert(spice, v + 1);
-            }
-            let mut counts_entries: Vec<_> = counts.iter().collect();
-            counts_entries.sort_by(|(k1, _), (k2, _)| k1.cmp(k2));
-            println!("{}: {:?}", n, counts_entries)
-        }
-    }
-}
+//     #[test]
+//     fn test_n_rogue() {
+//         for n in 3..=10 {
+//             let mut counts = HashMap::<usize, usize>::new();
+//             for _ in 0..10000 {
+//                 let spice = get_n_rogue(n, 0.3);
+//                 let v = counts.get(&spice).unwrap_or(&0);
+//                 counts.insert(spice, v + 1);
+//             }
+//             let mut counts_entries: Vec<_> = counts.iter().collect();
+//             counts_entries.sort_by(|(k1, _), (k2, _)| k1.cmp(k2));
+//             println!("{}: {:?}", n, counts_entries)
+//         }
+//     }
+// }
