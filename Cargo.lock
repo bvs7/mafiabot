@@ -589,6 +589,7 @@ dependencies = [
 name = "mafia_rust"
 version = "0.1.0"
 dependencies = [
+ "http",
  "rand",
  "serde",
  "serde_json",
