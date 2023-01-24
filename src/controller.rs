@@ -160,6 +160,8 @@ impl Controller {
         std::thread::spawn(move || self.controller_thread())
     }
 
+    // TODO: Use tokio recv?
+
     fn controller_thread(mut self) {
         loop {
             let cmd = match self.rx.recv() {
