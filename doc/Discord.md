@@ -43,7 +43,7 @@ So it seems like it would be good to have an event that is "game initialization"
 
 Should we expand the core functionality? Create a game, but no players. This allows for an init event that will create the channel and join structures.
 
-### Event Handling
+### Core Event Handling
 
 - Init
     - Create game channel
@@ -95,3 +95,13 @@ Should we expand the core functionality? Create a game, but no players. This all
     - Send message with update
 - End
     - Make close button
+
+### Discord input handling
+
+- Join Button Pressed
+- Leave Button Pressed
+- Watch Button Pressed
+- Vote Command Recvd
+- Target Command Recvd
+- Mark Command Recvd
+- Reveal Command Recvd
