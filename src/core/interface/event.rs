@@ -2,7 +2,9 @@ use super::*;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Event<U: RawPID> {
-    Init,
+    Init {
+        game_id: usize,
+    },
     Start {
         players: Vec<Player<U>>,
         contracts: Vec<Contract<U>>,
