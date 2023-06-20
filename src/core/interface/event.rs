@@ -81,7 +81,7 @@ pub enum Event<U: RawPID> {
 impl<U: RawPID> Display for Event<U> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Event::Init => write!(f, "Init"),
+            Event::Init{game_id} => write!(f, "Init"),
             Event::Start {
                 players,
                 contracts,
@@ -155,7 +155,7 @@ pub enum EventKind {
 impl Event<u64> {
     pub fn kind(&self) -> EventKind {
         match self {
-            Event::Init => EventKind::Init,
+            Event::Init{ .. } => EventKind::Init,
             Event::Start { .. } => EventKind::Start,
             Event::Day { .. } => EventKind::Day,
             Event::Vote { .. } => EventKind::Vote,

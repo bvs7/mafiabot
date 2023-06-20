@@ -1,5 +1,8 @@
 use std::env;
 
+use serenity::framework::standard::macros::{command, group};
+use serenity::framework::standard::{CommandResult, StandardFramework};
+
 use serenity::async_trait;
 use serenity::client::bridge::gateway::event::ShardStageUpdateEvent;
 use serenity::json::Value;
@@ -8,7 +11,14 @@ use serenity::model::channel::Message;
 use serenity::model::gateway::Ready;
 use serenity::model::prelude::*;
 use serenity::prelude::*;
+use serenity::model::id::UserId;
+use serenity::Client;
+use serenity::client::ClientBuilder;
 
+//parsing utils
+use regex::Regex;
+use regex::RegexSet;
+use lazy_static::lazy_static;
 use std::collections::HashMap;
 
 struct Handler;
@@ -151,8 +161,66 @@ impl EventHandler for Handler {
     /// Dispatched when a message is created.
     ///
     /// Provides the message's data.
-    async fn message(&self, _ctx: Context, _new_message: Message) {
-        todo!("Handle messages?");
+    async fn message(&self, _ctx: Context, _msg: Message) {
+        // Only process commands that start with !
+        if (_msg.content.starts_with("!")){
+            // initially regex starting commands. fetch parameters later
+            lazy_static! {
+                static ref CMD: RegexSet = RegexSet::new(&[
+                    r"!init",
+                    r"!start",
+                    r"!vote",
+                    r"!unvote",
+                    r"!target",
+                    r"!reveal",
+                    r"!status",]).unwrap();
+            };
+            let text = &_msg.content;
+            match CMD.matches(text).into_iter().collect::<Vec<_>>().as_slice() {
+                [0] => {
+                    _msg.reply(_ctx, "got init command").await;
+                },
+                [1] => {
+                    lazy_static! {
+                        static ref START_CMD : Regex = Regex::new(r"!start (\d+) (\d+)").unwrap();
+                    };
+                    let start_caps = START_CMD.captures(text).expect("not a valid command");
+                    let players = start_caps.get(1).unwrap().as_str();
+                    let minutes = start_caps.get(2).unwrap().as_str();
+                    _msg.reply(_ctx, format!("Starting game for {players} players in {minutes} minutes")).await;
+                },
+                [2] => {
+                    lazy_static! {
+                        static ref VOTE_CMD : Regex = Regex::new(r"!vote (\S+)").unwrap();
+                    };
+                    let name = VOTE_CMD.captures(text).expect("not a valid command").get(1).unwrap().as_str();
+                    _msg.reply(_ctx, format!("got vote for {name}")).await;
+                },
+                [3] => {
+                    lazy_static! {
+                        static ref UNVOTE_CMD : Regex = Regex::new(r"!unvote (\S+)").unwrap();
+                    };
+                    let name = UNVOTE_CMD.captures(text).expect("not a valid command").get(1).unwrap().as_str();
+                    _msg.reply(_ctx, format!("got unvote for {name}")).await;
+                },
+                [4] => {
+                    lazy_static! {
+                        static ref UNVOTE_CMD : Regex = Regex::new(r"!target ([A-Z])").unwrap();
+                    };
+                    let name = UNVOTE_CMD.captures(text).expect("not a valid command").get(1).unwrap().as_str();
+                    _msg.reply(_ctx, format!("Set target {name}")).await;
+                },
+                [5] => {
+                    _msg.reply(_ctx, "got reveal command").await;
+                },
+                [6] => {
+                    _msg.reply(_ctx, "got status command").await;
+                },
+                _ => {
+                    _msg.reply(_ctx, "not a valid command").await;
+                }
+            }
+        };
     }
 
     /// Dispatched when a new reaction is attached to a message.
@@ -183,8 +251,8 @@ impl EventHandler for Handler {
     /// Dispatched upon startup.
     ///
     /// Provides data about the bot and the guilds it's in.
-    async fn ready(&self, _ctx: Context, _data_about_bot: Ready) {
-        todo!("Startup");
+    async fn ready(&self, _ctx: Context, ready: Ready) {
+        println!("{} is connected!", ready.user.name);
     }
 
     /// Dispatched upon reconnection.
@@ -267,4 +335,22 @@ impl EventHandler for Handler {
         _thread_members_update: ThreadMembersUpdateEvent,
     ) {
     }
+}
+
+pub async fn get_client() -> Client{
+    // Fetch token
+    let token = env::var("DISCORD_TOKEN").expect("token");
+    // Set up default framework
+    let framework = StandardFramework::new()
+    .configure(|c| c.prefix("~"));
+
+    // Set up GatewayIntents
+    let mut intent = GatewayIntents::non_privileged() | GatewayIntents::MESSAGE_CONTENT;
+    // 395137001472
+    println!("Set up gateway intent. raw bits: {}",intent.bits());
+    return Client::builder(token, intent)
+        .event_handler(Handler)
+        .framework(framework)
+        .await
+        .expect("where is the client :,(");
 }
