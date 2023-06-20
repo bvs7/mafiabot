@@ -19,7 +19,8 @@ pub type ChannelID = u64;
 pub type MessageID = u64;
 pub type GuildID = u64;
 
-mod parser;
+pub mod parser;
 mod services;
 
 pub use services::*;
+pub use parser::*;
