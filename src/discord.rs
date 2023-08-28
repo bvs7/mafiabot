@@ -10,10 +10,7 @@
 
 use crate::controller::GameChannels;
 
-use super::core::RawPID;
-
-pub type UserID = u64;
-impl RawPID for UserID {}
+use super::core::PID;
 
 pub type ChannelID = u64;
 pub type MessageID = u64;

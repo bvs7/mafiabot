@@ -1,4 +1,4 @@
-use crate::{controller::GameCommand, discord::UserID};
+use crate::{controller::GameCommand};
 
 use super::*;
 
@@ -12,13 +12,13 @@ pub enum ActionKind {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Action<U: RawPID> {
-    Vote { voter: U, ballot: Option<Choice<U>> },
-    Reveal { celeb: U },
-    Target { actor: U, target: Choice<U> },
-    Mark { killer: U, mark: Choice<U> },
+pub enum Action {
+    Vote { voter: PID, ballot: Option<Choice> },
+    Reveal { celeb: PID },
+    Target { actor: PID, target: Choice },
+    Mark { killer: PID, mark: Choice },
 }
-impl<U: RawPID> Action<U> {
+impl Action {
     pub fn kind(&self) -> ActionKind {
         match self {
             Action::Vote { .. } => ActionKind::Vote,

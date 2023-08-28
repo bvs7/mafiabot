@@ -3,17 +3,17 @@ use std::fmt::Display;
 use super::*;
 
 #[derive(Debug)]
-pub enum InvalidActionError<U: RawPID> {
+pub enum InvalidActionError {
     InvalidPhase {
         expected: PhaseKind,
-        found: Phase<U>,
+        found: Phase,
     },
     InvalidAction {
         action: ActionKind,
         phase: PhaseKind,
     },
     PlayerNotFound {
-        pid: U,
+        pid: PID,
     },
     InvalidRole {
         role: Role,
@@ -28,7 +28,7 @@ pub enum InvalidActionError<U: RawPID> {
     },
 }
 
-impl<U: RawPID> Display for InvalidActionError<U> {
+impl Display for InvalidActionError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "Error with command: ")?;
         match self {
@@ -60,4 +60,4 @@ impl<U: RawPID> Display for InvalidActionError<U> {
         }
     }
 }
-impl<U: RawPID> std::error::Error for InvalidActionError<U> {}
+impl std::error::Error for InvalidActionError {}

@@ -1,19 +1,19 @@
 use crate::{
-    core::{Action, Choice},
-    discord::{ChannelID, MessageID, UserID},
+    core::{Action, Choice, PID},
+    discord::{ChannelID, MessageID}
 };
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum Command {
     Lobby(LobbyCommand),
-    Game(Action<UserID>),
+    Game(Action),
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum LobbyCommand {
     Init, // Done in Lobby
-    Join(UserID),
-    Leave(UserID),
+    Join(PID),
+    Leave(PID),
     Start,
     Close,
 }
@@ -21,18 +21,18 @@ pub enum LobbyCommand {
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum GameCommand {
     Vote {
-        voter: UserID,
-        ballot: Option<Choice<UserID>>,
+        voter: PID,
+        ballot: Option<Choice>,
     },
     Reveal {
-        celeb: UserID,
+        celeb: PID,
     },
     Target {
-        actor: UserID,
-        target: Choice<UserID>,
+        actor: PID,
+        target: Choice,
     },
     Mark {
-        killer: UserID,
-        mark: Choice<UserID>,
+        killer: PID,
+        mark: Choice,
     },
 }

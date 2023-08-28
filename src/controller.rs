@@ -10,7 +10,7 @@ use super::core::*;
 use super::discord::*;
 pub use commands::Command;
 
-fn create_game(users: &HashSet<UserID>) -> (Game<UserID>, Receiver<Event<UserID>>) {
+fn create_game(users: &HashSet<UserID>) -> (Game, Receiver<Event>) {
     let roles = get_roles(users.len(), 0.4, &full_roleset());
     let users = users.into_iter().map(|u| *u).collect();
     let (players, contracts) = get_players(users, roles);
@@ -40,9 +40,9 @@ pub struct LobbyController {
 
 #[derive(Debug)]
 pub struct GameController {
-    game: Game<UserID>,
+    game: Game,
     channels: GameChannels,
-    event_queue: Receiver<Event<UserID>>,
+    event_queue: Receiver<Event>,
 }
 
 #[derive(Debug)]
@@ -120,7 +120,7 @@ impl LobbyController {
 }
 
 impl GameController {
-    fn handle(&mut self, act: Action<UserID>) -> Result<(), ()> {
+    fn handle(&mut self, act: Action) -> Result<(), ()> {
         let result = self.game.handle(act);
 
         if let Err(_err) = result {

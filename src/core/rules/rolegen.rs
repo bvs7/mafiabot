@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use crate::core::{
     game::{ChargeStatus, Contract, IdiotStatus, Role, Team},
-    Player, RawPID,
+    Player, PID,
 };
 
 use rand::{rngs::ThreadRng, seq::SliceRandom};
@@ -296,12 +296,12 @@ pub fn get_roles(n_players: usize, spice: f64, roleset: &RoleSet) -> Vec<RoleGen
     roles
 }
 
-pub fn get_players<U: RawPID>(
-    users: Vec<U>,
+pub fn get_players(
+    users: Vec<PID>,
     mut roles: Vec<RoleGen>,
-) -> (Vec<Player<U>>, Vec<Contract<U>>) {
+) -> (Vec<Player>, Vec<Contract>) {
     roles.shuffle(&mut ThreadRng::default());
-    let pairs: Vec<(U, RoleGen)> = users.into_iter().zip(roles.into_iter()).collect();
+    let pairs: Vec<(PID, RoleGen)> = users.into_iter().zip(roles.into_iter()).collect();
     let mut non_mafia = Vec::new();
     let mut mafia = Vec::new();
     let mut players = Vec::new();

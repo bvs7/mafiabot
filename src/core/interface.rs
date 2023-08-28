@@ -7,19 +7,19 @@ use std::sync::mpsc::Sender;
 
 use super::*;
 
-type EventOutput<U> = Sender<Event<U>>;
+type EventOutput = Sender<Event>;
 
 #[derive(Debug)]
-pub struct Comm<U: RawPID> {
-    pub tx: EventOutput<U>,
+pub struct Comm {
+    pub tx: EventOutput,
 }
 
-impl<U: RawPID> Comm<U> {
-    pub fn new(tx: &EventOutput<U>) -> Self {
+impl Comm {
+    pub fn new(tx: &EventOutput) -> Self {
         Self { tx: tx.to_owned() }
     }
 
-    pub fn tx(&self, event: Event<U>) {
+    pub fn tx(&self, event: Event) {
         if let Err(e) = self.tx.send(event) {
             // TODO: Handle this better?
             // Do we need Complete propogation in Game.handle()?
@@ -30,6 +30,6 @@ impl<U: RawPID> Comm<U> {
     }
 }
 
-pub trait EventHandler<U: RawPID> {
-    fn handle(&mut self, event: Event<U>);
+pub trait EventHandler {
+    fn handle(&mut self, event: Event);
 }

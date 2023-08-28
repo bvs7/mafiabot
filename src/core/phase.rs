@@ -12,7 +12,7 @@ pub enum Ballot {
 }
 
 impl Ballot {
-    fn to_p<U: RawPID>(&self, players: &Players<U>) -> Option<Player<U>> {
+    fn to_p(&self, players: &Players) -> Option<Player> {
         match self {
             Ballot::Player(p) => Some(players[*p].clone()),
             Ballot::Abstain => None,
@@ -57,9 +57,9 @@ impl Display for PhaseKind {
     }
 }
 
-pub enum DayResolution<U: RawPID> {
-    Elected(Pidx, Vec<Pidx>, Pidx, Phase<U>),
-    NoKill(Phase<U>),
+pub enum DayResolution {
+    Elected(Pidx, Vec<Pidx>, Pidx, Phase),
+    NoKill(Phase),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -70,13 +70,13 @@ pub struct Day {
 }
 
 impl Day {
-    pub fn resolve_vote<U: RawPID>(
+    pub fn resolve_vote(
         &mut self,
-        players: &Vec<Player<U>>,
+        players: &Vec<Player>,
         voter: Pidx,
         choice: Option<Ballot>,
-        comm: &Comm<U>,
-    ) -> Option<DayResolution<U>> {
+        comm: &Comm,
+    ) -> Option<DayResolution> {
         let former = self
             .votes
             .iter()
@@ -126,7 +126,7 @@ impl Day {
         // Election has occured!
         let &hammer = electors.last().expect("At least one elector");
 
-        let electors_p: Vec<Player<U>> = electors.iter().map(|e| players[*e].to_owned()).collect();
+        let electors_p: Vec<Player> = electors.iter().map(|e| players[*e].to_owned()).collect();
 
         comm.tx(Event::Election {
             electors: electors_p,
@@ -151,20 +151,20 @@ pub struct Night {
     pub scheme: Option<Mark>,
 }
 
-pub enum NightResolution<U: RawPID> {
-    NoKill(Phase<U>),
-    Kill(Pidx, Pidx, Phase<U>),
+pub enum NightResolution {
+    NoKill(Phase),
+    Kill(Pidx, Pidx, Phase),
 }
 
 impl Night {
-    pub fn resolve_target<U: RawPID>(
+    pub fn resolve_target(
         &mut self,
-        players: &Vec<Player<U>>,
+        players: &Vec<Player>,
         actor: Pidx,
-        choice: Choice<Pidx>,
+        choice: Choice,
         role: Role,
-        comm: &Comm<U>,
-    ) -> Option<NightResolution<U>> {
+        comm: &Comm,
+    ) -> Option<NightResolution> {
         // If actor has already targeted tonight, retract that target.
         if let Some(Mark::Kill(killer, _)) = self.scheme {
             if killer == actor {
@@ -188,13 +188,13 @@ impl Night {
         self.resolve_dawn(players, comm)
     }
 
-    pub fn resolve_mark<U: RawPID>(
+    pub fn resolve_mark(
         &mut self,
-        players: &Vec<Player<U>>,
+        players: &Vec<Player>,
         killer: Pidx,
-        mark: Choice<Pidx>,
-        comm: &Comm<U>,
-    ) -> Option<NightResolution<U>> {
+        mark: Choice,
+        comm: &Comm,
+    ) -> Option<NightResolution> {
         // If killer has already targeted tonight, retract that target.
         if let Entry::Occupied(mut e) = self.targets.entry(killer) {
             *e.get_mut() = Target::Abstain;
@@ -212,11 +212,11 @@ impl Night {
         self.resolve_dawn(players, comm)
     }
 
-    pub fn resolve_dawn<U: RawPID>(
+    pub fn resolve_dawn(
         &mut self,
-        players: &Vec<Player<U>>,
-        comm: &Comm<U>,
-    ) -> Option<NightResolution<U>> {
+        players: &Vec<Player>,
+        comm: &Comm,
+    ) -> Option<NightResolution> {
         type T = Targets;
 
         let night_action_players = get_players_that(players, |(_, p)| p.role.targeting()).count();
@@ -320,11 +320,11 @@ impl Night {
     }
 }
 
-fn strip_events<U: RawPID>(
-    comm: &Comm<U>,
+fn strip_events(
+    comm: &Comm,
     strippers: &Vec<Pidx>,
     blocked: Pidx,
-    players: &Vec<Player<U>>,
+    players: &Vec<Player>,
 ) {
     comm.tx(Event::Block {
         blocked: players[blocked].to_owned(),
@@ -337,12 +337,12 @@ fn strip_events<U: RawPID>(
     }
 }
 
-fn save_events<U: RawPID>(
-    comm: &Comm<U>,
+fn save_events(
+    comm: &Comm,
     doctors: &Vec<Pidx>,
     killer: Pidx,
     saved: Pidx,
-    players: &Vec<Player<U>>,
+    players: &Vec<Player>,
 ) {
     comm.tx(Event::Block {
         blocked: players[killer].to_owned(),
@@ -356,14 +356,14 @@ fn save_events<U: RawPID>(
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize /*Deserialize*/)]
-pub enum Phase<U: RawPID> {
+pub enum Phase {
     Init,
     Day(Day),
     Night(Night),
-    End(Team, Vec<ContractResult<U>>),
+    End(Team, Vec<ContractResult>),
 }
 
-impl<U: RawPID> Phase<U> {
+impl Phase {
     pub fn clear(&mut self) {
         match self {
             Phase::Day(Day { votes, .. }) => votes.clear(),
@@ -398,7 +398,7 @@ impl<U: RawPID> Phase<U> {
             Phase::End(..) => PhaseKind::End,
         }
     }
-    pub fn is_day(&mut self) -> Result<&mut Day, InvalidActionError<U>> {
+    pub fn is_day(&mut self) -> Result<&mut Day, InvalidActionError> {
         if let Phase::Day(day) = self {
             Ok(day)
         } else {
@@ -408,7 +408,7 @@ impl<U: RawPID> Phase<U> {
             })
         }
     }
-    pub fn is_night(&mut self) -> Result<&mut Night, InvalidActionError<U>> {
+    pub fn is_night(&mut self) -> Result<&mut Night, InvalidActionError> {
         if let Phase::Night(night) = self {
             Ok(night)
         } else {
@@ -419,7 +419,7 @@ impl<U: RawPID> Phase<U> {
         }
     }
 
-    pub fn next_phase(&mut self, next_phase: Phase<U>, players: &Vec<Player<U>>, comm: &Comm<U>) {
+    pub fn next_phase(&mut self, next_phase: Phase, players: &Vec<Player>, comm: &Comm) {
         *self = next_phase;
 
         match self {
@@ -439,7 +439,7 @@ impl<U: RawPID> Phase<U> {
         }
     }
 }
-impl<U: RawPID> Display for Phase<U> {
+impl Display for Phase {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Phase::Init => write!(f, "Init"),

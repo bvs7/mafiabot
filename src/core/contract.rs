@@ -18,105 +18,86 @@ pub enum IdiotStatus {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize /*Deserialize*/)]
-pub enum Contract<U: RawPID> {
-    Protect {
-        holder: U,
-        charge: U,
-        status: ChargeStatus,
-    },
-    Assassinate {
-        holder: U,
-        charge: U,
-        status: ChargeStatus,
-    },
-    Elect {
-        holder: U,
-        status: IdiotStatus,
-    },
-    Survive {
-        holder: U,
-        status: ChargeStatus,
-    },
+pub enum Task {
+    Protect (PID),
+    Assassinate (PID),
+    ElectSelf(bool), // bool is success
 }
 
-impl<U: RawPID> Contract<U> {
-    pub fn new(holder: U, charge: U, offense: bool) -> Self {
-        match offense {
-            true if holder == charge => Contract::Elect {
-                holder,
-                status: IdiotStatus::Unelected,
-            },
-            false if holder == charge => Contract::Survive {
-                holder,
-                status: ChargeStatus::Alive,
-            },
-            true => Contract::Assassinate {
-                holder,
-                charge,
-                status: ChargeStatus::Alive,
-            },
-            false => Contract::Protect {
-                holder,
-                charge,
-                status: ChargeStatus::Alive,
-            },
-        }
-    }
-    pub fn get_holder(&self) -> U {
-        match self {
-            Contract::Protect { holder, .. } => *holder,
-            Contract::Assassinate { holder, .. } => *holder,
-            Contract::Elect { holder, .. } => *holder,
-            Contract::Survive { holder, .. } => *holder,
-        }
-    }
-    pub fn get_charge(&self) -> U {
-        match self {
-            Contract::Protect { charge, .. } => *charge,
-            Contract::Assassinate { charge, .. } => *charge,
-            Contract::Elect { holder, .. } => *holder,
-            Contract::Survive { holder, .. } => *holder,
+pub struct Contract {
+    holder: PID,
+    task: Task,
+}
+// pub enum Contract {
+//     Protect {
+//         holder: PID,
+//         charge: PID,
+//         status: ChargeStatus,
+//     },
+//     Assassinate {
+//         holder: PID,
+//         charge: PID,
+//         status: ChargeStatus,
+//     },
+//     Elect {
+//         holder: PID,
+//         status: IdiotStatus,
+//     },
+//     Survive {
+//         holder: PID,
+//         status: ChargeStatus,
+//     },
+// }
+
+impl Contract {
+
+    pub fn get_charge(&self) -> PID {
+        match self.task {
+            Task::Protect(pid) => pid.clone(),
+            Task::Assassinate(pid) => pid.clone(),
+            Task::ElectSelf (..) => self.holder.clone(),
         }
     }
 
-    pub fn description(&self) -> String {
-        match self {
-            Contract::Protect { charge, .. } => {
-                format!(
-                    "Your contract is to Protect. Your charge is {}. Keep them from dying!",
-                    charge
-                )
-            }
-            Contract::Assassinate { charge, .. } => {
-                format!(
-                    "Your contract is to Assassinate. Your charge is {}.  Cause their death!",
-                    charge
-                )
-            }
-            Contract::Elect { .. } => {
-                format!("Your contract is.. to be Elected! 🙃 Win an election! ")
-            }
-            Contract::Survive { .. } => {
-                format!("Your contract is to Survive. Stay alive!")
-            }
-        }
-    }
+    // pub fn description(&self) -> String {
+    //     match self {
+    //         Contract::Protect { charge, .. } => {
+    //             format!(
+    //                 "Your contract is to Protect. Your charge is {}. Keep them from dying!",
+    //                 charge
+    //             )
+    //         }
+    //         Contract::Assassinate { charge, .. } => {
+    //             format!(
+    //                 "Your contract is to Assassinate. Your charge is {}.  Cause their death!",
+    //                 charge
+    //             )
+    //         }
+    //         Contract::Elect { .. } => {
+    //             format!("Your contract is.. to be Elected! 🙃 Win an election! ")
+    //         }
+    //         Contract::Survive { .. } => {
+    //             format!("Your contract is to Survive. Stay alive!")
+    //         }
+    //     }
+    // }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize /*Deserialize*/)]
-pub enum ContractResult<U: RawPID> {
-    Success { holder: U },
-    Failure { holder: U },
+pub enum ContractResult {
+    Success { holder: PID },
+    Failure { holder: PID },
 }
 
-impl<U: RawPID> Contract<U> {
-    pub fn charge_eliminated(&mut self, players: &mut Players<U>, proxy: U, comm: &Comm<U>) {
+impl Contract {
+    pub fn charge_eliminated(&mut self, players: &mut Players, proxy: PID, comm: &Comm) {
         match self {
             Contract::Assassinate {
                 holder,
                 charge,
                 status,
             } => {
+                // check that holder is still alive
                 if players.check(*holder).is_ok() {
                     // Refocus
                     if players.check(proxy).is_ok() {
@@ -159,7 +140,7 @@ impl<U: RawPID> Contract<U> {
         }
     }
 
-    pub fn charge_elected(&mut self, comm: &Comm<U>) {
+    pub fn charge_elected(&mut self, comm: &Comm) {
         match self {
             Contract::Elect { holder, status } => {
                 // Update
@@ -169,7 +150,7 @@ impl<U: RawPID> Contract<U> {
         }
     }
 
-    pub fn check_win(&self) -> ContractResult<U> {
+    pub fn check_win(&self) -> ContractResult {
         match self {
             Contract::Assassinate { holder, status, .. } if *status == ChargeStatus::Dead => {
                 ContractResult::Success { holder: *holder }

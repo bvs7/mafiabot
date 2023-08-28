@@ -1,87 +1,87 @@
 use super::*;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Event<U: RawPID> {
+pub enum Event {
     Init {
         game_id: usize,
     },
     Start {
-        players: Vec<Player<U>>,
-        contracts: Vec<Contract<U>>,
+        players: Vec<Player>,
+        contracts: Vec<Contract>,
         phase: PhaseKind,
     },
     Day {
         day_no: usize,
-        players: Vec<Player<U>>,
+        players: Vec<Player>,
     },
     Vote {
-        voter: Player<U>,
-        ballot: Option<Player<U>>,
-        former: Option<Option<Player<U>>>,
+        voter: Player,
+        ballot: Option<Player>,
+        former: Option<Option<Player>>,
         threshold: usize,
         count: usize,
     },
     Retract {
-        voter: Player<U>,
-        former: Option<Option<Player<U>>>,
+        voter: Player,
+        former: Option<Option<Player>>,
     },
     Reveal {
-        celeb: Player<U>,
+        celeb: Player,
     },
     Election {
-        electors: Vec<Player<U>>,
-        ballot: Option<Player<U>>,
+        electors: Vec<Player>,
+        ballot: Option<Player>,
     },
     Night {
         night_no: usize,
-        players: Vec<Player<U>>,
+        players: Vec<Player>,
     },
     Target {
-        actor: Player<U>,
-        target: Option<Player<U>>,
+        actor: Player,
+        target: Option<Player>,
     },
     Mark {
-        killer: Player<U>,
-        mark: Option<Player<U>>,
+        killer: Player,
+        mark: Option<Player>,
     },
     Dawn,
     Strip {
-        stripper: Player<U>,
-        blocked: Player<U>,
+        stripper: Player,
+        blocked: Player,
     },
     Block {
-        blocked: Player<U>,
+        blocked: Player,
     },
     Save {
-        doctor: Player<U>,
-        saved: Player<U>,
+        doctor: Player,
+        saved: Player,
     },
     Investigate {
-        cop: Player<U>,
-        suspect: Player<U>,
+        cop: Player,
+        suspect: Player,
         role: Role,
     },
     Kill {
-        killer: Player<U>,
-        mark: Player<U>,
+        killer: Player,
+        mark: Player,
     },
     NoKill,
     Eliminate {
-        player: Player<U>,
+        player: Player,
     },
     Refocus {
-        new_contract: Contract<U>,
+        new_contract: Contract,
     },
     End {
         winner: Team,
-        contract_results: Vec<ContractResult<U>>,
+        contract_results: Vec<ContractResult>,
     },
 }
 
-impl<U: RawPID> Display for Event<U> {
+impl Display for Event {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Event::Init => write!(f, "Init"),
+            Event::Init { game_id } => write!(f, "Init {game_id}"),
             Event::Start {
                 players,
                 contracts,
@@ -152,10 +152,10 @@ pub enum EventKind {
     End,
 }
 
-impl Event<u64> {
+impl Event {
     pub fn kind(&self) -> EventKind {
         match self {
-            Event::Init => EventKind::Init,
+            Event::Init { .. } => EventKind::Init,
             Event::Start { .. } => EventKind::Start,
             Event::Day { .. } => EventKind::Day,
             Event::Vote { .. } => EventKind::Vote,

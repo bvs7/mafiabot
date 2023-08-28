@@ -6,7 +6,7 @@ use std::sync::mpsc::{Receiver, Sender};
 use super::*;
 
 // Create a basic game, that, when started will go to Day Phase (because odd number of players)
-fn create_basic_game_1() -> (Game<u64>, Receiver<Event<u64>>) {
+fn create_basic_game_1() -> (Game, Receiver<Event>) {
     // Players for a simple 5 player game
     let players = vec![
         Player::new(101, Role::TOWN),
@@ -26,7 +26,7 @@ fn create_basic_game_1() -> (Game<u64>, Receiver<Event<u64>>) {
 }
 
 // Create a basic game that will start in Night Phase (because even number of players)
-fn create_basic_game_2() -> (Game<u64>, Receiver<Event<u64>>) {
+fn create_basic_game_2() -> (Game, Receiver<Event>) {
     // Players for a simple 4 player game
     let players = vec![
         Player::new(101, Role::TOWN),
@@ -38,13 +38,13 @@ fn create_basic_game_2() -> (Game<u64>, Receiver<Event<u64>>) {
     let contracts = Vec::new();
 
     // Set up Comm output
-    let (tx, rx): (Sender<Event<u64>>, Receiver<Event<u64>>) = mpsc::channel();
+    let (tx, rx): (Sender<Event>, Receiver<Event>) = mpsc::channel();
 
     let game = Game::new(1, players, contracts, Comm::new(&tx));
     return (game, rx);
 }
 
-fn expect_eventkind(rx: &Receiver<Event<u64>>, kind: EventKind) {
+fn expect_eventkind(rx: &Receiver<Event>, kind: EventKind) {
     let event = rx.try_recv();
 
     if let Err(e) = event {

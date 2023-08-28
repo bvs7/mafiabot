@@ -10,14 +10,14 @@ pub use phase::*;
 pub use player::*;
 pub use roles::{Role, Team};
 
-pub type Players<U> = Vec<Player<U>>;
+pub type Players = Vec<Player>;
 
-pub trait PlayerCheck<U: RawPID> {
-    fn check(&self, raw_pid: U) -> Result<Pidx, InvalidActionError<U>>;
+pub trait PlayerCheck {
+    fn check(&self, raw_pid: PID) -> Result<Pidx, InvalidActionError>;
 }
 
-impl<U: RawPID> PlayerCheck<U> for Players<U> {
-    fn check(&self, raw_pid: U) -> Result<Pidx, InvalidActionError<U>> {
+impl PlayerCheck for Players {
+    fn check(&self, raw_pid: PID) -> Result<Pidx, InvalidActionError> {
         self.iter()
             .position(|p| p.user_id == raw_pid)
             .ok_or_else(|| InvalidActionError::PlayerNotFound { pid: raw_pid })
@@ -25,21 +25,21 @@ impl<U: RawPID> PlayerCheck<U> for Players<U> {
 }
 
 #[derive(Debug, Serialize /*Deserialize*/)]
-pub struct Game<U: RawPID> {
+pub struct Game {
     pub game_id: usize,
-    pub players: Players<U>,
-    pub phase: Phase<U>,
-    pub contracts: Vec<Contract<U>>,
+    pub players: Players,
+    pub phase: Phase,
+    pub contracts: Vec<Contract>,
     #[serde(skip)]
-    comm: Comm<U>,
+    comm: Comm,
 }
 
-impl<U: RawPID> Game<U> {
+impl Game {
     pub fn new(
         game_id: usize,
-        players: Players<U>,
-        contracts: Vec<Contract<U>>,
-        comm: Comm<U>,
+        players: Players,
+        contracts: Vec<Contract>,
+        comm: Comm,
     ) -> Self {
         let mut game = Self {
             game_id,
@@ -64,13 +64,13 @@ impl<U: RawPID> Game<U> {
     }
 }
 
-pub fn get_players_that<U: RawPID>(
-    players: &Players<U>,
-    f: impl Fn((Pidx, &Player<U>)) -> bool,
-) -> impl Iterator<Item = (Pidx, &Player<U>)> {
+pub fn get_players_that(
+    players: &Players,
+    f: impl Fn((Pidx, &Player)) -> bool,
+) -> impl Iterator<Item = (Pidx, &Player)> {
     players.iter().enumerate().filter(move |(i, p)| f((*i, p)))
 }
-impl<U: RawPID> Game<U> {
+impl Game {
     // TODO: Custom error?
     // Handle if directory doesn't exist?
     pub fn save_game(&self, fname: &str) -> Result<(), ()> {
@@ -109,7 +109,7 @@ impl<U: RawPID> Game<U> {
         Ok(())
     }
 
-    pub fn handle(&mut self, cmd: Action<U>) -> Result<(), InvalidActionError<U>> {
+    pub fn handle(&mut self, cmd: Action) -> Result<(), InvalidActionError> {
         let result = match cmd {
             Action::Vote { voter, ballot } => self.handle_vote(voter, ballot),
             Action::Reveal { celeb } => self.handle_reveal(celeb),
@@ -123,7 +123,7 @@ impl<U: RawPID> Game<U> {
         result
     }
 
-    fn handle_vote(&mut self, v: U, c: Option<Choice<U>>) -> Result<(), InvalidActionError<U>> {
+    fn handle_vote(&mut self, v: PID, c: Option<Choice>) -> Result<(), InvalidActionError> {
         let day = self.phase.is_day()?;
         let voter = self.players.check(v)?;
         let choice = match c {
@@ -135,7 +135,7 @@ impl<U: RawPID> Game<U> {
         // accept vote?
         let day_resolution = day.resolve_vote(&self.players, voter, choice, &self.comm);
 
-        let next_phase: Phase<U> = match day_resolution {
+        let next_phase: Phase = match day_resolution {
             Some(DayResolution::Elected(elected, _electors, hammer, next_phase)) => {
                 self.check_elect_contract(self.players[elected].user_id);
                 self.eliminate(&[elected], hammer).unwrap_or(next_phase)
@@ -148,7 +148,7 @@ impl<U: RawPID> Game<U> {
         Ok(())
     }
 
-    fn check_elect_contract(&mut self, elected: U) {
+    fn check_elect_contract(&mut self, elected: PID) {
         for contract in &mut self.contracts {
             if contract.get_charge() == elected {
                 contract.charge_elected(&self.comm);
@@ -156,7 +156,7 @@ impl<U: RawPID> Game<U> {
         }
     }
 
-    fn handle_reveal(&mut self, celeb: U) -> Result<(), InvalidActionError<U>> {
+    fn handle_reveal(&mut self, celeb: PID) -> Result<(), InvalidActionError> {
         let day = self.phase.is_day()?;
         let celeb = self.players.check(celeb)?;
         if self.players[celeb].role != Role::CELEB {
@@ -178,7 +178,7 @@ impl<U: RawPID> Game<U> {
         Ok(())
     }
 
-    fn handle_target(&mut self, a: U, t: Choice<U>) -> Result<(), InvalidActionError<U>> {
+    fn handle_target(&mut self, a: PID, t: Choice) -> Result<(), InvalidActionError> {
         let night = self.phase.is_night()?;
         let actor = self.players.check(a)?;
         let target = match t {
@@ -195,7 +195,7 @@ impl<U: RawPID> Game<U> {
         Ok(())
     }
 
-    fn handle_mark(&mut self, killer: U, mark: Choice<U>) -> Result<(), InvalidActionError<U>> {
+    fn handle_mark(&mut self, killer: PID, mark: Choice) -> Result<(), InvalidActionError> {
         let night = self.phase.is_night()?;
         let killer = self.players.check(killer)?;
         let mut mark = match mark {
@@ -224,7 +224,7 @@ impl<U: RawPID> Game<U> {
         Ok(())
     }
 
-    fn handle_dawn(&mut self, night_resolution: Option<NightResolution<U>>) {
+    fn handle_dawn(&mut self, night_resolution: Option<NightResolution>) {
         let next_phase = match night_resolution {
             Some(NightResolution::Kill(killer, mark, phase)) => {
                 self.eliminate(&[mark], killer).unwrap_or(phase)
@@ -236,11 +236,11 @@ impl<U: RawPID> Game<U> {
         self.phase.next_phase(next_phase, &self.players, &self.comm);
     }
 
-    pub fn eliminate(&mut self, to_die: &[Pidx], proxy: Pidx) -> Option<Phase<U>> {
+    pub fn eliminate(&mut self, to_die: &[Pidx], proxy: Pidx) -> Option<Phase> {
         let mut to_die = to_die.to_owned();
         to_die.sort();
 
-        let mut to_die_ids = Vec::<U>::new();
+        let mut to_die_ids = Vec::new();
         let proxy_id = self.players[proxy].user_id;
 
         // Remove from largest to smallest to avoid invalidating indices
@@ -268,7 +268,7 @@ impl<U: RawPID> Game<U> {
         None
     }
 
-    fn check_contracts(&mut self, died: U, proxy: U) {
+    fn check_contracts(&mut self, died: PID, proxy: PID) {
         for contract in &mut self.contracts {
             if died == contract.get_charge() {
                 contract.charge_eliminated(&mut self.players, proxy, &self.comm);
@@ -277,7 +277,7 @@ impl<U: RawPID> Game<U> {
     }
 }
 
-fn check_team_numbers<U: RawPID>(players: &Players<U>) -> Option<Team> {
+fn check_team_numbers(players: &Players) -> Option<Team> {
     let n_players = players.len();
     let n_mafia = players
         .iter()

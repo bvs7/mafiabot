@@ -11,5 +11,5 @@ use std::fs::File;
 pub use game::*;
 pub use interface::{action::*, error::*, event::*, *};
 
-pub use game::{Game, Player, Players, RawPID};
+pub use game::{Game, Player, Players};
 pub use rules::*;

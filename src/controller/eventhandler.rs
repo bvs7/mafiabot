@@ -2,23 +2,22 @@ use crate::core::{ContractResult, Role, Team};
 use crate::discord::*;
 use crate::{
     core::{Event, Player},
-    discord::UserID,
 };
 
 use super::GameChannels;
 
 trait EventHandler {
-    fn handle_event(&mut self, event: Event<UserID>) -> Result<(), DiscordError>;
+    fn handle_event(&mut self, event: Event) -> Result<(), DiscordError>;
 }
 
 pub struct ResponseEventHandler {
     channels: GameChannels,
-    start_players: Vec<Player<UserID>>,
+    start_players: Vec<Player>,
     _rules: (), // Todo...
 }
 
 impl EventHandler for ResponseEventHandler {
-    fn handle_event(&mut self, event: Event<UserID>) -> Result<(), DiscordError> {
+    fn handle_event(&mut self, event: Event) -> Result<(), DiscordError> {
         match event {
             Event::Start {
                 players, contracts, ..
