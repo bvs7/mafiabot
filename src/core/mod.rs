@@ -4,7 +4,9 @@ use std::sync::mpsc::Sender;
 pub mod interface;
 mod phase;
 
-use phase::PhaseKind;
+pub use phase::{Phase, PhaseKind};
+
+use self::interface::{Event, EventOutput};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
 pub enum Role {
@@ -59,6 +61,10 @@ impl Role {
     pub fn targeting(&self) -> bool {
         matches!(self, Role::COP | Role::DOCTOR | Role::STRIPPER)
     }
+
+    pub fn marking(&self) -> bool {
+        self.team() == Team::Mafia && self != &Role::GOON
+    }
 }
 
 pub type PID = u64;
@@ -72,115 +78,45 @@ pub struct Player {
 
 pub type Players = Vec<Player>;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub enum Task {
     Protect(PID),
     Assassinate(PID),
-    ElectSelf(bool),
+    Elect(PID), // bool denotes success?
 }
 
-type Contract = (PID, Task);
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct Contract {
+    holder: PID,
+    task: Task,
+    success: bool,
+}
+
 type Contracts = Vec<Contract>;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub enum GenRole {
     Role(Role),
     ContractRole(Role, usize),
 }
 
 pub type RoleGen = Vec<GenRole>;
+
 pub struct GameRules {}
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub enum Choice {
+    /// Possible selections for a vote, target, or mark, used for external interface
     Player(PID),
     Abstain,
     None,
 }
 
-pub enum Action {
-    Vote { voter: PID, ballot: Choice },
-    Reveal { celeb: PID },
-    Target { actor: PID, target: Choice },
-    Mark { killer: PID, mark: Choice },
+impl From<Option<PID>> for Choice {
+    fn from(pid: Option<PID>) -> Self {
+        match pid {
+            Some(pid) => Choice::Player(pid),
+            None => Choice::Abstain,
+        }
+    }
 }
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Event {
-    Init {
-        game_id: usize,
-    },
-    Start {
-        entrants: PIDs,
-        rolegen: RoleGen,
-        phase: PhaseKind,
-    },
-    Day {
-        num: usize,
-        players: PIDs,
-    },
-    Vote {
-        voter: PID,
-        choice: Choice,
-        former: Choice,
-        threshold: usize,
-        count: usize,
-    },
-    Retract {
-        voter: PID,
-        former: Choice,
-    },
-    Reveal {
-        celeb: PID,
-    },
-    Election {
-        electors: PIDs,
-        ballot: Choice,
-    },
-    Night {
-        num: usize,
-        players: PIDs,
-    },
-    Target {
-        actor: PID,
-        target: Choice,
-    },
-    Mark {
-        killer: PID,
-        mark: Choice,
-    },
-    Dawn,
-    Strip {
-        stripper: PID,
-        blocked: PID,
-    },
-    Block {
-        blocked: PID,
-    },
-    Save {
-        doctor: PID,
-        saved: PID,
-    },
-    Investigate {
-        cop: PID,
-        suspect: PID,
-        role: Role,
-    },
-    Kill {
-        killer: PID,
-        mark: PID,
-    },
-    NoKill,
-    Eliminate {
-        player: PID,
-    },
-    Refocus {
-        contract: Contract,
-    },
-    End {
-        winner: Option<Team>,
-        contracts: Contracts,
-    },
-}
-
-pub type EventOutput = Sender<Event>;
