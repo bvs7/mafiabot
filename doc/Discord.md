@@ -21,3 +21,4 @@ Use threads for specific chats?
 Have one main game channel, then have a mafia thread, and a thread for each player?
 
 Or potentially just use main and mafia channels, then have threads to reveal roles?
+

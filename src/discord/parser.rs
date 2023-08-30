@@ -227,12 +227,6 @@ impl EventHandler for Handler {
     ) {
     }
 
-    /// Dispatched when a thread is created or the current user is added
-    /// to a private thread.
-    ///
-    /// Provides the thread.
-    async fn thread_create(&self, _ctx: Context, _thread: GuildChannel) {}
-
     /// Dispatched when a thread is updated.
     ///
     /// Provides the updated thread.
