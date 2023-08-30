@@ -1,11 +1,9 @@
-use crate::{controller::GameCommand};
-
+// Module: core::interface::action
 use super::*;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ActionKind {
     Vote,
-    Retract,
     Reveal,
     Target,
     Mark,

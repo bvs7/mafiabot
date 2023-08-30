@@ -1,22 +1,7 @@
 use serde::Serialize;
 use std::fmt::{Debug, Display};
 
-use super::roles::{Role, Team};
 
-pub type PID = u64;
-pub type Pidx = usize;
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize /*Deserialize*/)]
-pub struct Player {
-    pub user_id: PID,
-    pub role: Role,
-}
-
-impl Display for Player {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.user_id)
-    }
-}
 
 // #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize /*Deserialize*/)]
 // pub enum Choice {

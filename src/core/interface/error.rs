@@ -1,6 +1,8 @@
 use std::fmt::Display;
 
-use super::*;
+use super::action::ActionKind;
+use super::phase::{Phase, PhaseKind};
+use super::{PID, Role};
 
 #[derive(Debug)]
 pub enum InvalidActionError {
@@ -24,7 +26,7 @@ pub enum InvalidActionError {
         text: String,
     },
     InvalidTarget {
-        target: Pidx,
+        target: PID,
     },
 }
 

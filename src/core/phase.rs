@@ -1,42 +1,14 @@
 use serde::Serialize;
-use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::fmt::{Debug, Display};
+use std::usize;
 
-use super::*;
+use super::{PID, Player, Players, Team, Choice};
+use super::interface::error::InvalidActionError;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub enum Ballot {
-    Player(Pidx),
-    Abstain,
-}
+type Pidx = usize;
 
-impl Ballot {
-    fn to_p(&self, players: &Players) -> Option<Player> {
-        match self {
-            Ballot::Player(p) => Some(players[*p].clone()),
-            Ballot::Abstain => None,
-        }
-    }
-}
-
-pub type Vote = (Pidx, Ballot);
-pub type Votes = Vec<Vote>;
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub enum Target {
-    Strip(Pidx),
-    Save(Pidx),
-    Investigate(Pidx),
-    Abstain,
-}
-pub type Targets = HashMap<Pidx, Target>;
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub enum Mark {
-    Kill(Pidx, Pidx),
-    Abstain,
-}
+type PlayerList = Vec<Player>;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub enum PhaseKind {
@@ -45,6 +17,52 @@ pub enum PhaseKind {
     Night,
     End,
 }
+
+#[derive(Debug, Clone)]
+pub enum Phase {
+    Init,
+    Day(Day),
+    Night(Night),
+    End(End),
+}
+trait Tally: IntoIterator<Item = (Pidx, Option<Pidx>)> {
+    fn tally(&self, choice: Option<Pidx>) -> usize {
+        self.into_iter().filter(|(_, v)| v == &choice).count()
+    }
+}
+
+pub type Votes = HashMap<Pidx, Option<Pidx>>;
+impl Tally for Votes {}
+
+
+pub type Blocked = Vec<Pidx>;
+
+#[derive(Debug, Clone)]
+pub struct Day {
+    num: usize,
+    players: PlayerList,
+    votes: Votes,
+    blocked: Blocked,
+}
+
+pub type Targets = HashMap<Pidx, Option<Pidx>>;
+pub type Scheme = Option<(Pidx, Option<Pidx>)>;
+
+#[derive(Debug, Clone)]
+pub struct Night {
+    num: usize,
+    players: PlayerList,
+    targets: Targets,
+    scheme: Scheme,
+}
+
+#[derive(Debug, Clone)]
+pub struct End {
+    players: PlayerList,
+    winner: Option<Team>,
+}
+
+// ***
 
 impl Display for PhaseKind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -57,418 +75,472 @@ impl Display for PhaseKind {
     }
 }
 
-pub enum DayResolution {
-    Elected(Pidx, Vec<Pidx>, Pidx, Phase),
-    NoKill(Phase),
+pub trait FindPlayer: IntoIterator<Item = Player> {
+    fn find(&self, pid: PID) -> Result<Pidx, InvalidActionError> {
+        self.into_iter()
+            .position(|p| p.user_id == pid)
+            .ok_or_else(|| InvalidActionError::PlayerNotFound { pid })
+    }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct Day {
-    pub day_no: usize,
-    pub votes: Votes,
-    pub blocked: Vec<Pidx>,
+impl FindPlayer for PlayerList {}
+
+enum Ballot {
+    Choice(Option<Pidx>),
+    Retract,
+}
+
+pub fn threshold(c: Option<Pidx>, n_players: usize) -> usize {
+    match c {
+        Some(_) => n_players / 2 + 1,
+        None => (n_players + 1) / 2,
+    }
 }
 
 impl Day {
-    pub fn resolve_vote(
-        &mut self,
-        players: &Vec<Player>,
-        voter: Pidx,
-        choice: Option<Ballot>,
-        comm: &Comm,
-    ) -> Option<DayResolution> {
-        let former = self
-            .votes
-            .iter()
-            .position(|(v, _)| v == &voter)
-            .map(|i| self.votes.remove(i))
-            .map(|(_, b)| b);
-
-        let ballot = match choice {
-            Some(b) => {
-                self.votes.push((voter, b.clone()));
-                b
-            }
-            None => {
-                comm.tx(Event::Retract {
-                    voter: players[voter].to_owned(),
-                    former: former.map(|b| b.to_p(players)),
-                });
-                return None; // Vote retraction can't cause election
-            }
+    pub fn vote(&mut self, voter: PID, choice: Choice) -> Result<bool, InvalidActionError>{
+        // Validate vote
+        let voter_idx = self.players.find(voter)?;
+        let choice_idx = match choice {
+            Choice::None => Ballot::Retract,
+            Choice::Abstain => Ballot::Choice(None),
+            Choice::Player(votee) => 
+                Ballot::Choice(Some(self.players.find(votee)?)),
+        };
+        let former_idx = match choice_idx{
+            Ballot::Retract => self.votes.remove(&voter_idx),
+            Ballot::Choice(c) => self.votes.insert(voter_idx, c),
+        };
+        
+        let former = match former_idx {
+            None => Choice::None,
+            Some(None) => Choice::Abstain,
+            Some(Some(votee_idx)) => Choice::Player(self.players[votee_idx].user_id),
         };
 
-        let n_players = players.len();
-        let threshold = match ballot {
-            Ballot::Player(_) => n_players / 2 + 1,
-            _ => (n_players + 1) / 2,
-        };
-
-        let electors = self
-            .votes
-            .iter()
-            .filter(|(_, b)| b == &ballot)
-            .map(|(v, _)| *v)
-            .collect::<Vec<_>>();
-        let count = electors.len();
-
-        comm.tx(Event::Vote {
-            voter: players[voter].to_owned(),
-            ballot: ballot.to_p(players),
-            former: former.map(|f| f.to_p(&players)),
-            count,
-            threshold,
-        });
-
-        if count < threshold {
-            return None;
-        }
-        // Election has occured!
-        let &hammer = electors.last().expect("At least one elector");
-
-        let electors_p: Vec<Player> = electors.iter().map(|e| players[*e].to_owned()).collect();
-
-        comm.tx(Event::Election {
-            electors: electors_p,
-            ballot: ballot.to_p(&players),
-        });
-
-        let next_phase = Phase::new_night(self.day_no);
-        if let Ballot::Player(elected) = ballot {
-            Some(DayResolution::Elected(
-                elected, electors, hammer, next_phase,
-            ))
-        } else {
-            Some(DayResolution::NoKill(next_phase))
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct Night {
-    night_no: usize,
-    pub targets: Targets,
-    pub scheme: Option<Mark>,
-}
-
-pub enum NightResolution {
-    NoKill(Phase),
-    Kill(Pidx, Pidx, Phase),
-}
-
-impl Night {
-    pub fn resolve_target(
-        &mut self,
-        players: &Vec<Player>,
-        actor: Pidx,
-        choice: Choice,
-        role: Role,
-        comm: &Comm,
-    ) -> Option<NightResolution> {
-        // If actor has already targeted tonight, retract that target.
-        if let Some(Mark::Kill(killer, _)) = self.scheme {
-            if killer == actor {
-                self.scheme = Some(Mark::Abstain);
+        // Send a vote event or a retract event.
+        // If the vote is a retraction, it can't cause an election.
+        
+        match choice_idx {
+            Ballot::Retract => {
+                // Send retract event
             }
-        }
-        comm.tx(Event::Target {
-            actor: players[actor].to_owned(),
-            target: choice.to_p(&players),
-        });
+            Ballot::Choice(c) => {
+                let threshold = threshold(c, self.players.len());
+                let count = self.votes.tally(c);
+                // Send vote event
 
-        let target = match (role, choice) {
-            (_, Choice::Abstain) => Target::Abstain,
-            (Role::COP, Choice::Player(p)) => Target::Investigate(p),
-            (Role::DOCTOR, Choice::Player(p)) => Target::Save(p),
-            (Role::STRIPPER, Choice::Player(p)) => Target::Strip(p),
-            _ => panic!("Shouldn't be able to target with this role"),
-        };
-        self.targets.insert(actor, target);
-
-        self.resolve_dawn(players, comm)
-    }
-
-    pub fn resolve_mark(
-        &mut self,
-        players: &Vec<Player>,
-        killer: Pidx,
-        mark: Choice,
-        comm: &Comm,
-    ) -> Option<NightResolution> {
-        // If killer has already targeted tonight, retract that target.
-        if let Entry::Occupied(mut e) = self.targets.entry(killer) {
-            *e.get_mut() = Target::Abstain;
-        }
-
-        self.scheme = match mark {
-            Choice::Player(p) => Some(Mark::Kill(killer, p)),
-            Choice::Abstain => Some(Mark::Abstain),
-        };
-
-        comm.tx(Event::Mark {
-            killer: players[killer].to_owned(),
-            mark: mark.to_p(players),
-        });
-        self.resolve_dawn(players, comm)
-    }
-
-    pub fn resolve_dawn(
-        &mut self,
-        players: &Vec<Player>,
-        comm: &Comm,
-    ) -> Option<NightResolution> {
-        type T = Targets;
-
-        let night_action_players = get_players_that(players, |(_, p)| p.role.targeting()).count();
-        let night_actions = self.targets.len();
-        if night_actions < night_action_players || self.scheme.is_none() {
-            return None;
-        }
-
-        comm.tx(Event::Dawn);
-
-        let targets = self.targets.to_owned();
-
-        // Take strips
-        let (strips, mut targets): (T, T) = targets
-            .into_iter()
-            .partition(|(_, t)| matches!(t, Target::Strip(_)));
-
-        // Collect Strips
-        let mut block_map = HashMap::new();
-        for (stripper, target) in strips {
-            if let Target::Strip(stripped) = target {
-                // RULE StripNotify Always
-                block_map
-                    .entry(stripped)
-                    .or_insert_with(Vec::new)
-                    .push(stripper);
-            }
-        }
-        for (actor, target) in &mut targets {
-            if let Entry::Occupied(e) = block_map.entry(*actor) {
-                match target {
-                    Target::Save(_) | Target::Investigate(_) => {
-                        // RULE StripNotify Useful
-                        strip_events(&comm, e.get(), *actor, &players);
-                        *target = Target::Abstain;
-                    }
-                    _ => {}
+                // Check for election
+                if count < threshold {
+                    // TODO: schedule an end of day check?
+                    return Ok(true)
                 }
             }
         }
-
-        // Take saves
-        let (saves, targets): (T, T) = targets
-            .into_iter()
-            .partition(|(_, t)| matches!(t, Target::Save(_)));
-
-        // Collect saves
-        let mut save_map = HashMap::new();
-        for (doctor, target) in saves {
-            if let Target::Save(saved) = target {
-                // RULE SaveSelf
-                save_map.entry(saved).or_insert_with(Vec::new).push(doctor);
-            }
-        }
-
-        // Take Investigations
-        let (searches, _): (T, T) = targets
-            .into_iter()
-            .partition(|(_, t)| matches!(t, Target::Investigate(_)));
-
-        // Enact Investigations
-        for (cop, target) in searches {
-            if let Target::Investigate(suspect) = target {
-                let (cop, suspect, role) = (
-                    players[cop].to_owned(),
-                    players[suspect].to_owned(),
-                    players[suspect].role.to_owned(),
-                );
-                comm.tx(Event::Investigate { cop, suspect, role })
-            }
-        }
-
-        let next_phase = Phase::new_day(
-            self.night_no + 1,
-            block_map.keys().into_iter().copied().collect(),
-        );
-
-        // Enact Kill
-        let night_resolution = match self.scheme {
-            Some(Mark::Kill(killer, mark)) => {
-                if let Entry::Occupied(e) = save_map.entry(mark) {
-                    save_events(comm, e.get(), killer, mark, players);
-
-                    NightResolution::NoKill(next_phase)
-                } else {
-                    NightResolution::Kill(killer, mark, next_phase)
-                }
-            }
-            _ => NightResolution::NoKill(next_phase),
-        };
-        match night_resolution {
-            NightResolution::NoKill(_) => {
-                comm.tx(Event::NoKill);
-            }
-            NightResolution::Kill(killer, mark, _) => {
-                let (killer, mark) = (players[killer].to_owned(), players[mark].to_owned());
-                comm.tx(Event::Kill { killer, mark });
-            }
-        }
-        Some(night_resolution)
+        Ok(false)
     }
 }
 
-fn strip_events(
-    comm: &Comm,
-    strippers: &Vec<Pidx>,
-    blocked: Pidx,
-    players: &Vec<Player>,
-) {
-    comm.tx(Event::Block {
-        blocked: players[blocked].to_owned(),
-    });
-    for stripper in strippers {
-        comm.tx(Event::Strip {
-            stripper: players[*stripper].to_owned(),
-            blocked: players[blocked].to_owned(),
-        });
-    }
-}
+// impl Day {
+//     pub fn resolve_vote(
+//         &mut self,
+//         players: &Vec<Player>,
+//         voter: Pidx,
+//         choice: Option<Ballot>,
+//         comm: &Comm,
+//     ) {
+//         let former = self
+//             .votes
+//             .iter()
+//             .position(|(v, _)| v == &voter)
+//             .map(|i| self.votes.remove(i))
+//             .map(|(_, b)| b);
 
-fn save_events(
-    comm: &Comm,
-    doctors: &Vec<Pidx>,
-    killer: Pidx,
-    saved: Pidx,
-    players: &Vec<Player>,
-) {
-    comm.tx(Event::Block {
-        blocked: players[killer].to_owned(),
-    });
-    for doctor in doctors {
-        comm.tx(Event::Save {
-            doctor: players[*doctor].to_owned(),
-            saved: players[saved].to_owned(),
-        });
-    }
-}
+//         let ballot = match choice {
+//             Some(b) => {
+//                 self.votes.push((voter, b.clone()));
+//                 b
+//             }
+//             None => {
+//                 comm.tx(Event::Retract {
+//                     voter: players[voter].to_owned(),
+//                     former: former.map(|b| b.to_p(players)),
+//                 });
+//                 return None; // Vote retraction can't cause election
+//             }
+//         };
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize /*Deserialize*/)]
-pub enum Phase {
-    Init,
-    Day(Day),
-    Night(Night),
-    End(Team, Vec<ContractResult>),
-}
+//         let n_players = players.len();
+//         let threshold = match ballot {
+//             Ballot::Player(_) => n_players / 2 + 1,
+//             _ => (n_players + 1) / 2,
+//         };
 
-impl Phase {
-    pub fn clear(&mut self) {
-        match self {
-            Phase::Day(Day { votes, .. }) => votes.clear(),
-            Phase::Night(Night {
-                targets, scheme, ..
-            }) => {
-                targets.clear();
-                *scheme = None;
-            }
-            _ => {}
-        }
-    }
-    pub fn new_day(day_no: usize, blocked: Vec<Pidx>) -> Self {
-        Self::Day(Day {
-            day_no,
-            votes: Vec::new(),
-            blocked,
-        })
-    }
-    pub fn new_night(night_no: usize) -> Self {
-        Self::Night(Night {
-            night_no,
-            targets: HashMap::new(),
-            scheme: None,
-        })
-    }
-    pub fn kind(&self) -> PhaseKind {
-        match self {
-            Phase::Init => PhaseKind::Init,
-            Phase::Day { .. } => PhaseKind::Day,
-            Phase::Night { .. } => PhaseKind::Night,
-            Phase::End(..) => PhaseKind::End,
-        }
-    }
-    pub fn is_day(&mut self) -> Result<&mut Day, InvalidActionError> {
-        if let Phase::Day(day) = self {
-            Ok(day)
-        } else {
-            Err(InvalidActionError::InvalidPhase {
-                expected: PhaseKind::Day,
-                found: self.to_owned(),
-            })
-        }
-    }
-    pub fn is_night(&mut self) -> Result<&mut Night, InvalidActionError> {
-        if let Phase::Night(night) = self {
-            Ok(night)
-        } else {
-            Err(InvalidActionError::InvalidPhase {
-                expected: PhaseKind::Night,
-                found: self.to_owned(),
-            })
-        }
-    }
+//         let electors = self
+//             .votes
+//             .iter()
+//             .filter(|(_, b)| b == &ballot)
+//             .map(|(v, _)| *v)
+//             .collect::<Vec<_>>();
+//         let count = electors.len();
 
-    pub fn next_phase(&mut self, next_phase: Phase, players: &Vec<Player>, comm: &Comm) {
-        *self = next_phase;
+//         comm.tx(Event::Vote {
+//             voter: players[voter].to_owned(),
+//             ballot: ballot.to_p(players),
+//             former: former.map(|f| f.to_p(&players)),
+//             count,
+//             threshold,
+//         });
 
-        match self {
-            Phase::Day(Day { day_no, .. }) => comm.tx(Event::Day {
-                day_no: *day_no,
-                players: players.clone(),
-            }),
-            Phase::Night(Night { night_no, .. }) => comm.tx(Event::Night {
-                night_no: *night_no,
-                players: players.clone(),
-            }),
-            Phase::End(winner, contract_results) => comm.tx(Event::End {
-                winner: *winner,
-                contract_results: contract_results.to_owned(),
-            }),
-            _ => panic!("Should never go to Init Phase!"),
-        }
-    }
-}
-impl Display for Phase {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Phase::Init => write!(f, "Init"),
-            Phase::Day(Day {
-                day_no,
-                votes,
-                blocked,
-            }) => write!(
-                f,
-                "Day {} (votes: {:?}, blocked: {:?})",
-                day_no, votes, blocked
-            ),
-            Phase::Night(Night {
-                night_no,
-                targets,
-                scheme,
-            }) => {
-                write!(
-                    f,
-                    "Night {} (targets: {:?}, scheme: {:?})",
-                    night_no, targets, scheme
-                )
-            }
-            Phase::End(winner, contracts) => {
-                write!(f, "End: {:?}, contracts: {:?}", winner, contracts)
-            }
-        }
-    }
-}
+//         if count < threshold {
+//             return None;
+//         }
+//         // Election has occured!
+//         let &hammer = electors.last().expect("At least one elector");
+
+//         let electors_p: Vec<Player> = electors.iter().map(|e| players[*e].to_owned()).collect();
+
+//         comm.tx(Event::Election {
+//             electors: electors_p,
+//             ballot: ballot.to_p(&players),
+//         });
+
+//         let next_phase = Phase::new_night(self.day_no);
+//         if let Ballot::Player(elected) = ballot {
+//             Some(DayResolution::Elected(
+//                 elected, electors, hammer, next_phase,
+//             ))
+//         } else {
+//             Some(DayResolution::NoKill(next_phase))
+//         }
+//     }
+// }
+
+// #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+// pub struct Night {
+//     night_no: usize,
+//     pub targets: Targets,
+//     pub scheme: Option<Mark>,
+// }
+
+// pub enum NightResolution {
+//     NoKill(Phase),
+//     Kill(Pidx, Pidx, Phase),
+// }
+
+// impl Night {
+//     pub fn resolve_target(
+//         &mut self,
+//         players: &Vec<Player>,
+//         actor: Pidx,
+//         choice: Choice,
+//         role: Role,
+//         comm: &Comm,
+//     ) -> Option<NightResolution> {
+//         // If actor has already targeted tonight, retract that target.
+//         if let Some(Mark::Kill(killer, _)) = self.scheme {
+//             if killer == actor {
+//                 self.scheme = Some(Mark::Abstain);
+//             }
+//         }
+//         comm.tx(Event::Target {
+//             actor: players[actor].to_owned(),
+//             target: choice.to_p(&players),
+//         });
+
+//         let target = match (role, choice) {
+//             (_, Choice::Abstain) => Target::Abstain,
+//             (Role::COP, Choice::Player(p)) => Target::Investigate(p),
+//             (Role::DOCTOR, Choice::Player(p)) => Target::Save(p),
+//             (Role::STRIPPER, Choice::Player(p)) => Target::Strip(p),
+//             _ => panic!("Shouldn't be able to target with this role"),
+//         };
+//         self.targets.insert(actor, target);
+
+//         self.resolve_dawn(players, comm)
+//     }
+
+//     pub fn resolve_mark(
+//         &mut self,
+//         players: &Vec<Player>,
+//         killer: Pidx,
+//         mark: Choice,
+//         comm: &Comm,
+//     ) -> Option<NightResolution> {
+//         // If killer has already targeted tonight, retract that target.
+//         if let Entry::Occupied(mut e) = self.targets.entry(killer) {
+//             *e.get_mut() = Target::Abstain;
+//         }
+
+//         self.scheme = match mark {
+//             Choice::Player(p) => Some(Mark::Kill(killer, p)),
+//             Choice::Abstain => Some(Mark::Abstain),
+//         };
+
+//         comm.tx(Event::Mark {
+//             killer: players[killer].to_owned(),
+//             mark: mark.to_p(players),
+//         });
+//         self.resolve_dawn(players, comm)
+//     }
+
+//     pub fn resolve_dawn(
+//         &mut self,
+//         players: &Vec<Player>,
+//         comm: &Comm,
+//     ) -> Option<NightResolution> {
+//         type T = Targets;
+
+//         let night_action_players = get_players_that(players, |(_, p)| p.role.targeting()).count();
+//         let night_actions = self.targets.len();
+//         if night_actions < night_action_players || self.scheme.is_none() {
+//             return None;
+//         }
+
+//         comm.tx(Event::Dawn);
+
+//         let targets = self.targets.to_owned();
+
+//         // Take strips
+//         let (strips, mut targets): (T, T) = targets
+//             .into_iter()
+//             .partition(|(_, t)| matches!(t, Target::Strip(_)));
+
+//         // Collect Strips
+//         let mut block_map = HashMap::new();
+//         for (stripper, target) in strips {
+//             if let Target::Strip(stripped) = target {
+//                 // RULE StripNotify Always
+//                 block_map
+//                     .entry(stripped)
+//                     .or_insert_with(Vec::new)
+//                     .push(stripper);
+//             }
+//         }
+//         for (actor, target) in &mut targets {
+//             if let Entry::Occupied(e) = block_map.entry(*actor) {
+//                 match target {
+//                     Target::Save(_) | Target::Investigate(_) => {
+//                         // RULE StripNotify Useful
+//                         strip_events(&comm, e.get(), *actor, &players);
+//                         *target = Target::Abstain;
+//                     }
+//                     _ => {}
+//                 }
+//             }
+//         }
+
+//         // Take saves
+//         let (saves, targets): (T, T) = targets
+//             .into_iter()
+//             .partition(|(_, t)| matches!(t, Target::Save(_)));
+
+//         // Collect saves
+//         let mut save_map = HashMap::new();
+//         for (doctor, target) in saves {
+//             if let Target::Save(saved) = target {
+//                 // RULE SaveSelf
+//                 save_map.entry(saved).or_insert_with(Vec::new).push(doctor);
+//             }
+//         }
+
+//         // Take Investigations
+//         let (searches, _): (T, T) = targets
+//             .into_iter()
+//             .partition(|(_, t)| matches!(t, Target::Investigate(_)));
+
+//         // Enact Investigations
+//         for (cop, target) in searches {
+//             if let Target::Investigate(suspect) = target {
+//                 let (cop, suspect, role) = (
+//                     players[cop].to_owned(),
+//                     players[suspect].to_owned(),
+//                     players[suspect].role.to_owned(),
+//                 );
+//                 comm.tx(Event::Investigate { cop, suspect, role })
+//             }
+//         }
+
+//         let next_phase = Phase::new_day(
+//             self.night_no + 1,
+//             block_map.keys().into_iter().copied().collect(),
+//         );
+
+//         // Enact Kill
+//         let night_resolution = match self.scheme {
+//             Some(Mark::Kill(killer, mark)) => {
+//                 if let Entry::Occupied(e) = save_map.entry(mark) {
+//                     save_events(comm, e.get(), killer, mark, players);
+
+//                     NightResolution::NoKill(next_phase)
+//                 } else {
+//                     NightResolution::Kill(killer, mark, next_phase)
+//                 }
+//             }
+//             _ => NightResolution::NoKill(next_phase),
+//         };
+//         match night_resolution {
+//             NightResolution::NoKill(_) => {
+//                 comm.tx(Event::NoKill);
+//             }
+//             NightResolution::Kill(killer, mark, _) => {
+//                 let (killer, mark) = (players[killer].to_owned(), players[mark].to_owned());
+//                 comm.tx(Event::Kill { killer, mark });
+//             }
+//         }
+//         Some(night_resolution)
+//     }
+// }
+
+// fn strip_events(
+//     comm: &Comm,
+//     strippers: &Vec<Pidx>,
+//     blocked: Pidx,
+//     players: &Vec<Player>,
+// ) {
+//     comm.tx(Event::Block {
+//         blocked: players[blocked].to_owned(),
+//     });
+//     for stripper in strippers {
+//         comm.tx(Event::Strip {
+//             stripper: players[*stripper].to_owned(),
+//             blocked: players[blocked].to_owned(),
+//         });
+//     }
+// }
+
+// fn save_events(
+//     comm: &Comm,
+//     doctors: &Vec<Pidx>,
+//     killer: Pidx,
+//     saved: Pidx,
+//     players: &Vec<Player>,
+// ) {
+//     comm.tx(Event::Block {
+//         blocked: players[killer].to_owned(),
+//     });
+//     for doctor in doctors {
+//         comm.tx(Event::Save {
+//             doctor: players[*doctor].to_owned(),
+//             saved: players[saved].to_owned(),
+//         });
+//     }
+// }
+
+// #[derive(Debug, Clone, PartialEq, Eq, Serialize /*Deserialize*/)]
+// pub enum Phase {
+//     Init,
+//     Day(Day),
+//     Night(Night),
+//     End(Team, Vec<ContractResult>),
+// }
+
+// impl Phase {
+//     pub fn clear(&mut self) {
+//         match self {
+//             Phase::Day(Day { votes, .. }) => votes.clear(),
+//             Phase::Night(Night {
+//                 targets, scheme, ..
+//             }) => {
+//                 targets.clear();
+//                 *scheme = None;
+//             }
+//             _ => {}
+//         }
+//     }
+//     pub fn new_day(day_no: usize, blocked: Vec<Pidx>) -> Self {
+//         Self::Day(Day {
+//             day_no,
+//             votes: Vec::new(),
+//             blocked,
+//         })
+//     }
+//     pub fn new_night(night_no: usize) -> Self {
+//         Self::Night(Night {
+//             night_no,
+//             targets: HashMap::new(),
+//             scheme: None,
+//         })
+//     }
+//     pub fn kind(&self) -> PhaseKind {
+//         match self {
+//             Phase::Init => PhaseKind::Init,
+//             Phase::Day { .. } => PhaseKind::Day,
+//             Phase::Night { .. } => PhaseKind::Night,
+//             Phase::End(..) => PhaseKind::End,
+//         }
+//     }
+//     pub fn is_day(&mut self) -> Result<&mut Day, InvalidActionError> {
+//         if let Phase::Day(day) = self {
+//             Ok(day)
+//         } else {
+//             Err(InvalidActionError::InvalidPhase {
+//                 expected: PhaseKind::Day,
+//                 found: self.to_owned(),
+//             })
+//         }
+//     }
+//     pub fn is_night(&mut self) -> Result<&mut Night, InvalidActionError> {
+//         if let Phase::Night(night) = self {
+//             Ok(night)
+//         } else {
+//             Err(InvalidActionError::InvalidPhase {
+//                 expected: PhaseKind::Night,
+//                 found: self.to_owned(),
+//             })
+//         }
+//     }
+
+//     pub fn next_phase(&mut self, next_phase: Phase, players: &Vec<Player>, comm: &Comm) {
+//         *self = next_phase;
+
+//         match self {
+//             Phase::Day(Day { day_no, .. }) => comm.tx(Event::Day {
+//                 day_no: *day_no,
+//                 players: players.clone(),
+//             }),
+//             Phase::Night(Night { night_no, .. }) => comm.tx(Event::Night {
+//                 night_no: *night_no,
+//                 players: players.clone(),
+//             }),
+//             Phase::End(winner, contract_results) => comm.tx(Event::End {
+//                 winner: *winner,
+//                 contract_results: contract_results.to_owned(),
+//             }),
+//             _ => panic!("Should never go to Init Phase!"),
+//         }
+//     }
+// }
+// impl Display for Phase {
+//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+//         match self {
+//             Phase::Init => write!(f, "Init"),
+//             Phase::Day(Day {
+//                 day_no,
+//                 votes,
+//                 blocked,
+//             }) => write!(
+//                 f,
+//                 "Day {} (votes: {:?}, blocked: {:?})",
+//                 day_no, votes, blocked
+//             ),
+//             Phase::Night(Night {
+//                 night_no,
+//                 targets,
+//                 scheme,
+//             }) => {
+//                 write!(
+//                     f,
+//                     "Night {} (targets: {:?}, scheme: {:?})",
+//                     night_no, targets, scheme
+//                 )
+//             }
+//             Phase::End(winner, contracts) => {
+//                 write!(f, "End: {:?}, contracts: {:?}", winner, contracts)
+//             }
+//         }
+//     }
+// }
 
 // mod test {
 //     use super::*;
