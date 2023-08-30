@@ -49,7 +49,9 @@ impl<U: RawPID> Game<U> {
             comm,
         };
 
-        game.comm.tx(Event::Init);
+        game.comm.tx(Event::Init {
+            game_id: game.game_id,
+        });
 
         // Ensure no duplicate players
         for player in players {

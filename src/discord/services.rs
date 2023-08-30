@@ -1,3 +1,11 @@
+/*
+Singleton client HashMap from BotID -> (connected?) Client
+
+grab client, spawn desired behavior, await result
+
+
+*/
+
 use super::*;
 
 pub enum Access {
