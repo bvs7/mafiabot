@@ -74,7 +74,7 @@ pub enum Event {
     },
     End {
         winner: Team,
-        contract_results: Vec<ContractResult>,
+        contract_results: Contracts,
     },
 }
 

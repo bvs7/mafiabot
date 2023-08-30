@@ -7,6 +7,8 @@ use std::sync::mpsc::Sender;
 
 use super::*;
 
+pub use event::Event;
+
 type EventOutput = Sender<Event>;
 
 #[derive(Debug)]

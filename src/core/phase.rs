@@ -3,8 +3,8 @@ use std::collections::HashMap;
 use std::fmt::{Debug, Display};
 use std::usize;
 
-use super::{PID, Player, Players, Team, Choice};
 use super::interface::error::InvalidActionError;
+use super::{Choice, Event, EventOutput, Player, Team, PID};
 
 type Pidx = usize;
 
@@ -25,15 +25,18 @@ pub enum Phase {
     Night(Night),
     End(End),
 }
-trait Tally: IntoIterator<Item = (Pidx, Option<Pidx>)> {
-    fn tally(&self, choice: Option<Pidx>) -> usize {
-        self.into_iter().filter(|(_, v)| v == &choice).count()
+
+trait Tally: IntoIterator<Item = (Pidx, Option<Pidx>)> + Clone {
+    fn tally(&self, choice: &Option<Pidx>) -> usize {
+        self.clone()
+            .into_iter()
+            .filter(|(_, v)| v == choice)
+            .count()
     }
 }
 
 pub type Votes = HashMap<Pidx, Option<Pidx>>;
 impl Tally for Votes {}
-
 
 pub type Blocked = Vec<Pidx>;
 
@@ -75,9 +78,10 @@ impl Display for PhaseKind {
     }
 }
 
-pub trait FindPlayer: IntoIterator<Item = Player> {
+pub trait FindPlayer: IntoIterator<Item = Player> + Clone {
     fn find(&self, pid: PID) -> Result<Pidx, InvalidActionError> {
-        self.into_iter()
+        (&self)
+            .into_iter()
             .position(|p| p.user_id == pid)
             .ok_or_else(|| InvalidActionError::PlayerNotFound { pid })
     }
@@ -90,6 +94,31 @@ enum Ballot {
     Retract,
 }
 
+impl Choice {
+    fn to_ballot<F: FnOnce(PID) -> Result<Pidx, InvalidActionError>>(
+        &self,
+        f: F,
+    ) -> Result<Ballot, InvalidActionError> {
+        match self {
+            Self::Player(p) => f(*p).map(|p| Ballot::Choice(Some(p))),
+            Self::Abstain => Ok(Ballot::Choice(None)),
+            Self::None => Ok(Ballot::Retract),
+        }
+    }
+}
+
+impl Ballot {
+    fn to_choice<F: FnOnce(Pidx) -> PID>(&self, f: F) -> Choice {
+        match self {
+            Self::Choice(c) => match c {
+                Some(p) => Choice::Player(f(*p)),
+                None => Choice::Abstain,
+            },
+            Self::Retract => Choice::None,
+        }
+    }
+}
+
 pub fn threshold(c: Option<Pidx>, n_players: usize) -> usize {
     match c {
         Some(_) => n_players / 2 + 1,
@@ -98,20 +127,20 @@ pub fn threshold(c: Option<Pidx>, n_players: usize) -> usize {
 }
 
 impl Day {
-    pub fn vote(&mut self, voter: PID, choice: Choice) -> Result<bool, InvalidActionError>{
+    pub fn vote(
+        &mut self,
+        voter: PID,
+        choice: Choice,
+        event_output: EventOutput,
+    ) -> Result<bool, InvalidActionError> {
         // Validate vote
         let voter_idx = self.players.find(voter)?;
-        let choice_idx = match choice {
-            Choice::None => Ballot::Retract,
-            Choice::Abstain => Ballot::Choice(None),
-            Choice::Player(votee) => 
-                Ballot::Choice(Some(self.players.find(votee)?)),
-        };
-        let former_idx = match choice_idx{
+        let choice_idx = choice.to_ballot(|p| self.players.find(p))?;
+        let former_idx = match choice_idx {
             Ballot::Retract => self.votes.remove(&voter_idx),
             Ballot::Choice(c) => self.votes.insert(voter_idx, c),
         };
-        
+
         let former = match former_idx {
             None => Choice::None,
             Some(None) => Choice::Abstain,
@@ -120,20 +149,31 @@ impl Day {
 
         // Send a vote event or a retract event.
         // If the vote is a retraction, it can't cause an election.
-        
+
         match choice_idx {
             Ballot::Retract => {
                 // Send retract event
+                event_output.send(Event::Retract {
+                    voter,
+                    former: former,
+                });
             }
             Ballot::Choice(c) => {
                 let threshold = threshold(c, self.players.len());
-                let count = self.votes.tally(c);
+                let count = self.votes.tally(&c);
                 // Send vote event
+                event_output.send(Event::Vote {
+                    voter,
+                    choice,
+                    former,
+                    threshold,
+                    count,
+                });
 
                 // Check for election
                 if count < threshold {
                     // TODO: schedule an end of day check?
-                    return Ok(true)
+                    return Ok(true);
                 }
             }
         }

@@ -1,4 +1,5 @@
 use serde::Serialize;
+use std::sync::mpsc::Sender;
 
 pub mod interface;
 mod phase;
@@ -181,3 +182,5 @@ pub enum Event {
         contracts: Contracts,
     },
 }
+
+pub type EventOutput = Sender<Event>;
