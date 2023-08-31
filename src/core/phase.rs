@@ -1,6 +1,4 @@
 use serde::Serialize;
-use serenity::client::bridge::gateway::event;
-use std::cmp::Reverse;
 use std::collections::{BinaryHeap, HashMap};
 use std::fmt::Debug;
 use std::usize;
@@ -44,7 +42,7 @@ pub struct Day {
     num: usize,
     players: PlayerList,
     votes: Votes,
-    blocked: Blocked,
+    blocks: Blocked,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -80,6 +78,13 @@ pub trait FindPlayer: IntoIterator<Item = Player> + Clone {
             .into_iter()
             .position(|p| p.user_id == pid)
             .ok_or_else(|| InvalidActionError::PlayerNotFound { pid })
+    }
+
+    fn find_map(&self, pid: Option<PID>) -> Result<Option<Pidx>, InvalidActionError> {
+        match pid {
+            Some(pid) => self.find(pid).map(Some),
+            None => Ok(None),
+        }
     }
 }
 
@@ -133,13 +138,30 @@ fn check_win(players: &PlayerList) -> Option<Team> {
     return None;
 }
 
+pub fn eliminate(players: &mut PlayerList, p_idx: Pidx, event_output: &EventOutput) {
+    let player = players.remove(p_idx);
+    let eliminated = player.user_id;
+    let role = player.role;
+
+    event_output.send(Event::Eliminate { eliminated, role });
+}
+
+/// Correct a list of player indices after one is removed
+pub fn progress_list(pidx_list: Vec<Pidx>, removed: Pidx) -> Vec<Pidx> {
+    pidx_list
+        .into_iter()
+        .filter(|p| p != &removed)
+        .map(|p| if p > removed { p - 1 } else { p })
+        .collect()
+}
+
 impl Day {
     fn from_night(night: Night, blocked: Blocked) -> Self {
         Self {
             num: night.num + 1,
             players: night.players,
             votes: Votes::new(),
-            blocked: blocked,
+            blocks: blocked,
         }
     }
 
@@ -166,12 +188,10 @@ impl Day {
         match choice_idx {
             ChoiceIdx::Retract => {
                 // Send retract event
-                event_output
-                    .send(Event::Retract {
-                        voter,
-                        former: former,
-                    })
-                    .expect("Failed to send event");
+                event_output.send(Event::Retract {
+                    voter,
+                    former: former,
+                });
             }
             ChoiceIdx::Choice(c) => {
                 let n_players = self.players.len();
@@ -186,15 +206,13 @@ impl Day {
                     .collect();
                 let voters = self.votes.tally(&c);
                 let count = voters.len();
-                event_output
-                    .send(Event::Vote {
-                        voter,
-                        choice,
-                        former,
-                        threshold,
-                        count,
-                    })
-                    .expect("Failed to send event");
+                event_output.send(Event::Vote {
+                    voter,
+                    choice,
+                    former,
+                    threshold,
+                    count,
+                });
 
                 return Ok(count >= threshold);
             }
@@ -215,15 +233,11 @@ impl Day {
                 action: ActionKind::Reveal,
             });
         }
-        if self.blocked.contains(&actor_idx) {
-            event_output
-                .send(Event::Block { blocked: actor })
-                .expect("Failed to send event");
+        if self.blocks.contains(&actor_idx) {
+            event_output.send(Event::Block { blocked: actor });
             return Ok(false);
         }
-        event_output
-            .send(Event::Reveal { celeb: actor })
-            .expect("Failed to send event");
+        event_output.send(Event::Reveal { celeb: actor });
         return Ok(true);
     }
 
@@ -272,9 +286,7 @@ impl Day {
             .map(|p| self.players[*p].user_id)
             .collect();
 
-        event_output
-            .send(Event::Election { electors, elected })
-            .expect("Failed to send event");
+        event_output.send(Event::Election { electors, elected });
 
         // Check elected role
         if let Some(p_idx) = elected_idx {
@@ -297,16 +309,6 @@ impl Day {
         }
         return Phase::Day(self);
     }
-}
-
-pub fn eliminate(players: &mut PlayerList, p_idx: Pidx, event_output: &EventOutput) {
-    let player = players.remove(p_idx);
-    let eliminated = player.user_id;
-    let role = player.role;
-
-    event_output
-        .send(Event::Eliminate { eliminated, role })
-        .expect("Failed to send event");
 }
 
 impl Dusk {
@@ -373,12 +375,10 @@ impl Night {
                 if *killer_idx == actor_idx =>
             {
                 self.scheme = None;
-                event_output
-                    .send(Event::Mark {
-                        killer: actor,
-                        mark: Choice::None,
-                    })
-                    .expect("Failed to send event");
+                event_output.send(Event::Mark {
+                    killer: actor,
+                    mark: Choice::None,
+                });
             }
             _ => (),
         }
@@ -386,12 +386,10 @@ impl Night {
             ChoiceIdx::Choice(c) => self.targets.insert(actor_idx, *c),
             ChoiceIdx::Retract => self.targets.remove(&actor_idx),
         };
-        event_output
-            .send(Event::Target {
-                actor,
-                target: target,
-            })
-            .expect("Failed to send event");
+        event_output.send(Event::Target {
+            actor,
+            target: target,
+        });
 
         return Ok(self.check_done());
     }
@@ -418,12 +416,10 @@ impl Night {
             (ChoiceIdx::Choice(Some(_)), Some(Some(_))) => {
                 // Reset killer's target
                 self.targets.remove(&killer_idx);
-                event_output
-                    .send(Event::Target {
-                        actor: killer,
-                        target: Choice::None,
-                    })
-                    .expect("Failed to send event");
+                event_output.send(Event::Target {
+                    actor: killer,
+                    target: Choice::None,
+                });
             }
             _ => (),
         };
@@ -432,11 +428,18 @@ impl Night {
             ChoiceIdx::Choice(c) => self.scheme = Some((killer_idx, *c)),
             ChoiceIdx::Retract => self.scheme = None,
         };
-        event_output
-            .send(Event::Mark { killer, mark })
-            .expect("Failed to send event");
+        event_output.send(Event::Mark { killer, mark });
 
         return Ok(self.check_done());
+    }
+
+    fn strip(&self, blocked_idx: &Pidx, strippers_idx: &Vec<Pidx>, event_output: &EventOutput) {
+        let blocked = self.players[*blocked_idx].user_id;
+        event_output.send(Event::Block { blocked });
+        for stripper_idx in strippers_idx {
+            let stripper = self.players[*stripper_idx].user_id;
+            event_output.send(Event::Strip { stripper, blocked });
+        }
     }
 
     fn check_done(&self) -> bool {
@@ -450,27 +453,94 @@ impl Night {
         return targeting_done && scheme_done;
     }
 
-    fn try_dawn(self) -> Phase {
+    fn try_dawn(mut self, event_output: &EventOutput) -> Phase {
         // If night is done, progress to dawn
 
         if !self.check_done() {
             return Phase::Night(self);
         }
 
-        // Collect Stripper targets
+        // Collect targets
+        // Maps blocked_idx -> list of strippers that stripped them
+        let mut strips = HashMap::new();
+        // Maps saved_idx -> doctors that saved them
+        let mut saves: HashMap<Pidx, Vec<Pidx>> = HashMap::new();
+        // List of cop_idx, target_idx
+        let mut searches: Vec<(Pidx, Pidx)> = Vec::new();
+        for (actor_idx, target_opt) in &self.targets {
+            let actor = &self.players[*actor_idx];
+            if let Some(target_idx) = target_opt {
+                match actor.role {
+                    Role::STRIPPER => {
+                        let entry = strips.entry(*target_idx).or_insert(Vec::<Pidx>::new());
+                        entry.push(*actor_idx);
+                    }
+                    Role::DOCTOR => {
+                        let entry = saves.entry(*target_idx).or_insert(Vec::<Pidx>::new());
+                        entry.push(*actor_idx);
+                    }
+                    Role::COP => {
+                        searches.push((*actor_idx, *target_idx));
+                    }
+                    _ => {}
+                }
+            }
+        }
 
-        // Block Stripper targets
-
-        // Collect Doctor targets
-
-        // Save Doctor targets
-
-        // Collect Cop targets
-
-        // Investigate Cop targets
+        let mut kill: Option<Pidx> = None;
 
         // Try Mafia Kill
+        if let Some((killer_idx, Some(mark_idx))) = &self.scheme {
+            let mark = self.players[*mark_idx].user_id;
+            let mut saved = false;
+            if let Some(doctors_idx) = saves.get(mark_idx) {
+                // check for strips
+                for doctor_idx in &saves[mark_idx] {
+                    if let Some(strippers_idx) = strips.get(doctor_idx) {
+                        self.strip(doctor_idx, strippers_idx, event_output);
+                    } else {
+                        saved = true;
+                        let doctor = self.players[*doctor_idx].user_id;
+                        event_output.send(Event::Save { doctor, mark })
+                    }
+                }
+            }
+            if saved {
+                event_output.send(Event::Saved { mark });
+            } else {
+                kill = Some(*mark_idx);
+            }
+        }
 
-        Phase::Day(Day::from_night(self, Vec::new()))
+        // Investigate Cop targets
+        for (cop_idx, suspect_idx) in &searches {
+            if let Some(strippers_idx) = strips.get(cop_idx) {
+                self.strip(cop_idx, strippers_idx, event_output);
+                // Do not investigate if cop was stripped
+                continue;
+            }
+            if let Some(mark_idx) = &kill {
+                if mark_idx == suspect_idx || mark_idx == cop_idx {
+                    // Do not investigate if cop or target died
+                    continue;
+                }
+            }
+            let cop = self.players[*cop_idx].user_id;
+            let suspect_p = &self.players[*suspect_idx];
+            let suspect = suspect_p.user_id;
+            let role = suspect_p.role;
+            event_output.send(Event::Investigate { cop, suspect, role });
+        }
+
+        let mut blocked: Vec<_> = strips.keys().cloned().collect();
+
+        if let Some(mark_idx) = &kill {
+            eliminate(&mut self.players, *mark_idx, event_output);
+
+            // Keep blocked list consistent after elimination
+            blocked = progress_list(blocked, *mark_idx);
+        }
+
+        Phase::Day(Day::from_night(self, blocked))
     }
 }

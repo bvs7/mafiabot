@@ -1,12 +1,13 @@
 use serde::Serialize;
-use std::sync::mpsc::Sender;
 
 pub mod interface;
 mod phase;
 
-pub use phase::{Phase, PhaseKind};
+mod game;
 
-use self::interface::{Event, EventOutput};
+use phase::{Phase, PhaseKind};
+
+pub use self::interface::{Event, EventOutput};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
 pub enum Role {

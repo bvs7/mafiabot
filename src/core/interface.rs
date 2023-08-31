@@ -4,7 +4,10 @@ use std::sync::mpsc::Sender;
 
 use kinded::Kinded;
 
-use super::*;
+use super::game::{
+    Contract, Contracts, PIDs, Phase, PhaseKind, Role, RoleGen, RoleGens, RoleKind, State,
+    StateKind, Team, PID,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Kinded, Serialize)]
 pub enum Action {
@@ -30,14 +33,7 @@ pub enum Event {
     },
     Vote {
         voter: PID,
-        choice: Choice,
-        former: Choice,
-        threshold: usize,
-        count: usize,
-    },
-    Retract {
-        voter: PID,
-        former: Choice,
+        votee: Option<Option<PID>>,
     },
     Reveal {
         celeb: PID,
@@ -68,7 +64,10 @@ pub enum Event {
     },
     Save {
         doctor: PID,
-        saved: PID,
+        mark: PID,
+    },
+    Saved {
+        mark: PID,
     },
     Investigate {
         cop: PID,
@@ -96,13 +95,24 @@ pub enum Event {
     },
 }
 
-pub type EventOutput = Sender<Event>;
+#[derive(Debug)]
+pub struct EventOutput {
+    sender: Sender<Event>,
+}
+
+impl EventOutput {
+    pub fn send(&self, event: Event) {
+        self.sender
+            .send(event)
+            .expect("Failed to send event {event}");
+    }
+}
 
 #[derive(Debug)]
 pub enum InvalidActionError {
     InvalidPhase {
         expected: PhaseKind,
-        found: Phase,
+        found: PhaseKind,
     },
     InvalidAction {
         action: ActionKind,
@@ -121,6 +131,10 @@ pub enum InvalidActionError {
     },
     InvalidTarget {
         target: PID,
+    },
+    InvalidState {
+        expected: StateKind,
+        found: StateKind,
     },
 }
 impl Display for InvalidActionError {
@@ -152,6 +166,7 @@ impl Display for InvalidActionError {
             Self::InvalidTarget { target } => {
                 write!(f, "Invalid Target: {}", target)
             }
+            _ => write!(f, "Unknown Error"),
         }
     }
 }
