@@ -1,3 +1,1 @@
-mod rolegen;
-
-pub use rolegen::*;
+pub struct GameRules {}

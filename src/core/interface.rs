@@ -4,10 +4,13 @@ use std::sync::mpsc::Sender;
 
 use kinded::Kinded;
 
-use super::game::{
-    Contract, Contracts, PIDs, Phase, PhaseKind, Role, RoleGen, RoleGens, RoleKind, State,
-    StateKind, Team, PID,
-};
+use super::*;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub enum Choice {
+    Player(PID),
+    Abstain,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Kinded, Serialize)]
 pub enum Action {
@@ -17,30 +20,29 @@ pub enum Action {
     Mark { killer: PID, mark: Option<Choice> },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Kinded, Serialize)]
+#[derive(Debug, Clone, PartialEq, Kinded, Serialize)]
 pub enum Event {
     Init {
         game_id: usize,
     },
     Start {
-        entrants: PIDs,
-        rolegen: RoleGen,
+        role_assign: RoleAssign,
         phase: PhaseKind,
     },
     Day {
         num: usize,
-        players: PIDs,
+        players: Vec<PID>,
     },
     Vote {
         voter: PID,
-        votee: Option<Option<PID>>,
+        ballot: Option<Choice>,
     },
     Reveal {
         celeb: PID,
     },
     Election {
         electors: PIDs,
-        elected: Option<PID>,
+        elected: Choice,
     },
     Night {
         num: usize,
@@ -91,7 +93,7 @@ pub enum Event {
     },
     End {
         winner: Option<Team>,
-        contracts: Contracts,
+        contracts: HashSet<Contract>,
     },
 }
 
@@ -109,18 +111,11 @@ impl EventOutput {
 }
 
 #[derive(Debug)]
-pub enum InvalidActionError {
-    InvalidPhase {
-        expected: PhaseKind,
-        found: PhaseKind,
-    },
-    InvalidAction {
-        action: ActionKind,
-        phase: PhaseKind,
-    },
-    PlayerNotFound {
-        pid: PID,
-    },
+pub enum CoreError {
+    /// Expected PhaseKind, Found PhaseKind
+    InvalidPhase(PhaseKind, PhaseKind),
+    PlayerNotFound(PID),
+
     InvalidRole {
         role: Role,
         action: ActionKind,
@@ -132,43 +127,16 @@ pub enum InvalidActionError {
     InvalidTarget {
         target: PID,
     },
-    InvalidState {
-        expected: StateKind,
-        found: StateKind,
-    },
+    /// Expected StateKind, Found StateKind
+    InvalidState(StateKind, StateKind),
 }
-impl Display for InvalidActionError {
+impl Display for CoreError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "Error with command: ")?;
         match self {
-            Self::InvalidPhase { expected, found } => {
-                write!(
-                    f,
-                    "Invalid Phase (expected {:?}, found {:?}",
-                    expected, found
-                )
-            }
-            Self::InvalidAction { action, phase } => {
-                write!(f, "Invalid Action ({:?}) for Phase ({:?})", action, phase)
-            }
-            Self::PlayerNotFound { pid } => {
-                write!(f, "Player with UserID {:?} not found", pid)
-            }
-            Self::InvalidRole { role, action } => {
-                write!(f, "Invalid Role ({:?}) for Action ({:?})", role, action)
-            }
-            Self::NoGame => {
-                write!(f, "No Game")
-            }
-            Self::InvalidTargetText { text } => {
-                write!(f, "Invalid Target: {}", text)
-            }
-            Self::InvalidTarget { target } => {
-                write!(f, "Invalid Target: {}", target)
-            }
             _ => write!(f, "Unknown Error"),
         }
     }
 }
 
-impl std::error::Error for InvalidActionError {}
+impl std::error::Error for CoreError {}

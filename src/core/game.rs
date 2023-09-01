@@ -1,44 +1,13 @@
 use std::collections::{HashMap, HashSet};
 
-use super::interface::InvalidActionError;
-use super::{Contract, EventOutput, GameRules, PIDs, Player, Players, Role, RoleGen, Team, PID};
+use super::*;
 
 use kinded::Kinded;
 use serde::Serialize;
 
-type Pidx = usize;
-type PlayerList = Vec<Player>;
-
-// Entrants + RoleGen -> Players + Contracts
-
-// pub struct Game {
-//     game_id: usize,
-//     phase: Phase,
-//     contracts: Contracts,
-//     entrants: PIDs,
-//     rolegen: RoleGen,
-//     rules: GameRules,
-// }
-
-pub trait CheckPlayer: IntoIterator<Item = PID> + Clone {
-    fn check(&self, pid: PID) -> Result<PID, InvalidActionError> {
-        self.clone()
-            .into_iter()
-            .find(|&p| p == pid)
-            .ok_or_else(|| InvalidActionError::PlayerNotFound { pid })
-    }
-}
-
-impl CheckPlayer for Vec<PID> {}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-enum Choice {
-    Player(PID),
-    Abstain,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Kinded)]
-enum Phase {
+#[kinded(derive(Serialize))]
+pub enum Phase {
     Day {
         /// Mapping votee to voter?
         votes: HashMap<PID, Choice>,
@@ -59,77 +28,68 @@ pub enum State {
     Init,
     Play {
         day_num: usize,
-        players: Vec<PID>,
-        roles: HashMap<PID, Role>,
-        contracts: Vec<Contract>,
+        players: PIDs,
+        // Current roles in game
+        roles: RoleAssign,
         phase: Phase,
     },
     End {
         winner: Option<Team>,
-        survivors: Vec<PID>,
+        survivors: PIDs,
         contracts: Vec<Contract>,
     },
 }
 
 pub struct Game {
+    /// Unique identifier for this game
     game_id: usize,
+    /// Game State Data
     state: State,
     rules: GameRules,
-    entrants: Vec<PID>,
-    rolegen: RoleGen,
+    /// A History of players and the roles assigned to them
+    role_history: RoleHistory,
+    /// Output queue generated Events are pushed to
     event_output: EventOutput,
 }
 
-impl Game {
-    fn handle_vote(
-        &mut self,
-        voter: PID,
-        ballot: Option<Option<PID>>,
-    ) -> Result<(), InvalidActionError> {
-        // Check valid State
-        // Check valid Phase
-        // Check valid players
+use CoreError::*;
 
-        match &mut self.state {
-            State::Play {
-                day_num,
-                players,
-                roles,
-                contracts,
-                phase,
-            } => match phase {
-                Phase::Day { votes, blocks } => {
-                    if !players.contains(&voter) {
-                        return Err(InvalidActionError::PlayerNotFound { pid: voter });
-                    }
-                }
-                _ => {
-                    return Err(InvalidActionError::InvalidPhase {
-                        expected: PhaseKind::Day,
-                        found: phase.kind(),
-                    });
-                }
-            },
-            _ => {
-                return Err(InvalidActionError::InvalidState {
-                    expected: StateKind::Play,
-                    found: self.state.kind(),
-                });
+fn vote(
+    voter: PID,
+    ballot: Option<Choice>,
+    players: &PIDs,
+    votes: &mut HashMap<PID, Choice>,
+    event_output: &EventOutput,
+) -> Result<(), CoreError> {
+    match ballot {
+        Some(choice) => {
+            if let Choice::Player(votee) = &choice {
+                players.check(votee)?;
             }
+            votes.insert(voter, choice);
         }
+        None => {
+            // Unvote
+            votes.remove(&voter);
+        }
+    }
+    event_output.send(Event::Vote { voter, ballot });
 
-        if let State::Play {
-            day_num,
-            players,
-            roles,
-            contracts,
-            phase,
-        } = &mut self.state
-        {
-            if let Phase::Day { votes, blocks } = phase {}
-            Ok(())
+    Ok(())
+}
+
+impl Game {
+    fn handle_vote(&mut self, voter: PID, ballot: Option<Choice>) -> Result<(), CoreError> {
+        // Validate State
+        if let State::Play { phase, players, .. } = &mut self.state {
+            // Validate Phase
+            if let Phase::Day { votes, .. } = phase {
+                vote(voter, ballot, players, votes, &self.event_output)
+            } else {
+                Err(InvalidPhase(PhaseKind::Day, phase.kind()))
+            }
         } else {
-            Err(InvalidActionError::InvalidState)
+            Err(InvalidState(StateKind::Play, self.state.kind()))
         }
     }
 }
