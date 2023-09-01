@@ -6,6 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+thiserror = "1"
 serde = { version = "1.0", features = ["derive", "alloc"] }
 serde_json = "1.0"
 rand = "0.8.5"
@@ -13,3 +14,6 @@ serenity = "0.11"
 tokio = {version = "1.21.2", features = ["macros", "rt-multi-thread"]}
 http = "0.2.8"
 kinded = "0.3.0"
+
+[dev-dependencies]
+anyhow = "1"

@@ -172,3 +172,141 @@ Idea. Split controller functionality up.
 - Rules Handles rule changes
     - `/rule [rule] [setting]` (Or dropdown menu?)
     - `/role [command] [role]` (Or checkbox menu?)
+
+
+# Refactor
+
+## Control Flow
+
+- A vote action is passed to the Game.
+- The Game processes the vote and notices an election is ready
+- The Game schedules an election check in X amount of time
+- The election check passes
+    - Election occurs
+    - Update roles with contract details
+    - Eliminate Player
+    - Update Phase
+
+### Structure
+So, because we need to be able to schedule an election check in a separate thread, and we want that thread to be able to touch everything about a Game, we will put the game in a mutex.
+
+Do Tokio later. For now...
+
+- **Game Wrapper**,
+    - **Mutex\<Game\>**
+    - Action queue
+    - Event queue
+    - Methods
+        - run
+            - main threads
+            - One waits on action queue and pipes it into Game
+            - The other waits on event queue and ...
+            
+
+Struct/Enum hierarchy?
+
+- **Procedure** the context and routing of a game?
+    - **Mutex\<Game\>** all of the info about a game?
+        - *State*
+            - Play
+                - *Phase*
+                    - Day
+                        - votes
+            - players
+            - roles
+
+Idea: Put all code in GameStruct file.
+
+No impls? Just straight functions in a namespace? SO this is the folder that processes the game? Process?
+
+Monitor style obtain Game Mutex
+
+Overdesigned right now?
+
+State -> Init | Play | End
+
+State is the dynamic info necessary to the game right now. It should be possible to fully simulate everything through Play.
+
+Extra important info is maintained in the GameContext
+
+Note that `Role`` is `Role_<PID>`
+
+roles contains all role mappings, and those roles are never removed, but might be changed. This is how contracts are managed?
+
+How is Idiot win state recorded?
+
+When the IDIOT is elected... They die and they win. Idiot has win state
+
+What do we need for spawning an election thread? Access to the GameContext
+
+So, we want the action thread running in GameContext to be able to spawn an end of phase checker? That has a time delay, hence spawning.
+
+Action Receiver might be a tuple with response context?
+
+Response context needs to know... how to route normal game messages?
+
+So if our stack looked like...
+- GameContext.run()
+    - game.lock().unwrap()
+    - handles ActionErrors? Routes response...
+- game.handle(action, lock, event_output) -> `Result<bool,ActionError>`
+- state.handle(action, lock, event_output) -> `Result<bool,ActionError>`
+    - check phase ?
+    - check PIDs ?
+    - edit Day.votes
+    - check votes, and spawn thread on 
+    
+
+Uh Oh.
+What if we schedule an election, and in the meantime, the Game ends?
+The point is, we can't put the lock in a closure as it is. Maybe use an Arc or smth?
+
+hmmmmmmmm... It doesn't quite make sense to pass a reference to yourself inwards... we need to find another way. Potentially all code is handled in GameContext level?
+
+```rust
+
+pub struct GameContext {
+    game: Arc<Mutex<Game>>,
+    actions: Receiver<Action>,
+}
+
+pub struct Game{
+    game_id: usize,
+    state: GameState,
+    rules: GameRules,
+    role_history: RoleHistory,
+    event_output: EventOutput (Sender<Event>),
+}
+
+pub struct GameState {
+    day: usize,
+    players: Players (HashSet<PID>),
+    roles: HashMap<PID, Role>,
+    phase: Phase,
+}
+
+pub enum Phase {
+    Day {
+        votes: HashMap<PID, Choice>,
+        blocks: HashSet<PID>,
+    },
+    Night {
+        targets: HashMap<PID, Choice>,
+        scheme: Option<(PID, Choice)>,
+    },
+    Dusk {
+        avenger: PID,
+        voters: HashSet<PID>,
+    },
+    End {
+        winner: Option<Team>,
+    }
+}
+```
+
+At end... You can tell which Rogue roles won:
+- Agent | Guard | Survivor: based on who is alive
+- Idiot: based on Role enum bool
+
+Allowing Role values allows things like one-shot vigilantes or milkmen, etc.
+

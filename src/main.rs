@@ -1,6 +1,13 @@
+#![allow(unused)]
 
-pub mod core;
+mod core;
+mod error;
+mod prelude;
+mod utils;
 
-fn main() {
+use crate::prelude::*;
+
+fn main() -> Result<()> {
     println!("Hello, world!");
+    Ok(())
 }
