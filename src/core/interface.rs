@@ -4,6 +4,7 @@ use crate::prelude::*;
 
 use crate::core::*;
 
+use std::default;
 use std::sync::mpsc::Sender;
 
 #[derive(Debug, Clone, Copy, Eq, Hash, PartialEq, Serialize)]
@@ -14,18 +15,42 @@ pub enum Action {
     Mark { actor: PID, target: Choice },
 }
 
-// Might expand this to Recv<(Action, Context)> or something
-pub struct ActionInput(Receiver<Action>);
-
-impl ActionInput {
-    pub fn recv(&self) -> Result<Action> {
-        self.0.recv().map_err(|e| Error::MpscRecvActionError(e))
-    }
+#[derive(Debug, Clone, Eq, PartialEq, Serialize)]
+pub enum Event {
+    Vote {
+        voter: PID,
+        ballot: Option<Choice>,
+    },
+    Election {
+        election: Election,
+        voters: HashSet<PID>,
+    },
+    Revenge {
+        avenger: PID,
+        votee: PID,
+    },
+    Reveal {
+        actor: PID,
+        role: Role,
+    },
+    Target {
+        actor: PID,
+        target: Choice,
+    },
+    Mark {
+        killer: PID,
+        mark: Choice,
+    },
+    Block {
+        blocked: PID,
+    },
+    Dusk {
+        avenger: PID,
+        voters: HashSet<PID>,
+    },
 }
 
-#[derive(Debug, Clone, Copy, Eq, Hash, PartialEq, Serialize)]
-pub enum Event {}
-
+#[derive(Debug, Clone)]
 pub struct EventOutput(Sender<Event>);
 
 impl EventOutput {
@@ -35,8 +60,9 @@ impl EventOutput {
     }
 }
 
-#[derive(Debug, Clone, Copy, Eq, Hash, PartialEq, Serialize)]
+#[derive(Debug, Default, Clone, Copy, Eq, Hash, PartialEq, Serialize)]
 pub enum Choice {
     Player(PID),
+    #[default]
     Abstain,
 }
