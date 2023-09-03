@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::hash::Hash;
 
 use crate::prelude::*;
 
@@ -244,8 +245,8 @@ impl Game {
             day,
             avenger,
             hammer,
-            voters,
-        } = self.phase.clone()
+            ref voters,
+        } = self.phase
         else {
             return Ok(false);
         };
@@ -270,56 +271,6 @@ impl Game {
                 "Must vote for a player who voted for you".to_string(),
             )),
         }
-    }
-
-    pub fn eliminate(&mut self, player: PID, proxy: PID) {
-        let role = self.players.role(player).unwrap();
-        self.players.0.remove(&player);
-        self.eo.send(Event::Reveal { player, role });
-
-        // Check for refocusing roles!
-        for (player, former_role) in self.players.clone() {
-            match role {
-                Role::GUARD(charge) | Role::AGENT(charge) if charge == player => {
-                    // Refocus to AGENT or IDIOT...
-                    let new_role = former_role.refocus(player, proxy);
-                    self.players.0.insert(player, new_role);
-                    // push new role to history
-                    let entry = self.role_history.entry(player).or_default();
-                    entry.push(new_role);
-                    self.eo.send(Event::Refocus {
-                        holder: player,
-                        former_role,
-                        new_role,
-                    });
-                }
-                _ => {}
-            }
-        }
-    }
-
-    pub fn kill(&mut self, mark: PID, killer: PID) {
-        self.eo.send(Event::Kill { killer, mark });
-        self.eliminate(mark, killer);
-    }
-
-    /// Check for an election
-    /// @choice: If present, the choice to check. If not present
-    ///     check all possible choices
-    /// @return: If an election was found, the winning choice
-    pub fn check_election(&self, e: Option<Election>, f: bool) -> Option<(Election, HashSet<PID>)> {
-        let Phase::Day { day, votes, .. } = &self.phase else {
-            return None;
-        };
-        // collect voters
-        let Some(election) = e else { todo!() };
-        let choice: Choice = election.into();
-        let voters: HashSet<_> = votes
-            .iter()
-            .filter_map(|(v, c)| (c == &choice).then_some(*v))
-            .collect();
-        let threshold = self.players.threshold(choice);
-        (f || voters.len() >= threshold).then(|| (election, voters))
     }
 
     pub fn elect(&mut self, election: Election, voters: HashSet<PID>) {
@@ -366,6 +317,92 @@ impl Game {
         self.phase = Phase::new_night(day);
     }
 
+    pub fn dawn(&mut self) {
+        // Collect targets
+        let Phase::Night {
+            targets,
+            scheme,
+            day,
+        } = self.phase.clone()
+        else {
+            unreachable!("Invalid phase for dawn");
+        };
+
+        let day = day.clone();
+
+        let (stripped, saveds, searches) = self.collect_targets(&targets);
+
+        let killed = self.check_scheme(&scheme, &stripped, &saveds);
+
+        self.perform_investigations(&stripped, &searches, &killed);
+
+        // Eliminate killed
+        if let Some((killer, mark)) = killed {
+            self.kill(mark, killer);
+        }
+
+        // Phase to Day
+        self.phase = Phase::new_day(day + 1, stripped.keys().cloned().collect());
+        self.eo.send(Event::Day {
+            day: day + 1,
+            players: self.players.clone().into_iter().collect(),
+        });
+    }
+
+    pub fn kill(&mut self, mark: PID, killer: PID) {
+        self.eo.send(Event::Kill { killer, mark });
+        self.eliminate(mark, killer);
+    }
+
+    pub fn eliminate(&mut self, player: PID, proxy: PID) {
+        let role = self.players.role(player).unwrap();
+        self.players.0.remove(&player);
+        self.eo.send(Event::Reveal { player, role });
+
+        // Check for refocusing roles!
+        for (player, former_role) in self.players.0.clone() {
+            match role {
+                Role::GUARD(charge) | Role::AGENT(charge) if charge == player => {
+                    // Refocus to AGENT or IDIOT...
+                    let new_role = former_role.refocus(player, proxy);
+                    self.players.0.insert(player, new_role);
+                    // push new role to history
+                    let entry = self.role_history.entry(player).or_default();
+                    entry.push(new_role);
+                    self.eo.send(Event::Refocus {
+                        holder: player,
+                        former_role,
+                        new_role,
+                    });
+                }
+                _ => {}
+            }
+        }
+    }
+
+    /// Check for an election
+    /// @choice: If present, the choice to check. If not present
+    ///     check all possible choices
+    /// @return: If an election was found, the winning choice
+    pub fn check_election(&self, e: Option<Election>, f: bool) -> Option<(Election, HashSet<PID>)> {
+        let Phase::Day { day, votes, .. } = &self.phase else {
+            return None;
+        };
+        // collect voters
+        let Some(election) = e else {
+            // Refactor votes to be ordered?
+            // Then we can find the newest vote for each Player, and if Abstain is present
+            todo!()
+        };
+        let choice: Choice = election.into();
+        let voters: HashSet<_> = votes
+            .iter()
+            .filter_map(|(v, c)| (c == &choice).then_some(*v))
+            .collect();
+        let threshold = self.players.threshold(choice);
+        (f || voters.len() >= threshold).then(|| (election, voters))
+    }
+
     pub fn check_dawn(&self) -> bool {
         let Phase::Night {
             targets,
@@ -384,24 +421,19 @@ impl Game {
         return mark.is_some();
     }
 
-    pub fn dawn(&mut self) {
-        // Collect targets
-        let Phase::Night {
-            targets,
-            scheme,
-            day,
-        } = self.phase.clone()
-        else {
-            unreachable!("Invalid phase for dawn");
-        };
-
-        let day = day.clone();
-
+    fn collect_targets(
+        &self,
+        targets: &HashMap<PID, Choice>,
+    ) -> (
+        HashMap<PID, HashSet<PID>>,
+        HashMap<PID, HashSet<PID>>,
+        HashSet<(PID, PID)>,
+    ) {
         /// Collect targets
         let mut stripped = HashMap::<PID, HashSet<PID>>::new();
         let mut saveds = HashMap::<PID, HashSet<PID>>::new();
         let mut searches = HashSet::<(PID, PID)>::new();
-        for (actor, choice) in targets {
+        for (&actor, &choice) in targets {
             let role = self.players.role(actor).expect("Targeter should be found");
             match (role.kind(), choice) {
                 (RoleKind::STRIPPER, Choice::Player(target)) => {
@@ -418,13 +450,17 @@ impl Game {
                 _ => {}
             }
         }
+        return (stripped, saveds, searches);
+    }
 
-        // Create Blocks
-        let mut blocks: HashSet<PID> = stripped.keys().cloned().collect();
-        let mut killed = None;
-
+    fn check_scheme(
+        &self,
+        scheme: &Option<(PID, Choice)>,
+        stripped: &HashMap<PID, HashSet<PID>>,
+        saveds: &HashMap<PID, HashSet<PID>>,
+    ) -> Option<(PID, PID)> {
         // Check schemes and saves
-        if let Some((killer, Choice::Player(mark))) = scheme {
+        if let &Some((killer, Choice::Player(mark))) = scheme {
             // Check if mark was saved
             let mut saved = false;
             if let Some(savers) = saveds.get(&mark) {
@@ -454,13 +490,19 @@ impl Game {
                 }
             }
             if !saved {
-                killed = Some((killer, mark));
+                return Some((killer, mark));
             }
         }
-
-        // Perform investigations
-        for (cop, target) in searches {
-            if let Some((_, mark)) = killed {
+        None
+    }
+    fn perform_investigations(
+        &self,
+        stripped: &HashMap<PID, HashSet<PID>>,
+        searches: &HashSet<(PID, PID)>,
+        killed: &Option<(PID, PID)>,
+    ) {
+        for &(cop, target) in searches {
+            if let &Some((_, mark)) = killed {
                 if mark == cop || mark == target {
                     continue; // Someone killed before investigation could occur
                 }
@@ -483,18 +525,6 @@ impl Game {
             let role = self.players.role(target).expect("Target should be found");
             self.eo.send(Event::Investigate { cop, target, role });
         }
-
-        // Eliminate killed
-        if let Some((killer, mark)) = killed {
-            self.kill(mark, killer);
-        }
-
-        // Phase to Day
-        self.phase = Phase::new_day(day + 1, blocks);
-        self.eo.send(Event::Day {
-            day: day + 1,
-            players: self.players.clone().into_iter().collect(),
-        });
     }
 }
 
