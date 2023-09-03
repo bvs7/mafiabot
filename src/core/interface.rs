@@ -2,10 +2,24 @@
 
 use crate::prelude::*;
 
-use crate::core::*;
+use super::*;
 
 use std::default;
 use std::sync::mpsc::Sender;
+
+#[derive(Debug, Default, Clone, Copy, Eq, Hash, PartialEq, Serialize)]
+pub enum Choice {
+    Player(PID),
+    #[default]
+    Abstain,
+}
+
+#[derive(Debug, Default, Clone, Copy, Eq, Hash, PartialEq, Serialize)]
+pub enum Election {
+    Hammer(PID, PID),
+    #[default]
+    Peace,
+}
 
 #[derive(Debug, Clone, Copy, Eq, Hash, PartialEq, Serialize)]
 pub enum Action {
@@ -30,7 +44,7 @@ pub enum Event {
         votee: PID,
     },
     Reveal {
-        actor: PID,
+        player: PID,
         role: Role,
     },
     Target {
@@ -41,12 +55,39 @@ pub enum Event {
         killer: PID,
         mark: Choice,
     },
+    Strip {
+        stripper: PID,
+        target: PID,
+    },
     Block {
         blocked: PID,
     },
+    Save {
+        doctor: PID,
+        target: PID,
+    },
+    Kill {
+        killer: PID,
+        mark: PID,
+    },
+    Investigate {
+        cop: PID,
+        target: PID,
+        role: Role,
+    },
+    Day {
+        day: usize,
+        players: HashMap<PID, Role>,
+    },
     Dusk {
+        day: usize,
         avenger: PID,
         voters: HashSet<PID>,
+    },
+    Refocus {
+        holder: PID,
+        former_role: Role,
+        new_role: Role,
     },
 }
 
@@ -58,11 +99,4 @@ impl EventOutput {
         self.0.send(event).map_err(|e| Error::MpscSendEventError(e));
         Ok(())
     }
-}
-
-#[derive(Debug, Default, Clone, Copy, Eq, Hash, PartialEq, Serialize)]
-pub enum Choice {
-    Player(PID),
-    #[default]
-    Abstain,
 }
