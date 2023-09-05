@@ -2,7 +2,7 @@
 
 use crate::prelude::*;
 
-mod game;
+pub mod game;
 pub mod interface;
 
 use game::{ActionResult, Game, Phase, PhaseKind};
@@ -21,7 +21,7 @@ use std::{
 
 pub type PID = u64;
 
-#[derive(Debug, Clone, Copy, Eq, Hash, Kinded, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Kinded, Serialize)]
 #[kinded(kind=RoleKind)]
 pub enum Role_<T> {
     TOWN,
@@ -51,11 +51,6 @@ pub enum Team {
 /* #endregion Types */
 
 /* #region  Role Impl */
-impl<T> PartialEq for Role_<T> {
-    fn eq(&self, other: &Self) -> bool {
-        self.kind() == other.kind()
-    }
-}
 
 impl RoleKind {
     pub fn team(&self) -> Team {

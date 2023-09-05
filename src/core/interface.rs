@@ -95,7 +95,7 @@ pub enum Event {
 pub struct EventOutput(Sender<Event>);
 
 impl EventOutput {
-    pub fn send(&self, event: Event) -> Result<()> {
+    pub fn send(&self, event: Event) -> MResult<()> {
         self.0.send(event).map_err(|e| Error::MpscSendEventError(e));
         Ok(())
     }

@@ -1,22 +1,61 @@
 use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
 
+use serde_json::map::IntoIter;
+
 use crate::prelude::*;
 
 use super::Role;
 use super::*;
 
+#[derive(Debug, Clone, Eq, PartialEq, Serialize)]
+pub struct RoleHist {
+    pub role: Role,
+    pub history: Vec<Role>,
+}
+
+impl RoleHist {
+    pub fn set_role(&mut self, new_role: Role) {
+        if self.role != new_role {
+            self.history.push(self.role);
+            self.role = new_role;
+        }
+    }
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, Serialize)]
+pub struct Players(pub HashMap<PID, RoleHist>);
+
 impl Players {
-    pub fn check(&self, player: PID) -> Result<()> {
+    pub fn get(&self, player: PID) -> MResult<&RoleHist> {
         if !self.0.contains_key(&player) {
             return Err(Error::Generic(format!("Player {} not found", player)));
         }
-        Ok(())
+        Ok(&self.0[&player])
     }
 
-    pub fn role(&self, player: PID) -> Result<Role> {
-        self.check(player)?;
-        Ok(self.0[&player])
+    pub fn role(&self, player: PID) -> MResult<Role> {
+        let rh = self.get(player)?;
+        Ok(self.0[&player].role)
+    }
+
+    pub fn items(&self) -> std::collections::hash_map::IntoIter<PID, RoleHist> {
+        self.0.clone().into_iter()
+    }
+
+    pub fn roles(&self) -> std::collections::hash_map::IntoIter<PID, Role> {
+        self.0
+            .clone()
+            .into_iter()
+            .map(|(p, rh)| (p, rh.role))
+            .collect::<HashMap<_, _>>()
+            .into_iter()
+    }
+
+    pub fn set_role(&mut self, player: PID, new_role: Role) -> MResult<()> {
+        let new_rh = self.get(player)?.clone();
+        self.0.insert(player, new_rh);
+        return Ok(());
     }
 
     pub fn threshold(&self, choice: Choice) -> usize {
@@ -27,12 +66,73 @@ impl Players {
     }
 }
 
-impl IntoIterator for Players {
-    type Item = (PID, Role);
-    type IntoIter = std::collections::hash_map::IntoIter<PID, Role>;
+#[derive(Debug, Clone)]
+pub enum SerRole {
+    Role(Role),
+    Hist(Vec<Role>),
+}
 
-    fn into_iter(self) -> Self::IntoIter {
-        self.0.into_iter()
+impl Serialize for SerRole {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        match self {
+            SerRole::Role(role) => role.serialize(serializer),
+            SerRole::Hist(history) => history.serialize(serializer),
+        }
+    }
+}
+
+impl From<RoleHist> for SerRole {
+    fn from(rh: RoleHist) -> Self {
+        if rh.history.is_empty() {
+            SerRole::Role(rh.role)
+        } else {
+            let mut all_roles = rh.history.clone();
+            all_roles.push(rh.role);
+            SerRole::Hist(all_roles)
+        }
+    }
+}
+
+impl From<SerRole> for RoleHist {
+    fn from(sr: SerRole) -> Self {
+        match sr {
+            SerRole::Role(role) => RoleHist {
+                role,
+                history: Vec::new(),
+            },
+            SerRole::Hist(history) => {
+                let role = history.last().unwrap().clone();
+                let history = history[..history.len() - 1].to_vec();
+                RoleHist { role, history }
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct SerPlayers(HashMap<String, SerRole>);
+
+type Names = HashMap<PID, String>;
+
+impl From<(Players, &Names)> for SerPlayers {
+    fn from((players, names): (Players, &Names)) -> Self {
+        let mut map = HashMap::new();
+        for (pid, rh) in players.0 {
+            let name = names.get(&pid).unwrap().clone();
+            map.insert(name, SerRole::from(rh));
+        }
+        SerPlayers(map)
+    }
+}
+
+impl From<(SerPlayers, &Names)> for Players {
+    fn from((ser_players, names): (SerPlayers, &Names)) -> Self {
+        let mut map = HashMap::new();
+        for (name, sr) in ser_players.0 {
+            let pid = names.iter().find(|(_, n)| *n == &name).unwrap().0;
+            map.insert(pid.clone(), RoleHist::from(sr));
+        }
+        Players(map)
     }
 }
 
@@ -86,16 +186,13 @@ impl Phase {
     }
 }
 
-#[derive(Debug, Clone, Eq, PartialEq, Serialize)]
-pub struct Players(pub HashMap<PID, Role>);
-
 #[derive(Debug, Clone)]
 pub struct Game {
     id: u64,
     players: Players,
     phase: Phase,
-    role_history: HashMap<PID, Vec<Role>>,
     rules: Rules,
+    names: Option<HashMap<PID, String>>,
     eo: EventOutput,
 }
 
@@ -127,7 +224,7 @@ pub enum ActionResult {
 /* #region Game Impl */
 
 impl Game {
-    pub fn handle_action(&mut self, action: Action) -> Result<Option<ActionResult>> {
+    pub fn handle_action(&mut self, action: Action) -> MResult<Option<ActionResult>> {
         Ok(match action {
             Action::Vote { voter, ballot } => self
                 .handle_vote(voter, ballot)?
@@ -146,9 +243,9 @@ impl Game {
     }
 
     /// Returns a Choice if an election threshold was reached
-    pub fn handle_vote(&mut self, voter: PID, ballot: Option<Choice>) -> Result<Option<Election>> {
+    pub fn handle_vote(&mut self, voter: PID, ballot: Option<Choice>) -> MResult<Option<Election>> {
         // Validate voter
-        self.players.check(voter)?;
+        self.players.get(voter)?;
         // Check for dusk vote
         if self.dusk_vote(voter, ballot)? {
             return Ok(None);
@@ -162,7 +259,7 @@ impl Game {
             Some(choice) => {
                 match choice {
                     Choice::Player(votee) => {
-                        self.players.check(votee)?;
+                        self.players.get(votee)?;
                     }
                     Choice::Abstain => {}
                 }
@@ -180,8 +277,8 @@ impl Game {
         return Ok(result);
     }
 
-    pub fn handle_reveal(&self, actor: PID) -> Result<()> {
-        self.players.check(actor)?;
+    pub fn handle_reveal(&self, actor: PID) -> MResult<()> {
+        self.players.get(actor)?;
         let Phase::Day { blocks, .. } = &self.phase else {
             return Err(Error::Generic("Invalid phase for reveal".to_string()));
         };
@@ -197,8 +294,8 @@ impl Game {
         Ok(())
     }
 
-    pub fn handle_target(&mut self, actor: PID, target: Choice) -> Result<bool> {
-        self.players.check(actor)?;
+    pub fn handle_target(&mut self, actor: PID, target: Choice) -> MResult<bool> {
+        self.players.get(actor)?;
         let Phase::Night {
             targets,
             scheme: mark,
@@ -217,30 +314,29 @@ impl Game {
         Ok(self.check_dawn())
     }
 
-    pub fn handle_mark(&mut self, actor: PID, target: Choice) -> Result<bool> {
-        self.players.check(actor)?;
+    pub fn handle_mark(&mut self, killer: PID, mark: Choice) -> MResult<bool> {
+        self.players.get(killer)?;
         let Phase::Night {
-            targets,
-            scheme: mark,
-            ..
+            targets, scheme, ..
         } = &mut self.phase
         else {
             return Err(Error::Generic("Invalid phase for mark".to_string()));
         };
-        let role = self.players.role(actor)?;
+        let role = self.players.role(killer)?;
         if role.team() != Team::Mafia {
             return Err(Error::Generic("Invalid role for marking".to_string()));
         }
-        if role == Role::GOON && target != Choice::Player(actor) {
+        if role == Role::GOON && mark != Choice::Player(killer) {
             return Err(Error::Generic(
                 "Invalid target for GOON marking".to_string(),
             ));
         }
-        *mark = Some((actor, target));
+        *scheme = Some((killer, mark));
+        self.eo.send(Event::Mark { killer, mark })?;
         Ok(self.check_dawn())
     }
 
-    pub fn dusk_vote(&mut self, voter: PID, ballot: Option<Choice>) -> Result<bool> {
+    pub fn dusk_vote(&mut self, voter: PID, ballot: Option<Choice>) -> MResult<bool> {
         let Phase::Dusk {
             day,
             avenger,
@@ -255,7 +351,7 @@ impl Game {
         }
         match ballot {
             Some(Choice::Player(votee)) if voters.contains(&votee) => {
-                self.players.check(votee)?;
+                self.players.get(votee)?;
                 self.eo.send(Event::Revenge {
                     avenger: voter,
                     votee,
@@ -291,10 +387,7 @@ impl Game {
                 let role = self.players.role(elected).unwrap();
                 if role.kind() == RoleKind::IDIOT {
                     let new_role = Role::IDIOT(true);
-                    self.players.0.insert(elected, new_role);
-                    // push new role to history
-                    let entry = self.role_history.entry(elected).or_default();
-                    entry.push(new_role);
+                    self.players.set_role(elected, new_role);
 
                     self.eo.send(Event::Reveal {
                         player: elected,
@@ -345,7 +438,7 @@ impl Game {
         self.phase = Phase::new_day(day + 1, stripped.keys().cloned().collect());
         self.eo.send(Event::Day {
             day: day + 1,
-            players: self.players.clone().into_iter().collect(),
+            players: self.players.roles().collect(),
         });
     }
 
@@ -360,15 +453,12 @@ impl Game {
         self.eo.send(Event::Reveal { player, role });
 
         // Check for refocusing roles!
-        for (player, former_role) in self.players.0.clone() {
+        for (player, former_role) in self.players.roles() {
             match role {
                 Role::GUARD(charge) | Role::AGENT(charge) if charge == player => {
                     // Refocus to AGENT or IDIOT...
                     let new_role = former_role.refocus(player, proxy);
-                    self.players.0.insert(player, new_role);
-                    // push new role to history
-                    let entry = self.role_history.entry(player).or_default();
-                    entry.push(new_role);
+                    self.players.set_role(player, new_role);
                     self.eo.send(Event::Refocus {
                         holder: player,
                         former_role,
@@ -412,7 +502,7 @@ impl Game {
         else {
             unreachable!("Invalid phase for dawn check");
         };
-        for (player, role) in self.players.clone().into_iter() {
+        for (player, role) in self.players.roles() {
             if role.targeting() && !targets.contains_key(&player) {
                 return false;
             }
@@ -528,12 +618,18 @@ impl Game {
     }
 }
 
+impl Serialize for Game {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        todo!()
+    }
+}
+
 /* #endregion Game Impl */
 
 pub struct GameWrapper(Arc<Mutex<Game>>);
 
 impl GameWrapper {
-    pub fn handle_action(&self, action: Action) -> Result<()> {
+    pub fn handle_action(&self, action: Action) -> MResult<()> {
         let mut game = self.0.lock().unwrap();
 
         match game.handle_action(action)? {
