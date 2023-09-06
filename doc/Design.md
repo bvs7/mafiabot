@@ -39,3 +39,76 @@ What does the caller expect in response? Either an error or () is fine.
 We want to keep track of who is the hammer in elections where a player is elected.
 
 So, a new enum? Election::Hammer(PID, PID) | Election::Abstain
+
+
+## Serialization
+
+Have Ser_ Versions of data structures, and a way to convert from one to another.
+
+Validity checking
+
+Game Data vs Data needed after game?
+Role History can do it, I think.
+
+GUARD (1) -> AGENT (2). then if 2 is alive at end of the game, win
+
+IDIOT -> Elected IDIOT!
+
+Game Phase::End has winning team info, survivor info
+
+Names... Optional?
+
+What data do we need for a game???
+
+Players -> Alive? + RoleHist
+
+- During game
+    - Phase data
+    - Players -> Current Role
+    - Game Rules
+- After game
+    - Winner?
+    - Role Assignments/History
+    - Whether IDIOTs won?
+        - Have list of Events? Check if Idiot won there?
+```rust
+
+pub struct RoleHist{
+    role: Role,
+    history: Vec<Role>,
+}
+pub struct Players(HashMap<PID, RoleHist>);
+pub struct Names(HashMap<PID, String>);
+
+pub struct Game {
+    id: u64,
+    players: Players,
+    phase: Phase,
+    rules: Rules,
+    names: Option<Names>,
+    eo: EventOutput,
+}
+```
+
+```rust
+pub enum SerRole{
+    Role(Role),
+    Hist(Vec<Role>),
+}
+pub struct SerPlayers(HashMap<String, SerRole>);
+```
+
+```rust
+Players + Names -> SerPlayers
+    PID -> String, RoleHist -> SerRole
+
+/*
+{players: {
+    "Name 1": "TOWN",
+    "Name 2": "MAFIA",
+    "Name 3": {"IDIOT":false},
+    "Name 4": {}
+    }
+}
+*/
+```

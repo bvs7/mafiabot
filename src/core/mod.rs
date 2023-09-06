@@ -52,6 +52,21 @@ pub enum Team {
 
 /* #region  Role Impl */
 
+impl<T> Role_<T> {
+    fn to<U, F>(&self, f: F) -> Role_<U>
+    where
+        F: FnMut(T) -> U,
+    {
+        match self {
+            Self::GUARD(charge) => Role_::GUARD(f(*charge)),
+            Self::AGENT(charge) => Role_::AGENT(f(*charge)),
+            Self::IDIOT(b) => Role_::IDIOT(*b),
+            _ => Self::from(*self),
+        }
+        todo!()
+    }
+}
+
 impl RoleKind {
     pub fn team(&self) -> Team {
         use RoleKind as RK;

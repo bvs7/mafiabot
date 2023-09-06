@@ -24,7 +24,7 @@ fn main() -> MResult<()> {
     players.0.insert(
         1,
         RoleHist {
-            role: Role::TOWN,
+            role: Role::IDIOT(false),
             history: vec![], //[Role::AGENT(1)],
         },
     );

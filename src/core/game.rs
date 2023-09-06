@@ -67,12 +67,12 @@ impl Players {
 }
 
 #[derive(Debug, Clone)]
-pub enum SerRole {
-    Role(Role),
-    Hist(Vec<Role>),
+pub enum SerRole<T> {
+    Role(Role_<T>),
+    Hist(Vec<Role_<T>>),
 }
 
-impl Serialize for SerRole {
+impl Serialize for SerRole<String> {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         match self {
             SerRole::Role(role) => role.serialize(serializer),
@@ -81,7 +81,7 @@ impl Serialize for SerRole {
     }
 }
 
-impl From<RoleHist> for SerRole {
+impl From<RoleHist> for SerRole<String> {
     fn from(rh: RoleHist) -> Self {
         if rh.history.is_empty() {
             SerRole::Role(rh.role)
@@ -93,8 +93,8 @@ impl From<RoleHist> for SerRole {
     }
 }
 
-impl From<SerRole> for RoleHist {
-    fn from(sr: SerRole) -> Self {
+impl From<SerRole<String>> for RoleHist {
+    fn from(sr: SerRole<String>) -> Self {
         match sr {
             SerRole::Role(role) => RoleHist {
                 role,
@@ -110,7 +110,7 @@ impl From<SerRole> for RoleHist {
 }
 
 #[derive(Debug, Clone, Serialize)]
-pub struct SerPlayers(HashMap<String, SerRole>);
+pub struct SerPlayers(HashMap<String, SerRole<String>>);
 
 type Names = HashMap<PID, String>;
 
