@@ -61,9 +61,8 @@ impl<T> Role_<T> {
             Self::GUARD(charge) => Role_::GUARD(f(*charge)),
             Self::AGENT(charge) => Role_::AGENT(f(*charge)),
             Self::IDIOT(b) => Role_::IDIOT(*b),
-            _ => Self::from(*self),
+            _ => todo!(),
         }
-        todo!()
     }
 }
 
