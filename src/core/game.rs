@@ -24,10 +24,10 @@ impl RoleHist {
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Serialize)]
-pub struct Players(pub HashMap<PID, RoleHist>);
+pub struct Players(pub HashMap<PID, Role>);
 
 impl Players {
-    pub fn get(&self, player: PID) -> MResult<&RoleHist> {
+    pub fn get(&self, player: PID) -> MResult<&Role> {
         if !self.0.contains_key(&player) {
             return Err(Error::Generic(format!("Player {} not found", player)));
         }
@@ -35,26 +35,19 @@ impl Players {
     }
 
     pub fn role(&self, player: PID) -> MResult<Role> {
-        let rh = self.get(player)?;
-        Ok(self.0[&player].role)
+        self.get(player).map(|r| r.clone())
     }
 
-    pub fn items(&self) -> std::collections::hash_map::IntoIter<PID, RoleHist> {
+    pub fn items(&self) -> std::collections::hash_map::IntoIter<PID, Role> {
         self.0.clone().into_iter()
     }
 
     pub fn roles(&self) -> std::collections::hash_map::IntoIter<PID, Role> {
-        self.0
-            .clone()
-            .into_iter()
-            .map(|(p, rh)| (p, rh.role))
-            .collect::<HashMap<_, _>>()
-            .into_iter()
+        self.0.clone().into_iter()
     }
 
     pub fn set_role(&mut self, player: PID, new_role: Role) -> MResult<()> {
-        let new_rh = self.get(player)?.clone();
-        self.0.insert(player, new_rh);
+        self.0.insert(player, new_role);
         return Ok(());
     }
 
@@ -66,75 +59,7 @@ impl Players {
     }
 }
 
-#[derive(Debug, Clone)]
-pub enum SerRole<T> {
-    Role(Role_<T>),
-    Hist(Vec<Role_<T>>),
-}
-
-impl Serialize for SerRole<String> {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        match self {
-            SerRole::Role(role) => role.serialize(serializer),
-            SerRole::Hist(history) => history.serialize(serializer),
-        }
-    }
-}
-
-impl From<RoleHist> for SerRole<String> {
-    fn from(rh: RoleHist) -> Self {
-        if rh.history.is_empty() {
-            SerRole::Role(rh.role)
-        } else {
-            let mut all_roles = rh.history.clone();
-            all_roles.push(rh.role);
-            SerRole::Hist(all_roles)
-        }
-    }
-}
-
-impl From<SerRole<String>> for RoleHist {
-    fn from(sr: SerRole<String>) -> Self {
-        match sr {
-            SerRole::Role(role) => RoleHist {
-                role,
-                history: Vec::new(),
-            },
-            SerRole::Hist(history) => {
-                let role = history.last().unwrap().clone();
-                let history = history[..history.len() - 1].to_vec();
-                RoleHist { role, history }
-            }
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct SerPlayers(HashMap<String, SerRole<String>>);
-
 type Names = HashMap<PID, String>;
-
-impl From<(Players, &Names)> for SerPlayers {
-    fn from((players, names): (Players, &Names)) -> Self {
-        let mut map = HashMap::new();
-        for (pid, rh) in players.0 {
-            let name = names.get(&pid).unwrap().clone();
-            map.insert(name, SerRole::from(rh));
-        }
-        SerPlayers(map)
-    }
-}
-
-impl From<(SerPlayers, &Names)> for Players {
-    fn from((ser_players, names): (SerPlayers, &Names)) -> Self {
-        let mut map = HashMap::new();
-        for (name, sr) in ser_players.0 {
-            let pid = names.iter().find(|(_, n)| *n == &name).unwrap().0;
-            map.insert(pid.clone(), RoleHist::from(sr));
-        }
-        Players(map)
-    }
-}
 
 /* #region Game Data Types */
 
@@ -186,16 +111,6 @@ impl Phase {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct Game {
-    id: u64,
-    players: Players,
-    phase: Phase,
-    rules: Rules,
-    names: Option<HashMap<PID, String>>,
-    eo: EventOutput,
-}
-
 impl From<Election> for Choice {
     fn from(election: Election) -> Self {
         match election {
@@ -219,11 +134,32 @@ pub enum ActionResult {
     TryDawn,
 }
 
+#[derive(Debug, Clone)]
+pub struct Game {
+    id: u64,
+    players: Players,
+    phase: Phase,
+    rules: Rules,
+    role_history: HashMap<PID, Vec<Role>>,
+    names: Option<HashMap<PID, String>>,
+    eo: EventOutput,
+}
+
 /* #endregion Game Data Types */
 
 /* #region Game Impl */
 
 impl Game {
+    pub fn new(
+        id: u64,
+        entrants: HashSet<PID>,
+        rules: Rules,
+        names: Option<HashMap<PID, String>>,
+        eo: EventOutput,
+    ) -> Self {
+        todo!()
+    }
+
     pub fn handle_action(&mut self, action: Action) -> MResult<Option<ActionResult>> {
         Ok(match action {
             Action::Vote { voter, ballot } => self
@@ -388,6 +324,10 @@ impl Game {
                 if role.kind() == RoleKind::IDIOT {
                     let new_role = Role::IDIOT(true);
                     self.players.set_role(elected, new_role);
+                    self.role_history
+                        .entry(elected)
+                        .or_insert_with(Vec::new)
+                        .push(new_role);
 
                     self.eo.send(Event::Reveal {
                         player: elected,
@@ -459,6 +399,10 @@ impl Game {
                     // Refocus to AGENT or IDIOT...
                     let new_role = former_role.refocus(player, proxy);
                     self.players.set_role(player, new_role);
+                    self.role_history
+                        .entry(player)
+                        .or_insert_with(Vec::new)
+                        .push(new_role);
                     self.eo.send(Event::Refocus {
                         holder: player,
                         former_role,

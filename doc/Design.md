@@ -56,7 +56,8 @@ IDIOT -> Elected IDIOT!
 
 Game Phase::End has winning team info, survivor info
 
-Names... Optional?
+Names... Optional? Useful for Serialization, makes things more readable...
+
 
 What data do we need for a game???
 
