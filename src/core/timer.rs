@@ -12,6 +12,46 @@ Timers:
 
 There will need to be wrappers for timers that include what type of timer it is, the data it is associated with, and the destined end time
 
+One issue is in the function being passed in. How is it related to the Core object as a whole? We can't move in the entire core. What we can do is move in an Action Queue.
+
+But do we want an action queue for everything?
+
+Maybe make the Action Queue transparent. That is, the user calls a function which sends to the queue, waits for the response, then responds? At that point, don't even make it a queue?
+
+hmmm this seems tough.
+
+Ok, so we want to have:
+- A hammer vote is cast by the Controller calling the Core's vote function. No errors are returned so that request finishes
+- The Controller polls the Event Queue and handles those events associated with the vote
+- A countdown is started by the Core when that vote was cast. This might also create a "Election Imminent" event.
+- When the countdown ends, the core calls its own elect function.
+
+So the core needs to be thread safe?
+Or at least its mutating functions need to be thread safe.
+
+pub struct Core<PID: ID, GID: ID> {
+    id: GID,
+    state: State<PID>,
+    rules: Rules,
+    stats: Stats<PID>,
+    event_out: EventOutput<PID>,
+}
+
+id, rules, are immutable
+
+state and stats are mutable
+
+event_out is a mpsc queue
+
+state and stats need to be protected. Maybe combine them into a single struct.
+That way a state mutex can be used to protect both.
+Maybe we do, then want these functions to operate on the state, not the core...
+And we can pass in rules as they apply, and pass in the event queue.
+
+This then means that we can start an elect timer. 
+Upon the end of the elect timer, we call elect on a state.
+A clone of Arc<Mutex<State>> is passed to the elect function.
+
 */
 
 pub struct Timer<T>
