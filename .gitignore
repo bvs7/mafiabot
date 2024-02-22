@@ -1,13 +1,1 @@
-# VSCode settings
-
-.vs/*
-.vscode/*
-
-# Saved Games
-*.maf
-
-# Rust target
-target/
-
-# Rust data
-data
+/target
