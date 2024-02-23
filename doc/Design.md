@@ -113,3 +113,40 @@ Players + Names -> SerPlayers
 }
 */
 ```
+
+We have a Core object.
+
+You can call various methods of that Core object to change its state and send out events.
+
+Some of these events might spawn a timer that will do something later.
+
+Specifically, an election and a dawn can be scheduled to happen
+- The election so that players have a chance to unvote (within 10 seconds or so)
+- the dawn so that players don't know if they are the only or the last night action to occur.
+
+If we create another thread, what needs to be shared?
+- Event_Output can be cloned into the new thread.
+- the shared Arc<Mutex<State>> can be shared.
+
+State mutating functions... should be performed on state.
+Pass in whatever else is needed, but fundamentally...
+
+Stats should probably be part of state.
+
+State mutating functions:
+- vote
+- target
+- scheme
+- to_day
+- to_night
+- elect
+- eliminate
+- dawn
+
+However, these functions all also require other parts of core:
+- the event output Sender.
+- A copy of the rules.
+    - How could accessing the rules work? Normally they would not be updated, but we should probably be able to update them if necessary.
+    - This would mean that on every call, the rules might be updated? How are they updated?
+    - This makes me think we maybe should have some kind of process running for the Core Game...
+    

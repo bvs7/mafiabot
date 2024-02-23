@@ -48,9 +48,18 @@ That way a state mutex can be used to protect both.
 Maybe we do, then want these functions to operate on the state, not the core...
 And we can pass in rules as they apply, and pass in the event queue.
 
-This then means that we can start an elect timer. 
+This then means that we can start an elect timer.
 Upon the end of the elect timer, we call elect on a state.
 A clone of Arc<Mutex<State>> is passed to the elect function.
+
+Or just have all functions on Core work on a normal reference. Shared data
+ will be behind a Arc<Mutex<>>!
+
+ But we need to be careful. Calling functions like elect or eliminate need the state
+ passed in.
+
+
+Still awkward. What if the game is dropped before the callback returns?
 
 */
 
@@ -71,7 +80,7 @@ where
         end_time: SystemTime,
         data: T,
         precision: Duration,
-        callback: Box<dyn FnOnce(T) + Send + 'static>,
+        callback: Box<dyn FnOnce(T) + Send>,
     ) -> Timer<T> {
         let cancelled = Arc::new(Mutex::new(false));
         let end_time = Arc::new(Mutex::new(end_time));
@@ -80,6 +89,7 @@ where
             cancelled: Arc::clone(&cancelled),
             data: data.clone(),
         };
+        let d = data;
         thread::spawn(move || {
             let mut now = SystemTime::now();
             while now < *end_time.lock().unwrap() {
@@ -89,7 +99,7 @@ where
                     return;
                 }
             }
-            callback(data);
+            callback(d);
         });
         timer
     }

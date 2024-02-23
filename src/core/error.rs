@@ -1,4 +1,4 @@
-use crate::base::ID;
+use crate::base::{Choice, ID};
 use crate::core::PhaseKind;
 use crate::events::Event;
 use crate::roles::RoleKind;
@@ -23,5 +23,14 @@ pub enum CoreError<PID: ID> {
     ExpectedCeleb {
         actual: RoleKind,
     },
+    ExpectedElection {
+        candidate: Choice<PID>,
+    },
     EventSendError(SendError<Event<PID>>),
+}
+
+impl<PID: ID> From<SendError<Event<PID>>> for CoreError<PID> {
+    fn from(e: SendError<Event<PID>>) -> Self {
+        CoreError::EventSendError(e)
+    }
 }

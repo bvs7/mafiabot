@@ -4,6 +4,17 @@ use crate::roles::{Role, Team};
 
 use std::sync::mpsc::Sender;
 
+#[derive(Debug, Clone)]
+pub enum Action<PID: ID> {
+    Vote { voter: PID, choice: Choice<PID> },
+    Unvote { voter: PID },
+    Reveal { player: PID },
+    Target { actor: PID, target: Choice<PID> },
+    Scheme { actor: PID, mark: Choice<PID> },
+    Elect { candidate: Choice<PID> },
+    Dawn,
+}
+
 pub type EventOutput<PID> = Sender<Event<PID>>;
 
 #[derive(Debug)]
@@ -59,6 +70,9 @@ pub enum Event<PID: ID> {
     },
     NoNightKill,
     Day {
+        day_no: u32,
+    },
+    Night {
         day_no: u32,
     },
     Dawn,
