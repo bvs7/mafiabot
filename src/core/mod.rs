@@ -241,7 +241,7 @@ impl<'a, PID: ID, GID: ID> Core<PID, GID> {
             };
 
             // Send response
-            response.send(Ok(())).unwrap();
+            response.send(resp).unwrap();
         }
         self.event_tx.send(Event::Close).unwrap();
     }
@@ -335,11 +335,19 @@ impl<'a, PID: ID, GID: ID> Core<PID, GID> {
             return Err(CoreError::ExpectedCeleb { actual });
         }
         // Check that Phase is Day
-        let Phase::Day { .. } = self.state.phase else {
+        let Phase::Day { blocks, .. } = &self.state.phase else {
             let actual = self.state.phase.kind();
             let expected = PhaseKind::Day;
             return Err(CoreError::InvalidPhase { actual, expected });
         };
+
+        // Check for a reveal block
+        if blocks.contains_key(&player) {
+            let blocked = player;
+            let blockers = blocks[&player].clone();
+            send(&self.event_tx, Event::EvidentBlock { blocked, blockers })?;
+            return Ok(());
+        }
 
         send(&self.event_tx, Event::Reveal { player, role })?;
         Ok(())
@@ -353,7 +361,10 @@ impl<'a, PID: ID, GID: ID> Core<PID, GID> {
         }
 
         // Check if the phase is night
-        let Phase::Night { targets, .. } = &mut self.state.phase else {
+        let Phase::Night {
+            targets, scheme, ..
+        } = &mut self.state.phase
+        else {
             return Err(CoreError::InvalidPhase {
                 actual: self.state.phase.kind(),
                 expected: PhaseKind::Night,
@@ -361,7 +372,9 @@ impl<'a, PID: ID, GID: ID> Core<PID, GID> {
         };
         let former_target = targets.insert(actor, target);
         send(&self.event_tx, Event::Target { actor, target })?;
-        // TODO: schedule dawn check for the future
+
+        // TODO: if actor was STRIPPER, make sure they can't kill
+
         self.check_dawn()?;
         Ok(())
     }
@@ -382,6 +395,9 @@ impl<'a, PID: ID, GID: ID> Core<PID, GID> {
         };
         scheme.replace((actor, mark));
         send(&self.event_tx, Event::Scheme { actor, mark })?;
+
+        // TODO: if killer was STRIPPER, make sure they can't target
+
         self.check_dawn()?;
         Ok(())
     }

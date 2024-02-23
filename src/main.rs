@@ -18,7 +18,7 @@ impl ID for u32 {}
 
 fn main() -> Result<(), ()> {
     // println!("Hello, world!");
-    test2().unwrap();
+    test3().unwrap();
     Ok(())
 }
 
@@ -139,6 +139,85 @@ fn test2() -> Result<(), ()> {
     };
 
     action_tx.send((vote, resp_tx.clone())).unwrap();
+
+    thread::sleep(time::Duration::from_secs(2));
+
+    action_tx
+        .send((Action::Close, resp_tx.clone()))
+        .expect("Action to send");
+
+    event_reader.join().expect("Event reader to join");
+    Ok(())
+}
+
+fn test3() -> Result<(), ()> {
+    let mut players = HashMap::new();
+    players.insert(1, Role::COP);
+    players.insert(2, Role::DOCTOR);
+    players.insert(3, Role::STRIPPER);
+    players.insert(4, Role::CELEB);
+
+    let (event_tx, event_rx) = std::sync::mpsc::channel::<Event<u32>>();
+    let (action_tx, action_rx) = std::sync::mpsc::channel();
+
+    let core = Core::new(
+        0,
+        players,
+        Rules {},
+        event_tx.clone(),
+        action_rx,
+        action_tx.clone(),
+    );
+
+    let event_reader = thread::spawn(move || loop {
+        let event = event_rx.recv().expect("Event to receive");
+        println!("{:?}", event);
+        if let Event::Close { .. } = event {
+            break;
+        }
+    });
+
+    core.start_thread();
+
+    let (resp_tx, resp_rx) = std::sync::mpsc::channel();
+
+    let send = |action: Action<u32>| {
+        // print!("Action: {:?}: ", action);
+        action_tx.send((action, resp_tx.clone())).unwrap();
+        let resp = resp_rx.recv().unwrap();
+        if let Err(e) = resp {
+            println!("Error: {:?}", e);
+        }
+        // println!("{:?}", resp_rx.recv().unwrap());
+    };
+    send(Action::Vote {
+        voter: 0,
+        choice: Choice::Player(2),
+    });
+    send(Action::Reveal { player: 4 });
+
+    send(Action::Target {
+        actor: 1,
+        target: Choice::Player(3),
+    });
+
+    send(Action::Scheme {
+        actor: 3,
+        mark: Choice::Player(1),
+    });
+
+    send(Action::Target {
+        actor: 2,
+        target: Choice::Player(1),
+    });
+    send(Action::Target {
+        actor: 3,
+        target: Choice::Player(4),
+    });
+
+    thread::sleep(time::Duration::from_secs(2));
+
+    send(Action::Reveal { player: 4 });
 
     thread::sleep(time::Duration::from_secs(2));
 
