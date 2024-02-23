@@ -16,9 +16,13 @@ use std::time;
 
 impl ID for u32 {}
 
-fn main() -> Result<(), CoreError<u32>> {
+fn main() -> Result<(), ()> {
     // println!("Hello, world!");
+    test2().unwrap();
+    Ok(())
+}
 
+fn test1() -> Result<(), ()> {
     let mut players = HashMap::new();
     players.insert(1, Role::TOWN);
     players.insert(2, Role::TOWN);
@@ -27,7 +31,7 @@ fn main() -> Result<(), CoreError<u32>> {
     let (event_tx, event_rx) = std::sync::mpsc::channel::<Event<u32>>();
     let (action_tx, action_rx) = std::sync::mpsc::channel();
 
-    let mut core = Core::new(
+    let core = Core::new(
         0,
         players,
         Rules {},
@@ -36,45 +40,112 @@ fn main() -> Result<(), CoreError<u32>> {
         action_tx.clone(),
     );
 
+    let event_reader = thread::spawn(move || loop {
+        let event = event_rx.recv().expect("Event to receive");
+        println!("{:?}", event);
+        if let Event::Close { .. } = event {
+            break;
+        }
+    });
+
     core.start_thread();
 
     let (resp_tx, resp_rx) = std::sync::mpsc::channel();
 
     let vote = Action::Vote {
         voter: 1,
-        choice: Choice::Player(2),
+        choice: Choice::Player(3),
     };
 
     action_tx
         .send((vote, resp_tx.clone()))
         .expect("Action to send");
 
-    let mut resp = resp_rx.recv().expect("Response to receive");
+    let resp = resp_rx.recv().expect("Response to receive");
 
     println!("{:?}", resp);
 
-    let mut event = event_rx.try_recv();
-
     let vote = Action::Vote {
-        voter: 3,
-        choice: Choice::Player(2),
+        voter: 2,
+        choice: Choice::Player(3),
     };
 
     action_tx
         .send((vote, resp_tx.clone()))
         .expect("Action to send");
 
-    thread::sleep(time::Duration::from_secs(11));
+    thread::sleep(time::Duration::from_secs(2));
 
-    while event.is_ok() {
+    action_tx
+        .send((Action::Close, resp_tx.clone()))
+        .expect("Action to send");
+
+    event_reader.join().expect("Event reader to join");
+    Ok(())
+}
+
+fn test2() -> Result<(), ()> {
+    let mut players = HashMap::new();
+    players.insert(1, Role::TOWN);
+    players.insert(2, Role::TOWN);
+    players.insert(3, Role::MAFIA);
+    players.insert(4, Role::TOWN);
+
+    let (event_tx, event_rx) = std::sync::mpsc::channel::<Event<u32>>();
+    let (action_tx, action_rx) = std::sync::mpsc::channel();
+
+    let core = Core::new(
+        0,
+        players,
+        Rules {},
+        event_tx.clone(),
+        action_rx,
+        action_tx.clone(),
+    );
+
+    let event_reader = thread::spawn(move || loop {
+        let event = event_rx.recv().expect("Event to receive");
         println!("{:?}", event);
-        event = event_rx.try_recv();
-    }
+        if let Event::Close { .. } = event {
+            break;
+        }
+    });
 
-    // let mut core = Core::new(0, players, Rules {}, tx);
-    // println!("{:#?}", core);
-    // println!("{:?}", core.vote(1, Some(Choice::Player(2))));
-    // println!("{:?}", core.vote(2, Some(Choice::Player(1))));
-    // println!("{:#?}", core);
+    core.start_thread();
+
+    let (resp_tx, _resp_rx) = std::sync::mpsc::channel();
+
+    let scheme = Action::Scheme {
+        actor: 3,
+        mark: Choice::Player(1),
+    };
+
+    action_tx.send((scheme, resp_tx.clone())).unwrap();
+
+    thread::sleep(time::Duration::from_secs(2));
+
+    println!("Vote 1!");
+
+    let vote = Action::Vote {
+        voter: 4,
+        choice: Choice::Player(2),
+    };
+
+    action_tx.send((vote, resp_tx.clone())).unwrap();
+
+    let vote = Action::Vote {
+        voter: 2,
+        choice: Choice::Player(2),
+    };
+
+    action_tx.send((vote, resp_tx.clone())).unwrap();
+
+    thread::sleep(time::Duration::from_secs(2));
+
+    action_tx
+        .send((Action::Close, resp_tx.clone()))
+        .expect("Action to send");
+
+    event_reader.join().expect("Event reader to join");
     Ok(())
 }

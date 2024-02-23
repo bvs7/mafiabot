@@ -13,6 +13,7 @@ pub enum Action<PID: ID> {
     Scheme { actor: PID, mark: Choice<PID> },
     Elect { candidate: Choice<PID> },
     Dawn,
+    Close,
 }
 
 pub type EventOutput<PID> = Sender<Event<PID>>;
@@ -76,6 +77,10 @@ pub enum Event<PID: ID> {
         day_no: u32,
     },
     Dawn,
+    End {
+        winner: Team,
+    },
+    Close,
 }
 
 pub fn send<PID: ID>(

@@ -93,6 +93,7 @@ pub enum Phase<PID: ID> {
     Night {
         targets: HashMap<PID, Choice<PID>>, // actor -> target
         scheme: Option<(PID, Choice<PID>)>, // actor -> (target, choice)
+        dawn_timer: Option<Timer<()>>,
     },
     Eclipse {
         avenger: PID,
@@ -172,7 +173,7 @@ pub struct Core<PID: ID, GID: ID> {
     id: GID,
     state: State<PID>,
     rules: Rules,
-    event_rx: EventOutput<PID>,
+    event_tx: EventOutput<PID>,
     action_rx: Receiver<(Action<PID>, Sender<Result<(), CoreError<PID>>>)>,
     action_tx: Sender<(Action<PID>, Sender<Result<(), CoreError<PID>>>)>,
 }
@@ -190,7 +191,7 @@ impl<'a, PID: ID, GID: ID> Core<PID, GID> {
         id: GID,
         players: HashMap<PID, Role>,
         rules: Rules,
-        event_out: EventOutput<PID>,
+        event_tx: EventOutput<PID>,
         action_rx: Receiver<(Action<PID>, Sender<Result<(), CoreError<PID>>>)>,
         action_tx: Sender<(Action<PID>, Sender<Result<(), CoreError<PID>>>)>,
     ) -> Self {
@@ -202,7 +203,7 @@ impl<'a, PID: ID, GID: ID> Core<PID, GID> {
             id,
             state,
             rules,
-            event_rx: event_out,
+            event_tx,
             action_rx,
             action_tx,
         };
@@ -236,11 +237,13 @@ impl<'a, PID: ID, GID: ID> Core<PID, GID> {
                 Action::Scheme { actor, mark } => self.scheme(actor, mark),
                 Action::Elect { candidate } => self.elect(candidate),
                 Action::Dawn => self.dawn(),
+                Action::Close => break,
             };
 
             // Send response
             response.send(Ok(())).unwrap();
         }
+        self.event_tx.send(Event::Close).unwrap();
     }
 
     pub fn start(&mut self) -> Result<(), CoreError<PID>> {
@@ -288,7 +291,7 @@ impl<'a, PID: ID, GID: ID> Core<PID, GID> {
         }
 
         send(
-            &self.event_rx,
+            &self.event_tx,
             Event::Vote {
                 voter,
                 ballot,
@@ -309,7 +312,7 @@ impl<'a, PID: ID, GID: ID> Core<PID, GID> {
                 // Set election timer
                 let action_tx = self.action_tx.clone();
                 *elect_timer = Some(Timer::new(
-                    SystemTime::now() + Duration::from_secs(10),
+                    SystemTime::now() + Duration::from_secs(1),
                     candidate,
                     Duration::from_millis(100),
                     Box::new(move |candidate| {
@@ -338,7 +341,7 @@ impl<'a, PID: ID, GID: ID> Core<PID, GID> {
             return Err(CoreError::InvalidPhase { actual, expected });
         };
 
-        send(&self.event_rx, Event::Reveal { player, role })?;
+        send(&self.event_tx, Event::Reveal { player, role })?;
         Ok(())
     }
 
@@ -357,11 +360,9 @@ impl<'a, PID: ID, GID: ID> Core<PID, GID> {
             });
         };
         let former_target = targets.insert(actor, target);
-        send(&self.event_rx, Event::Target { actor, target })?;
+        send(&self.event_tx, Event::Target { actor, target })?;
         // TODO: schedule dawn check for the future
-        if self.check_dawn()? {
-            self.dawn()?;
-        }
+        self.check_dawn()?;
         Ok(())
     }
 
@@ -380,21 +381,43 @@ impl<'a, PID: ID, GID: ID> Core<PID, GID> {
             });
         };
         scheme.replace((actor, mark));
-        send(&self.event_rx, Event::Scheme { actor, mark })?;
-        // TODO: schedule dawn check for the future
-        if self.check_dawn()? {
-            self.dawn()?;
-        }
+        send(&self.event_tx, Event::Scheme { actor, mark })?;
+        self.check_dawn()?;
         Ok(())
     }
 
-    fn eliminate(&mut self, player: PID) -> Result<(), CoreError<PID>> {
+    fn check_end(&self) -> Option<Team> {
+        let n = self.state.players.len();
+        let n_mafia = self
+            .state
+            .players
+            .values()
+            .filter(|&&role| role.team() == Team::Mafia)
+            .count();
+
+        if n_mafia == 0 {
+            // Town wins!
+            return Some(Team::Town);
+        } else if n - n_mafia <= n_mafia {
+            // Mafia wins!
+            return Some(Team::Mafia);
+        }
+        return None;
+    }
+
+    fn eliminate(&mut self, player: PID) -> Result<bool, CoreError<PID>> {
         let Some(&role) = self.state.players.get(&player) else {
             return Err(CoreError::InvalidPlayer { player });
         };
-        send(&self.event_rx, Event::Eliminate { player, role })?;
+        send(&self.event_tx, Event::Eliminate { player, role })?;
         self.state.players.remove(&player);
-        Ok(())
+        // Check for end of game
+        if let Some(winner) = self.check_end() {
+            self.state.phase = Phase::End { winner };
+            send(&self.event_tx, Event::End { winner })?;
+            return Ok(true);
+        }
+        Ok(false)
     }
 
     fn elect(&mut self, candidate: Choice<PID>) -> Result<(), CoreError<PID>> {
@@ -414,27 +437,33 @@ impl<'a, PID: ID, GID: ID> Core<PID, GID> {
                 return Err(CoreError::ExpectedElection { candidate });
             };
             send(
-                &self.event_rx,
+                &self.event_tx,
                 Event::Election {
                     choice: candidate,
                     voters,
                 },
             )?;
             // TODO: check for IDIOT!
-            self.eliminate(player)?;
+            if self.eliminate(player)? {
+                // Game Over!
+                return Ok(());
+            }
         }
         self.to_night()?;
         Ok(())
     }
 
     fn dawn(&mut self) -> Result<(), CoreError<PID>> {
-        let Phase::Night { targets, scheme } = &self.state.phase else {
+        let Phase::Night {
+            targets, scheme, ..
+        } = &self.state.phase
+        else {
             let actual = self.state.phase.kind();
             let expected = PhaseKind::Night;
             return Err(CoreError::InvalidPhase { actual, expected });
         };
 
-        send(&self.event_rx, Event::Dawn)?;
+        send(&self.event_tx, Event::Dawn)?;
 
         // Sort targets by priority
         let mut night_actions: BinaryHeap<NightAction<PID>> = BinaryHeap::new();
@@ -471,7 +500,7 @@ impl<'a, PID: ID, GID: ID> Core<PID, GID> {
                 target,
                 ..
             } = night_actions.pop().unwrap();
-            role.night_action(actor, target, &mut dawn_state, &self.event_rx)?;
+            role.night_action(actor, target, &mut dawn_state, &self.event_tx)?;
         }
 
         // Perform scheme
@@ -487,7 +516,7 @@ impl<'a, PID: ID, GID: ID> Core<PID, GID> {
                     }
                     if let Some(blockers) = dawn_state.blocks.get(&savior) {
                         send(
-                            &self.event_rx,
+                            &self.event_tx,
                             Event::EvidentBlock {
                                 blocked: savior,
                                 blockers: blockers.clone(),
@@ -496,21 +525,24 @@ impl<'a, PID: ID, GID: ID> Core<PID, GID> {
                         continue;
                     }
                     saved = true;
-                    send(&self.event_rx, Event::EvidentSave { savior, mark })?;
+                    send(&self.event_tx, Event::EvidentSave { savior, mark })?;
                 }
             }
             if !saved {
                 dawn_state.killed.insert(mark);
-                send(&self.event_rx, Event::Kill { killer, mark })?;
+                send(&self.event_tx, Event::Kill { killer, mark })?;
             }
         }
-
         if dawn_state.killed.len() > 0 {
+            let mut game_over = false;
             for &player in &dawn_state.killed {
-                self.eliminate(player)?;
+                game_over = self.eliminate(player)? | game_over;
+            }
+            if game_over {
+                return Ok(());
             }
         } else {
-            send(&self.event_rx, Event::NoNightKill)?;
+            send(&self.event_tx, Event::NoNightKill)?;
         }
 
         // Perform post-scheme actions
@@ -521,7 +553,7 @@ impl<'a, PID: ID, GID: ID> Core<PID, GID> {
                 target,
                 ..
             } = night_actions.pop().unwrap();
-            role.night_action(actor, target, &mut dawn_state, &self.event_rx)?;
+            role.night_action(actor, target, &mut dawn_state, &self.event_tx)?;
         }
 
         self.to_day(Some(dawn_state.blocks))?;
@@ -537,7 +569,7 @@ impl<'a, PID: ID, GID: ID> Core<PID, GID> {
             elect_timer: None,
         };
         send(
-            &self.event_rx,
+            &self.event_tx,
             Event::Day {
                 day_no: self.state.day_no,
             },
@@ -549,9 +581,10 @@ impl<'a, PID: ID, GID: ID> Core<PID, GID> {
         self.state.phase = Phase::Night {
             targets: HashMap::new(),
             scheme: None,
+            dawn_timer: None,
         };
         send(
-            &self.event_rx,
+            &self.event_tx,
             Event::Night {
                 day_no: self.state.day_no,
             },
@@ -584,8 +617,13 @@ impl<'a, PID: ID, GID: ID> Core<PID, GID> {
     //     return None;
     // }
 
-    fn check_dawn(&self) -> Result<bool, CoreError<PID>> {
-        let Phase::Night { targets, scheme } = &self.state.phase else {
+    fn check_dawn(&mut self) -> Result<bool, CoreError<PID>> {
+        let Phase::Night {
+            targets,
+            scheme,
+            dawn_timer,
+        } = &mut self.state.phase
+        else {
             let actual = self.state.phase.kind();
             let expected = PhaseKind::Night;
             return Err(CoreError::InvalidPhase { actual, expected });
@@ -601,6 +639,19 @@ impl<'a, PID: ID, GID: ID> Core<PID, GID> {
                 }
             }
         }
+        // Schedule dawn!
+        let action_tx = self.action_tx.clone();
+        *dawn_timer = Some(Timer::new(
+            SystemTime::now() + Duration::from_secs(1),
+            (),
+            Duration::from_millis(100),
+            Box::new(move |_| {
+                let (tx, rx) = std::sync::mpsc::channel();
+                action_tx.send((Action::Dawn, tx)).unwrap();
+                rx.recv().unwrap().expect("Dawn failed!");
+            }),
+        ));
+
         return Ok(true);
     }
 
