@@ -3,8 +3,7 @@ mod core;
 use std::collections::HashMap;
 
 use crate::core::base::*;
-use crate::core::error::*;
-use crate::core::events::*;
+use crate::core::interface::*;
 use crate::core::roles::*;
 use crate::core::*;
 
@@ -16,7 +15,8 @@ use std::time;
 
 impl ID for u32 {}
 
-fn main() -> Result<(), ()> {
+#[tokio::main]
+async fn main() -> Result<(), ()> {
     // println!("Hello, world!");
     test3().unwrap();
     Ok(())

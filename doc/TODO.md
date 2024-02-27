@@ -1,0 +1,12 @@
+- [ ] Core Game
+	- [ ] Package Organization
+	- [ ] Unit Testing
+	- [ ] Add Contract Roles
+	- [ ] Add Rules
+	- [ ] Serialization and deserialization
+		- [ ] Core Game State
+		- [ ] Rule Serialization
+- [ ] Controller
+	- [ ] Action Parser
+	- [ ] Event Handler
+	- [ ] 

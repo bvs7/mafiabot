@@ -6,6 +6,8 @@ edition = "2021"
 [dependencies]
 chrono = "0.4.34"
 enum-kinds = "0.5.1"
+serde = "1.0.197"
 timer = "0.2.0"
+tokio = { version = "1", features = ["full"] }
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html

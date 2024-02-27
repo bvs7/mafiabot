@@ -1,49 +1,48 @@
+use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
 use std::hash::Hash;
 
-use crate::base::ID;
-use crate::core::{Core, CoreError, DawnState};
-use crate::events::{send, Event, EventOutput};
-
-// Create a trait PID that implements Eq, Hash, and Copy
+use crate::core::base::ID;
+use crate::interface::{CoreError, Event, EventOutput};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, EnumKind)]
 #[enum_kind(RoleKind)]
-pub enum Role {
+pub enum Role<PID: ID> {
     TOWN,
     COP,
     DOCTOR,
     CELEB,
     MAFIA,
     STRIPPER,
+    IDIOT(bool), // Bool is if IDIOT was elected
+    SURVIVOR,
+    GUARD(PID),
+    AGENT(PID),
 }
 
-impl Role {
+impl<PID: ID> Role<PID> {
     pub fn is_targeting(&self) -> bool {
         match self {
-            Role::TOWN => false,
             Role::COP => true,
             Role::DOCTOR => true,
-            Role::CELEB => false,
-            Role::MAFIA => false,
             Role::STRIPPER => true,
+            _ => false,
         }
-    }
-
-    pub fn validate_targeting<PID: ID>(&self) -> Result<(), CoreError<PID>> {
-        if !self.is_targeting() {
-            return Err(CoreError::ExpectedTargetingRole {
-                role: RoleKind::from(self),
-            });
-        }
-        Ok(())
     }
 
     pub fn is_scheming(&self) -> bool {
         return self.team() == Team::Mafia;
     }
 
-    pub fn validate_scheming<PID: ID>(&self) -> Result<(), CoreError<PID>> {
+    pub fn contract(&self) -> Option<PID> {
+        return match self {
+            Role::GUARD(charge) => Some(*charge),
+            Role::AGENT(charge) => Some(*charge),
+            _ => None,
+        };
+    }
+
+    pub fn validate_scheming(&self) -> Result<(), CoreError<PID>> {
         if !self.is_scheming() {
             return Err(CoreError::ExpectedSchemingRole {
                 role: RoleKind::from(self),
@@ -55,95 +54,98 @@ impl Role {
     // Positive happens before mafia scheme is resolved. Negative happens after mafia scheme is resolved.
     pub fn night_action_priority(&self) -> Option<i8> {
         return match self {
-            Role::TOWN => None,
-            Role::CELEB => None,
-            Role::MAFIA => None,
             Role::COP => Some(-1),
             Role::DOCTOR => Some(1),
             Role::STRIPPER => Some(2),
+            _ => None,
         };
     }
 
-    pub fn night_action<PID: ID>(
+    pub fn night_action(
         &self,
         actor: PID,
         target: PID,
-        dawn_state: &mut DawnState<PID>,
+        dawn_state: &DawnState<PID>,
         events: &EventOutput<PID>,
-    ) -> Result<(), CoreError<PID>> {
+    ) -> Result<Vec<DawnStateChange<PID>>, CoreError<PID>> {
         match self {
             Role::COP => {
                 // if cop was killed, do nothing
-                if dawn_state.killed.contains(&actor) {
-                    return Ok(());
+                if dawn_state.killed.contains_key(&actor) {
+                    return Ok(vec![]);
                 }
                 // if target was killed, do nothing
-                if dawn_state.killed.contains(&target) {
-                    return Ok(());
+                if dawn_state.killed.contains_key(&target) {
+                    return Ok(vec![]);
                 }
                 if let Some((&blocked, blockers)) = dawn_state.blocks.get_key_value(&actor) {
                     let blockers = blockers.clone();
-                    send(events, Event::EvidentBlock { blocked, blockers })?;
-                    return Ok(());
+                    events.send(Event::EvidentBlock { blocked, blockers })?;
+                    return Ok(vec![]);
                 }
-                send(events, Event::Investigate { actor, target })?;
+                events.send(Event::Investigate { actor, target })?;
             }
             Role::DOCTOR => {
-                dawn_state
-                    .saves
-                    .entry(target)
-                    .or_insert(Vec::new())
-                    .push(actor);
-
-                send(events, Event::Save { actor, target })?;
+                events.send(Event::Save { actor, target })?;
+                return Ok(vec![DawnStateChange::Save { actor, target }]);
             }
             Role::STRIPPER => {
-                dawn_state
-                    .blocks
-                    .entry(target)
-                    .or_insert(Vec::new())
-                    .push(actor);
-
-                send(events, Event::Block { actor, target })?;
+                events.send(Event::Block { actor, target })?;
+                return Ok(vec![DawnStateChange::Block { actor, target }]);
             }
 
             _ => {}
         }
-        Ok(())
+        Ok(vec![])
     }
 
     pub fn team(&self) -> Team {
         return match self {
             Role::TOWN | Role::COP | Role::DOCTOR | Role::CELEB => Team::Town,
             Role::MAFIA | Role::STRIPPER => Team::Mafia,
+            Role::IDIOT(_) | Role::SURVIVOR | Role::GUARD(_) | Role::AGENT(_) => Team::Rogue,
         };
     }
     pub fn kind(&self) -> RoleKind {
         return RoleKind::from(self);
-        // return match self {
-        //     Role::TOWN => RoleKind::TOWN,
-        //     Role::COP => RoleKind::COP,
-        //     Role::CELEB => RoleKind::CELEB,
-        //     Role::DOCTOR => RoleKind::DOCTOR,
-        //     Role::MAFIA => RoleKind::MAFIA,
-        //     Role::STRIPPER => RoleKind::STRIPPER,
-        // };
     }
 }
-
-// #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-// enum RoleKind {
-//     TOWN,
-//     COP,
-//     DOCTOR,
-//     CELEB,
-//     MAFIA,
-//     STRIPPER,
-// }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Team {
     Town,
     Mafia,
     Rogue,
+}
+
+// mutated by Roles at dawn
+#[derive(Debug)]
+pub struct DawnState<PID: ID> {
+    pub blocks: HashMap<PID, Vec<PID>>,
+    pub saves: HashMap<PID, Vec<PID>>,
+    pub killed: HashMap<PID, PID>, // marks -> killer
+}
+
+pub enum DawnStateChange<PID: ID> {
+    Block { actor: PID, target: PID },
+    Save { actor: PID, target: PID },
+    Kill { killer: PID, mark: PID },
+}
+
+impl<PID: ID> DawnState<PID> {
+    pub fn apply_changes(&mut self, changes: Vec<DawnStateChange<PID>>) {
+        for change in changes {
+            match change {
+                DawnStateChange::Block { actor, target } => {
+                    self.blocks.entry(target).or_insert(Vec::new()).push(actor);
+                }
+                DawnStateChange::Save { actor, target } => {
+                    self.saves.entry(target).or_insert(Vec::new()).push(actor);
+                }
+                DawnStateChange::Kill { killer, mark } => {
+                    self.killed.insert(mark, killer);
+                }
+            }
+        }
+    }
 }
