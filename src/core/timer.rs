@@ -22,6 +22,7 @@ struct TimerData {
     finished: bool,
 }
 
+#[derive(Clone)]
 pub struct Timer {
     data: Arc<Mutex<TimerData>>,
 }

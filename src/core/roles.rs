@@ -3,7 +3,7 @@ use std::fmt::Debug;
 use std::hash::Hash;
 
 use crate::core::base::ID;
-use crate::interface::{CoreError, Event, EventOutput};
+use crate::interface::{CoreError, Event, EventTx};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, EnumKind)]
 #[enum_kind(RoleKind)]
@@ -41,15 +41,6 @@ impl<PID: ID> Role<PID> {
             _ => None,
         };
     }
-
-    pub fn validate_scheming(&self) -> Result<(), CoreError<PID>> {
-        if !self.is_scheming() {
-            return Err(CoreError::ExpectedSchemingRole {
-                role: RoleKind::from(self),
-            });
-        }
-        Ok(())
-    }
     // Larger priority happens first at dawn. Equal priorities can happen in any order.
     // Positive happens before mafia scheme is resolved. Negative happens after mafia scheme is resolved.
     pub fn night_action_priority(&self) -> Option<i8> {
@@ -66,7 +57,7 @@ impl<PID: ID> Role<PID> {
         actor: PID,
         target: PID,
         dawn_state: &DawnState<PID>,
-        events: &EventOutput<PID>,
+        events: &EventTx<PID>,
     ) -> Result<Vec<DawnStateChange<PID>>, CoreError<PID>> {
         match self {
             Role::COP => {

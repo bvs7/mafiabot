@@ -1,19 +1,34 @@
-use crate::core::base::{Choice, ID};
-use crate::core::PhaseKind;
+use crate::base::{Choice, ID};
+use crate::core::{PhaseKind, State};
 use crate::roles::{Role, RoleKind, Team};
 
 use std::collections::HashMap;
 // use std::sync::mpsc::{SendError, Sender};
 use tokio::sync::{mpsc, oneshot};
 
-pub type Resp<PID, T> = Result<T, CoreError<PID>>;
-pub type RespInput<PID, T> = oneshot::Sender<Resp<PID, T>>;
-pub type RespOutput<PID, T> = oneshot::Receiver<Resp<PID, T>>;
+pub type ActionResponder<PID> = oneshot::Sender<Result<(), CoreError<PID>>>;
+pub type StatusResponder<PID> = oneshot::Sender<Result<State<PID>, CoreError<PID>>>;
 
-pub type ActionInput<PID, T> = mpsc::Sender<(Action<PID>, RespInput<PID, T>)>;
-pub type ActionOutput<PID, T> = mpsc::Receiver<(Action<PID>, RespInput<PID, T>)>;
+pub type CommandTx<PID> = mpsc::Sender<Command<PID>>;
+pub type CommandRx<PID> = mpsc::Receiver<Command<PID>>;
+pub type EventTx<PID> = mpsc::Sender<Event<PID>>;
+pub type EventRx<PID> = mpsc::Receiver<Event<PID>>;
 
-pub type EventOutput<PID> = mpsc::Sender<Event<PID>>;
+pub fn command_channel<PID: ID>() -> (mpsc::Sender<Command<PID>>, mpsc::Receiver<Command<PID>>) {
+    mpsc::channel(100)
+}
+
+pub fn event_channel<PID: ID>() -> (mpsc::Sender<Event<PID>>, mpsc::Receiver<Event<PID>>) {
+    mpsc::channel(100)
+}
+
+// Responses are wither () for Action or status for Status?
+#[derive(Debug)]
+pub enum Command<PID: ID> {
+    Action(Action<PID>, ActionResponder<PID>),
+    Status(StatusResponder<PID>),
+    Close,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Action<PID: ID> {
@@ -26,7 +41,6 @@ pub enum Action<PID: ID> {
     Avenge { avenger: PID, victim: Choice<PID> },
     Elect { candidate: Choice<PID>, hammer: PID },
     Dawn,
-    Close, // TODO: split this into a separate command. Have ActionCommand(Action) and Close as separate commands.
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -62,8 +76,13 @@ pub enum Event<PID: ID> {
         role: Role<PID>,
         former_role: Role<PID>,
     },
+    ElectionImminent {
+        candidate: Choice<PID>,
+        hammer: PID,
+    },
     Election {
-        choice: Choice<PID>,
+        candidate: Choice<PID>,
+        hammer: PID,
         voters: Vec<PID>,
     },
     Block {
@@ -134,6 +153,9 @@ pub enum CoreError<PID: ID> {
     ExpectedPlayer {
         actual: PID,
         expected: PID,
+    },
+    StripperOverload {
+        actor: PID,
     },
     InvalidOption {
         actual: PID,

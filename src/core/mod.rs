@@ -8,7 +8,8 @@ pub mod timer;
 
 use base::{Choice, ID};
 use interface::{
-    Action, ActionInput, ActionOutput, CoreError, Event, EventOutput, RespInput, RespOutput,
+    command_channel, event_channel, Action, Command, CommandRx, CommandTx, CoreError, Event,
+    EventRx, EventTx,
 };
 use roles::{DawnState, DawnStateChange, Role, RoleKind, Team};
 use timer::Timer;
@@ -63,7 +64,7 @@ impl<PID: ID> Stats<PID> {
     }
 }
 
-#[derive(EnumKind, Debug)]
+#[derive(EnumKind, Debug, Clone)]
 #[enum_kind(PhaseKind)]
 pub enum Phase<PID: ID> {
     Init,
@@ -93,12 +94,12 @@ impl<PID: ID> Phase<PID> {
     }
 }
 
-#[derive(Debug)]
-struct State<PID: ID> {
-    day_no: u32,
-    players: HashMap<PID, Role<PID>>,
-    phase: Phase<PID>,
-    role_history: HashMap<PID, Vec<Role<PID>>>,
+#[derive(Debug, Clone)]
+pub struct State<PID: ID> {
+    pub day_no: u32,
+    pub players: HashMap<PID, Role<PID>>,
+    pub phase: Phase<PID>,
+    pub role_history: HashMap<PID, Vec<Role<PID>>>,
 }
 
 impl<PID: ID> State<PID> {
@@ -120,9 +121,33 @@ pub struct Core<PID: ID, GID: ID> {
     pub id: GID,
     state: State<PID>,
     rules: Rules,
-    event_tx: EventOutput<PID>,
-    action_rx: ActionOutput<PID, ()>,
-    action_tx: ActionInput<PID, ()>,
+    event_tx: EventTx<PID>,
+    command_rx: CommandRx<PID>,
+    command_tx: CommandTx<PID>,
+}
+
+// TODO: handle comms errors?
+pub async fn send_action<PID: ID>(
+    command_tx: &CommandTx<PID>,
+    action: Action<PID>,
+) -> Result<(), CoreError<PID>> {
+    let (tx, rx) = oneshot::channel();
+    command_tx.send(Command::Action(action, tx)).await.unwrap();
+    let resp = rx.await.unwrap();
+    resp
+}
+
+pub async fn send_status<PID: ID>(
+    command_tx: &CommandTx<PID>,
+) -> Result<State<PID>, CoreError<PID>> {
+    let (tx, rx) = oneshot::channel();
+    command_tx.send(Command::Status(tx)).await.unwrap();
+    let resp = rx.await.unwrap();
+    resp
+}
+
+pub async fn send_close<PID: ID>(command_tx: &CommandTx<PID>) {
+    command_tx.send(Command::Close).await.unwrap();
 }
 
 /*
@@ -142,33 +167,32 @@ impl<PID: ID, GID: ID> Core<PID, GID> {
         id: GID,
         players: HashMap<PID, Role<PID>>,
         rules: Rules,
-        event_tx: EventOutput<PID>,
-        action_rx: ActionOutput<PID, ()>,
-        action_tx: ActionInput<PID, ()>,
-    ) -> Self {
+    ) -> (Self, CommandTx<PID>, EventRx<PID>) {
         let day_no = 0;
 
         let state = State::new(players);
-        Core {
+
+        let (event_tx, event_rx) = event_channel();
+        let (command_tx, command_rx) = command_channel();
+
+        let core = Core {
             id,
             state,
             rules,
             event_tx,
-            action_rx,
-            action_tx,
-        }
+            command_rx,
+            command_tx: command_tx.clone(),
+        };
+        return (core, command_tx, event_rx);
     }
 
     pub async fn new_spawned(
         id: GID,
         players: HashMap<PID, Role<PID>>,
         rules: Rules,
-        event_tx: EventOutput<PID>,
-        action_rx: ActionOutput<PID, ()>,
-        action_tx: ActionInput<PID, ()>,
-    ) -> JoinHandle<()> {
-        let core = Core::new(id, players, rules, event_tx, action_rx, action_tx);
-        core.spawn().await
+    ) -> (JoinHandle<()>, CommandTx<PID>, EventRx<PID>) {
+        let (core, command_tx, event_rx) = Core::new(id, players, rules);
+        (core.spawn().await, command_tx, event_rx)
     }
 
     pub async fn spawn(self) -> JoinHandle<()> {
@@ -185,32 +209,26 @@ impl<PID: ID, GID: ID> Core<PID, GID> {
         while !quit {
             tokio::time::sleep(Duration::from_millis(1)).await;
 
-            let Some((action, response)) = self.action_rx.recv().await else {
+            let Some(command) = self.command_rx.recv().await else {
                 break; // Action Channel closed, quit
             };
-            // Do action (non-blocking sync function?)
-            let resp = self.handle_action(action).await;
-            // If this fails, resp is returned... What should we do in that case? TODO
-            if let Err(CoreError::Close) = resp {
-                quit = true;
-                self.event_tx.send(Event::Close).await.unwrap();
+            match command {
+                Command::Action(action, response) => {
+                    let resp = self.handle_action(action).await;
+                    response.send(resp).expect("Response channel error: {:?}");
+                }
+                Command::Status(response) => {
+                    response
+                        .send(Ok(self.state.clone()))
+                        .expect("Response channel error: {:?}");
+                }
+                Command::Close => {
+                    quit = true;
+                }
             }
-            response.send(resp).expect("Response channel error: {:?}");
         }
 
         self.event_tx.send(Event::Close).await.unwrap();
-    }
-
-    pub async fn send_action(
-        action_tx: &ActionInput<PID, ()>,
-        action: Action<PID>,
-    ) -> Result<(), CoreError<PID>> {
-        let (tx, rx) = oneshot::channel();
-
-        action_tx.send((action, tx)).await.expect("Action to send");
-
-        let resp = rx.await.expect("Response to receive");
-        resp
     }
 
     async fn handle_action(&mut self, action: Action<PID>) -> Result<(), CoreError<PID>> {
@@ -224,10 +242,6 @@ impl<PID: ID, GID: ID> Core<PID, GID> {
             Action::Avenge { avenger, victim } => self.avenge(avenger, victim).await,
             Action::Elect { candidate, hammer } => self.elect(candidate, hammer).await,
             Action::Dawn => self.dawn().await,
-            Action::Close => {
-                self.event_tx.send(Event::Close).await?;
-                Err(CoreError::Close)
-            }
         };
         result
     }
@@ -306,16 +320,24 @@ impl<PID: ID, GID: ID> Core<PID, GID> {
 
         // Check for a new election
         if let Some(candidate) = ballot {
-            if let Some(_) = Self::check_election(votes, n, candidate) {
+            if let Some(choice) = Self::check_election(votes, n, candidate) {
+                // TODO: need to associate data with timer
+                // Need to be able to check if elect timer is for a given candidate!
+                self.event_tx
+                    .send(Event::ElectionImminent {
+                        candidate: candidate,
+                        hammer: voter,
+                    })
+                    .await?;
                 // Set election timer
-                let action_tx = self.action_tx.clone();
+                let command_tx = self.command_tx.clone();
                 let t = Timer::new(
                     tokio::time::Instant::now() + Duration::from_secs(1),
                     Duration::from_millis(100),
                     async move {
                         let (tx, rx) = oneshot::channel();
-                        action_tx
-                            .send((
+                        command_tx
+                            .send(Command::Action(
                                 Action::Elect {
                                     candidate: candidate.clone(),
                                     hammer: voter.clone(),
@@ -382,10 +404,18 @@ impl<PID: ID, GID: ID> Core<PID, GID> {
                 expected: PhaseKind::Night,
             });
         };
+
+        // Check for Stripper Overload
+        if role.kind() == RoleKind::STRIPPER && target != Choice::Abstain {
+            if let Some((killer, mark)) = scheme {
+                if *killer == actor && *mark != Choice::Abstain {
+                    return Err(CoreError::StripperOverload { actor });
+                }
+            }
+        }
+
         let former_target = targets.insert(actor, target);
         self.event_tx.send(Event::Target { actor, target }).await?;
-
-        // TODO: if actor was STRIPPER, make sure they can't kill
 
         self.check_dawn().await?;
         Ok(())
@@ -393,22 +423,36 @@ impl<PID: ID, GID: ID> Core<PID, GID> {
 
     async fn scheme(&mut self, actor: PID, mark: Choice<PID>) -> Result<(), CoreError<PID>> {
         let role = Self::validate_player(&self.state.players, actor)?;
-        role.validate_scheming()?;
+        if !role.is_scheming() {
+            let role = role.kind();
+            return Err(CoreError::ExpectedSchemingRole { role });
+        }
         if let Choice::Player(player) = mark {
             let _ = Self::validate_player(&self.state.players, player)?;
         }
 
         // Check if the phase is night
-        let Phase::Night { scheme, .. } = &mut self.state.phase else {
+        let Phase::Night {
+            targets, scheme, ..
+        } = &mut self.state.phase
+        else {
             return Err(CoreError::InvalidPhase {
                 actual: self.state.phase.kind(),
                 expected: PhaseKind::Night,
             });
         };
+
+        // Check for Stripper Overload
+        if role.kind() == RoleKind::STRIPPER && mark != Choice::Abstain {
+            if let Some(target) = targets.get(&actor) {
+                if *target != Choice::Abstain {
+                    return Err(CoreError::StripperOverload { actor });
+                }
+            }
+        }
+
         scheme.replace((actor, mark));
         self.event_tx.send(Event::Scheme { actor, mark }).await?;
-
-        // TODO: if killer was STRIPPER, make sure they can't target
 
         self.check_dawn().await?;
         Ok(())
@@ -422,18 +466,25 @@ impl<PID: ID, GID: ID> Core<PID, GID> {
             let expected = PhaseKind::Day;
             return Err(CoreError::InvalidPhase { actual, expected });
         };
+
+        if let Choice::Player(player) = candidate {
+            let _ = Self::validate_player(&self.state.players, player)?;
+        }
+
+        let Some(voters) = Self::check_election(votes, n, candidate) else {
+            return Err(CoreError::ExpectedElection { candidate });
+        };
+
+        self.event_tx
+            .send(Event::Election {
+                candidate,
+                hammer,
+                voters: voters.clone(),
+            })
+            .await?;
+
         if let Choice::Player(player) = candidate {
             let role = Self::validate_player(&self.state.players, player)?;
-            // Triple check for election?
-            let Some(voters) = Self::check_election(votes, n, candidate) else {
-                return Err(CoreError::ExpectedElection { candidate });
-            };
-            self.event_tx
-                .send(Event::Election {
-                    choice: candidate,
-                    voters: voters.clone(),
-                })
-                .await?;
 
             if role.kind() == RoleKind::IDIOT {
                 // Go to ECLIPSE
@@ -780,14 +831,14 @@ impl<PID: ID, GID: ID> Core<PID, GID> {
             }
         }
         // Schedule dawn!
-        let action_tx = self.action_tx.clone();
+        let command_tx = self.command_tx.clone();
         let t = Timer::new(
             Instant::now() + Duration::from_secs(1),
             Duration::from_millis(100),
             async move {
                 let (tx, rx) = oneshot::channel();
-                action_tx
-                    .send((Action::Dawn, tx))
+                command_tx
+                    .send(Command::Action(Action::Dawn, tx))
                     .await
                     .expect("Action to send");
                 let _ = rx.await.expect("Dawn Resp to recv");
@@ -869,7 +920,7 @@ mod test {
         tokio::spawn(async move {
             loop {
                 let event = event_rx.recv().await.expect("Event to receive");
-                println!("Eprint!: {:?}", event);
+                println!("EVENT: {:?}", event);
                 tokio::time::sleep(Duration::from_millis(10)).await;
                 if let Event::Close { .. } = event {
                     break;
@@ -878,67 +929,157 @@ mod test {
         })
     }
 
-    async fn end(action_tx: &ActionInput<u32, ()>, joins: Vec<JoinHandle<()>>) {
-        let resp = Core::<u32, u32>::send_action(&action_tx, Action::Close).await;
-        assert_eq!(resp, Err(CoreError::Close));
-        for join in joins {
-            join.await.expect("Join to finish");
+    fn get_players(n: u8) -> HashMap<u32, Role<u32>> {
+        let mut players = HashMap::new();
+        let role_list = vec![
+            Role::TOWN,         // 1
+            Role::TOWN,         // 2
+            Role::MAFIA,        // 3
+            Role::COP,          // 4
+            Role::DOCTOR,       // 5
+            Role::STRIPPER,     // 6
+            Role::CELEB,        // 7
+            Role::IDIOT(false), // 8
+            Role::SURVIVOR,     // 9
+            Role::AGENT(1),     // 10
+            Role::GUARD(1),     // 11
+        ];
+        for i in 1..=n {
+            players.insert(i as u32, role_list[i as usize - 1]);
         }
+        players
+    }
+
+    async fn vote(
+        command_tx: &CommandTx<u32>,
+        voter: u32,
+        choice: Choice<u32>,
+    ) -> Result<(), CoreError<u32>> {
+        let action = Action::Vote { voter, choice };
+        send_action(&command_tx, action).await
+    }
+
+    async fn target(
+        command_tx: &CommandTx<u32>,
+        actor: u32,
+        target: Choice<u32>,
+    ) -> Result<(), CoreError<u32>> {
+        let action = Action::Target { actor, target };
+        send_action(&command_tx, action).await
+    }
+
+    async fn scheme(
+        command_tx: &CommandTx<u32>,
+        actor: u32,
+        mark: Choice<u32>,
+    ) -> Result<(), CoreError<u32>> {
+        let action = Action::Scheme { actor, mark };
+        send_action(&command_tx, action).await
     }
 
     #[tokio::test]
-    async fn test_core_basic() {
-        // Create a basic mafia game
-
-        env::set_var("RUST_BACKTRACE", "1");
-
+    async fn test_core_basic() -> Result<(), CoreError<u32>> {
+        // env::set_var("RUST_BACKTRACE", "1");
         impl ID for u32 {}
 
-        let mut players = HashMap::new();
-        players.insert(1, Role::TOWN);
-        players.insert(2, Role::TOWN);
-        players.insert(3, Role::MAFIA);
+        let players = get_players(7);
 
-        let (event_tx, event_rx) = mpsc::channel::<Event<u32>>(100);
+        let (core_join, command_tx, event_rx) = Core::new_spawned(0, players, Rules {}).await;
 
-        let event_join = start_print_event_handler(event_rx).await;
+        let event_handler_join = start_print_event_handler(event_rx).await;
 
-        let (action_tx, action_rx) = mpsc::channel(100);
+        send_action(&command_tx, Action::Start).await?;
 
-        let core_join =
-            Core::new_spawned(0, players, Rules {}, event_tx, action_rx, action_tx.clone()).await;
+        let state = send_status(&command_tx).await?;
+        println!("{:#?}", state);
 
-        let resp = Core::<u32, u32>::send_action(&action_tx, Action::Start).await;
-        assert_eq!(resp, Ok(()));
+        assert_eq!(state.day_no, 1);
+        assert_eq!(state.players.len(), 7);
+        assert_eq!(state.phase.kind(), PhaseKind::Day);
 
-        tokio::time::sleep(Duration::from_millis(100)).await;
+        vote(&command_tx, 1, Choice::Player(3)).await?;
+        vote(&command_tx, 2, Choice::Player(3)).await?;
+        vote(&command_tx, 3, Choice::Player(3)).await?;
+        vote(&command_tx, 4, Choice::Player(3)).await?;
 
-        let resp = Core::<u32, u32>::send_action(
-            &action_tx,
-            Action::Vote {
-                voter: 1,
-                choice: Choice::Abstain,
-            },
-        )
-        .await;
-        assert_eq!(resp, Ok(()));
+        tokio::time::sleep(Duration::from_secs(2)).await;
 
-        let resp = Core::<u32, u32>::send_action(
-            &action_tx,
-            Action::Vote {
-                voter: 2,
-                choice: Choice::Abstain,
-            },
-        )
-        .await;
-        assert_eq!(resp, Ok(()));
+        let state = send_status(&command_tx).await?;
+        println!("{:#?}", state);
+        assert_eq!(state.day_no, 1);
+        assert_eq!(state.players.len(), 6);
+        assert_eq!(state.phase.kind(), PhaseKind::Night);
 
-        tokio::time::sleep(Duration::from_millis(2000)).await;
+        scheme(&command_tx, 6, Choice::Player(1)).await?;
 
-        let resp = Core::<u32, u32>::send_action(&action_tx, Action::Close).await;
-        assert_eq!(resp, Err(CoreError::Close));
-        for join in vec![core_join, event_join] {
-            join.await.expect("Join to finish");
-        }
+        assert_eq!(
+            target(&command_tx, 6, Choice::Player(4)).await,
+            Err(CoreError::StripperOverload { actor: 6 })
+        );
+
+        scheme(&command_tx, 6, Choice::Abstain).await?;
+        target(&command_tx, 6, Choice::Player(4)).await?;
+
+        target(&command_tx, 4, Choice::Player(1)).await?;
+        target(&command_tx, 5, Choice::Player(5)).await?;
+
+        tokio::time::sleep(Duration::from_secs(2)).await;
+
+        let state = send_status(&command_tx).await?;
+
+        println!("{:#?}", state);
+
+        assert_eq!(state.day_no, 2);
+        assert_eq!(state.players.len(), 6);
+        assert_eq!(state.phase.kind(), PhaseKind::Day);
+
+        vote(&command_tx, 7, Choice::Player(1)).await?;
+        vote(&command_tx, 6, Choice::Player(1)).await?;
+        vote(&command_tx, 1, Choice::Player(1)).await?;
+
+        tokio::time::sleep(Duration::from_secs(2)).await;
+
+        let state = send_status(&command_tx).await?;
+        assert_eq!(state.phase.kind(), PhaseKind::Day);
+
+        vote(&command_tx, 1, Choice::Abstain).await?;
+        vote(&command_tx, 2, Choice::Abstain).await?;
+        assert_eq!(
+            vote(&command_tx, 3, Choice::Abstain).await,
+            Err(CoreError::InvalidPlayer { player: 3 })
+        );
+        vote(&command_tx, 4, Choice::Abstain).await?;
+
+        send_action(&command_tx, Action::Unvote { voter: 4 }).await?;
+
+        tokio::time::sleep(Duration::from_secs(2)).await;
+
+        let state = send_status(&command_tx).await?;
+        assert_eq!(state.phase.kind(), PhaseKind::Day);
+
+        vote(&command_tx, 7, Choice::Abstain).await?;
+        vote(&command_tx, 6, Choice::Abstain).await?;
+
+        tokio::time::sleep(Duration::from_secs(2)).await;
+
+        let state = send_status(&command_tx).await?;
+        assert_eq!(state.phase.kind(), PhaseKind::Night);
+
+        target(&command_tx, 4, Choice::Player(6)).await?;
+        target(&command_tx, 5, Choice::Player(5)).await?;
+
+        target(&command_tx, 6, Choice::Abstain).await?;
+        scheme(&command_tx, 6, Choice::Player(1)).await?;
+
+        target(&command_tx, 4, Choice::Player(1)).await?;
+
+        tokio::time::sleep(Duration::from_secs(2)).await;
+
+        let state = send_status(&command_tx).await?;
+        assert_eq!(state.phase.kind(), PhaseKind::Day);
+
+        send_close(&command_tx).await;
+
+        return Ok(());
     }
 }
