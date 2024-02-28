@@ -1078,6 +1078,16 @@ mod test {
         let state = send_status(&command_tx).await?;
         assert_eq!(state.phase.kind(), PhaseKind::Day);
 
+        vote(&command_tx, 7, Choice::Player(1)).await?;
+        vote(&command_tx, 6, Choice::Player(1)).await?;
+        vote(&command_tx, 1, Choice::Player(1)).await?;
+        vote(&command_tx, 2, Choice::Player(1)).await?;
+
+        tokio::time::sleep(Duration::from_secs(2)).await;
+
+        let state = send_status(&command_tx).await?;
+        assert_eq!(state.phase.kind(), PhaseKind::Night);
+
         send_close(&command_tx).await;
 
         return Ok(());
