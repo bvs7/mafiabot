@@ -1,27 +1,25 @@
 mod core;
 
-use std::collections::HashMap;
+// use std::collections::HashMap;
 
-use crate::core::base::*;
-use crate::core::interface::*;
-use crate::core::roles::*;
+// use crate::core::base::*;
+// use crate::core::interface::*;
+// use crate::core::roles::*;
 use crate::core::*;
 
 #[macro_use]
 extern crate enum_kinds;
 
-use std::thread;
-use std::time;
-
-impl ID for u32 {}
+// use std::thread;
+// use std::time;
 
 #[tokio::main]
 async fn main() -> Result<(), ()> {
     // println!("Hello, world!");
-    test3().unwrap();
+    // test3().unwrap();
     Ok(())
 }
-
+/*
 fn test1() -> Result<(), ()> {
     let mut players = HashMap::new();
     players.insert(1, Role::TOWN);
@@ -228,3 +226,4 @@ fn test3() -> Result<(), ()> {
     event_reader.join().expect("Event reader to join");
     Ok(())
 }
+*/

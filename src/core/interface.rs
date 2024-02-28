@@ -3,9 +3,19 @@ use crate::core::PhaseKind;
 use crate::roles::{Role, RoleKind, Team};
 
 use std::collections::HashMap;
-use std::sync::mpsc::{SendError, Sender};
+// use std::sync::mpsc::{SendError, Sender};
+use tokio::sync::{mpsc, oneshot};
 
-#[derive(Debug, Clone)]
+pub type Resp<PID, T> = Result<T, CoreError<PID>>;
+pub type RespInput<PID, T> = oneshot::Sender<Resp<PID, T>>;
+pub type RespOutput<PID, T> = oneshot::Receiver<Resp<PID, T>>;
+
+pub type ActionInput<PID, T> = mpsc::Sender<(Action<PID>, RespInput<PID, T>)>;
+pub type ActionOutput<PID, T> = mpsc::Receiver<(Action<PID>, RespInput<PID, T>)>;
+
+pub type EventOutput<PID> = mpsc::Sender<Event<PID>>;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Action<PID: ID> {
     Start,
     Vote { voter: PID, choice: Choice<PID> },
@@ -16,12 +26,10 @@ pub enum Action<PID: ID> {
     Avenge { avenger: PID, victim: Choice<PID> },
     Elect { candidate: Choice<PID>, hammer: PID },
     Dawn,
-    Close,
+    Close, // TODO: split this into a separate command. Have ActionCommand(Action) and Close as separate commands.
 }
 
-pub type EventOutput<PID> = Sender<Event<PID>>;
-
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Event<PID: ID> {
     Start,
     Vote {
@@ -102,7 +110,7 @@ pub enum Event<PID: ID> {
     Close,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CoreError<PID: ID> {
     InvalidPhase {
         actual: PhaseKind,
@@ -131,11 +139,12 @@ pub enum CoreError<PID: ID> {
         actual: PID,
         options: Vec<PID>,
     },
-    EventSendError(SendError<Event<PID>>),
+    EventSendError(mpsc::error::SendError<Event<PID>>),
+    Close,
 }
 
-impl<PID: ID> From<SendError<Event<PID>>> for CoreError<PID> {
-    fn from(e: SendError<Event<PID>>) -> Self {
+impl<PID: ID> From<mpsc::error::SendError<Event<PID>>> for CoreError<PID> {
+    fn from(e: mpsc::error::SendError<Event<PID>>) -> Self {
         CoreError::EventSendError(e)
     }
 }

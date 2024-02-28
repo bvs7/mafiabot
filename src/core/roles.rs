@@ -61,7 +61,7 @@ impl<PID: ID> Role<PID> {
         };
     }
 
-    pub fn night_action(
+    pub async fn night_action(
         &self,
         actor: PID,
         target: PID,
@@ -80,17 +80,19 @@ impl<PID: ID> Role<PID> {
                 }
                 if let Some((&blocked, blockers)) = dawn_state.blocks.get_key_value(&actor) {
                     let blockers = blockers.clone();
-                    events.send(Event::EvidentBlock { blocked, blockers })?;
+                    events
+                        .send(Event::EvidentBlock { blocked, blockers })
+                        .await?;
                     return Ok(vec![]);
                 }
-                events.send(Event::Investigate { actor, target })?;
+                events.send(Event::Investigate { actor, target }).await?;
             }
             Role::DOCTOR => {
-                events.send(Event::Save { actor, target })?;
+                events.send(Event::Save { actor, target }).await?;
                 return Ok(vec![DawnStateChange::Save { actor, target }]);
             }
             Role::STRIPPER => {
-                events.send(Event::Block { actor, target })?;
+                events.send(Event::Block { actor, target }).await?;
                 return Ok(vec![DawnStateChange::Block { actor, target }]);
             }
 
