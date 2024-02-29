@@ -1,3 +1,4 @@
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
 use std::hash::Hash;
@@ -5,8 +6,8 @@ use std::hash::Hash;
 use crate::core::base::ID;
 use crate::interface::{CoreError, Event, EventTx};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, EnumKind)]
-#[enum_kind(RoleKind)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, EnumKind, Serialize, Deserialize)]
+#[enum_kind(RoleKind, derive(Serialize, Deserialize))]
 pub enum Role<PID: ID> {
     TOWN,
     COP,
@@ -104,7 +105,7 @@ impl<PID: ID> Role<PID> {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Team {
     Town,
     Mafia,

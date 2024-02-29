@@ -2,12 +2,11 @@ use crate::base::{Choice, ID};
 use crate::core::{PhaseKind, State};
 use crate::roles::{Role, RoleKind, Team};
 
+use serde::Deserialize;
 use std::collections::HashMap;
 // use std::sync::mpsc::{SendError, Sender};
+use serde_json;
 use tokio::sync::{mpsc, oneshot};
-
-pub type ActionResponder<PID> = oneshot::Sender<Result<(), CoreError<PID>>>;
-pub type StatusResponder<PID> = oneshot::Sender<Result<State<PID>, CoreError<PID>>>;
 
 pub type CommandTx<PID> = mpsc::Sender<Command<PID>>;
 pub type CommandRx<PID> = mpsc::Receiver<Command<PID>>;
@@ -22,11 +21,65 @@ pub fn event_channel<PID: ID>() -> (mpsc::Sender<Event<PID>>, mpsc::Receiver<Eve
     mpsc::channel(100)
 }
 
-// Responses are wither () for Action or status for Status?
+#[derive(Debug)]
+pub struct Interface<PID: ID> {
+    pub event_tx: EventTx<PID>,
+    pub event_rx: Option<EventRx<PID>>,
+    pub cmd_tx: CommandTx<PID>,
+    pub cmd_rx: CommandRx<PID>,
+}
+
+impl<PID: ID> Interface<PID> {
+    pub async fn new() -> Self {
+        let (event_tx, event_rx) = event_channel();
+        let (command_tx, command_rx) = command_channel();
+        Self {
+            event_tx,
+            event_rx: Some(event_rx),
+            cmd_tx: command_tx,
+            cmd_rx: command_rx,
+        }
+    }
+
+    pub async fn take_channels(self) -> Option<(Self, EventRx<PID>, CommandTx<PID>)> {
+        let event_rx = self.event_rx?;
+        let inter = Self {
+            event_tx: self.event_tx,
+            event_rx: None,
+            cmd_tx: self.cmd_tx.clone(),
+            cmd_rx: self.cmd_rx,
+        };
+        Some((inter, event_rx, self.cmd_tx))
+    }
+
+    pub async fn send(&self, event: Event<PID>) -> Result<(), mpsc::error::SendError<Event<PID>>> {
+        self.event_tx.send(event).await
+    }
+}
+
+impl<PID: ID> Default for Interface<PID> {
+    fn default() -> Self {
+        let (event_tx, event_rx) = event_channel();
+        let (command_tx, command_rx) = command_channel();
+        Self {
+            event_tx,
+            event_rx: Some(event_rx),
+            cmd_tx: command_tx,
+            cmd_rx: command_rx,
+        }
+    }
+}
+
+pub type ActionResponder<PID> = oneshot::Sender<Result<(), CoreError<PID>>>;
+pub type StatusResponder<PID> = oneshot::Sender<Result<State<PID>, CoreError<PID>>>;
+pub type SerializeResponder = oneshot::Sender<Result<String, serde_json::Error>>;
+
+// Responses are either () for Action or status for Status?
 #[derive(Debug)]
 pub enum Command<PID: ID> {
     Action(Action<PID>, ActionResponder<PID>),
     Status(StatusResponder<PID>),
+    Serialize(SerializeResponder),
     Close,
 }
 
@@ -45,7 +98,9 @@ pub enum Action<PID: ID> {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Event<PID: ID> {
-    Start,
+    Start {
+        players: HashMap<PID, Role<PID>>,
+    },
     Vote {
         voter: PID,
         ballot: Option<Choice<PID>>,
@@ -124,6 +179,7 @@ pub enum Event<PID: ID> {
     Dawn,
     End {
         winner: Team,
+        alive: Vec<PID>,
         role_history: HashMap<PID, Vec<Role<PID>>>,
     },
     Close,
