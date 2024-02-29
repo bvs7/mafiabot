@@ -23,7 +23,37 @@ Timers:
 just include data in the callback?
 */
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct SerializableTimer<PID: ID> {
+    end_time: SystemTime,
+    callback: TimerCallback<PID>,
+}
+
+impl<PID: ID> From<Timer<PID>> for SerializableTimer<PID> {
+    fn from(timer: Timer<PID>) -> Self {
+        let td = timer.t.blocking_lock();
+        let until_end_time = td.end_time - Instant::now();
+        let end_system_time = SystemTime::now() + until_end_time;
+        SerializableTimer {
+            end_time: end_system_time,
+            callback: td.callback.clone(),
+        }
+    }
+}
+
+impl<PID: ID> From<SerializableTimer<PID>> for Timer<PID> {
+    fn from(st: SerializableTimer<PID>) -> Self {
+        let until_end_time = st
+            .end_time
+            .duration_since(SystemTime::now())
+            .unwrap_or_default();
+        let end_time = Instant::now() + until_end_time;
+        let callback = st.callback;
+        Timer::new(end_time, callback)
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum TimerCallback<PID: ID> {
     Elect {
         candidate: Choice<PID>,
@@ -45,7 +75,8 @@ pub struct TimerData<PID: ID> {
     callback: TimerCallback<PID>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(from = "SerializableTimer<PID>", into = "SerializableTimer<PID>")]
 pub struct Timer<PID: ID> {
     t: Arc<Mutex<TimerData<PID>>>,
 }
@@ -139,33 +170,6 @@ impl<PID: ID> Debug for Timer<PID> {
             "Timer {{ end_time: {:?}, cancelled: {:?}, finished: {:?}, callback: {:?} }}",
             td.end_time, td.cancelled, td.finished, td.callback
         )
-    }
-}
-
-impl<PID: ID> Serialize for Timer<PID> {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::ser::Serializer,
-    {
-        let td = self.t.blocking_lock();
-        let until_end_time = td.end_time - Instant::now();
-        let end_system_time = SystemTime::now() + until_end_time;
-        let mut state = serializer.serialize_struct("Timer", 4)?;
-        state.serialize_field("end_time", &end_system_time)?;
-        match &td.callback {
-            TimerCallback::Elect { candidate, hammer } => {
-                let candidate: Option<PID> = (*candidate).into();
-                state.serialize_field("candidate", &candidate)?;
-                state.serialize_field("hammer", &hammer)?;
-            }
-            TimerCallback::Dawn() => {
-                state.serialize_field("callback", "Dawn")?;
-            }
-            _ => {
-                state.serialize_field("callback", "Test")?;
-            }
-        }
-        state.end()
     }
 }
 
