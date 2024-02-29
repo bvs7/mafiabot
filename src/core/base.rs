@@ -1,12 +1,15 @@
-use std::fmt::Debug;
+use std::fmt::{Debug, Display};
 use std::hash::Hash;
 
 use serde::{Deserialize, Serialize};
 
-pub trait ID: Eq + Hash + Copy + Debug + Default + Sync + Send + Serialize + 'static {}
+pub trait ID:
+    Eq + Hash + Copy + Debug + Display + Default + Sync + Send + Serialize + 'static
+{
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum Choice<PID: ID> {
+pub enum Choice<PID> {
     Player(PID),
     Abstain,
 }

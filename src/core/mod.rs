@@ -4,15 +4,17 @@
 pub mod base;
 pub mod interface;
 pub mod roles;
+pub mod rules;
 pub mod timer;
 
 use base::{Choice, ID};
 use interface::{
     command_channel, event_channel, Action, Command, CommandRx, CommandTx, CoreError, Event,
-    EventRx, EventTx, Interface,
+    EventRx, EventTx, Interface, SerializeGameError, SerializedGame,
 };
 use roles::{DawnState, DawnStateChange, Role, RoleKind, Team};
-use timer::{Timer, TimerCallback};
+use rules::{Rules, TimerRules};
+use timer::Timer;
 
 use chrono::{DateTime, Local, Utc};
 use serde::{Deserialize, Serialize};
@@ -25,6 +27,7 @@ use std::sync::Arc;
 use std::time::SystemTime;
 use toml;
 
+use tokio::sync::mpsc::error::TryRecvError;
 use tokio::sync::{mpsc, oneshot, Mutex};
 use tokio::task::JoinHandle;
 use tokio::time::{Duration, Instant};
@@ -49,10 +52,6 @@ impl<PID: ID> Ord for NightAction<PID> {
     }
 }
 
-// TODO: move this to a new file
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
-pub struct Rules {}
-
 // Maintains historical data about the game
 // Used for revealing information about the game
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -68,12 +67,6 @@ impl<PID: ID> Stats<PID> {
     }
 }
 
-pub struct ElectionImminent<PID: ID> {
-    candidate: Choice<PID>,
-    hammer: PID,
-    datetime: DateTime<Local>,
-}
-
 #[derive(EnumKind, Debug, Clone, Serialize, Deserialize)]
 #[enum_kind(PhaseKind, derive(Serialize, Deserialize))]
 pub enum Phase<PID: ID> {
@@ -81,16 +74,10 @@ pub enum Phase<PID: ID> {
     Day {
         votes: HashMap<PID, Choice<PID>>, // voter -> choice
         blocks: HashMap<PID, Vec<PID>>,   // blocked -> blockers
-        election_imminent: Option<(Choice<PID>, PID, DateTime<Local>)>,
-        #[serde(skip)]
-        elect_timer: Option<Timer<PID>>,
     },
     Night {
         targets: HashMap<PID, Choice<PID>>, // actor -> target
         scheme: Option<(PID, Choice<PID>)>, // actor -> (target, choice)
-        dawn_imminent: Option<DateTime<Local>>,
-        #[serde(skip)]
-        dawn_timer: Option<Timer<PID>>,
     },
     Eclipse {
         avenger: PID,
@@ -134,11 +121,14 @@ fn instant_from_datetime(datetime: &DateTime<Local>) -> Instant {
     instant_from_system_time(system_time_from_datetime(datetime))
 }
 
+// Would there ever be more than one timer active? Maybe
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct State<PID: ID> {
     pub day_no: u32,
     pub players: HashMap<PID, Role<PID>>,
     pub phase: Phase<PID>,
+    pub timer: Option<Timer<PID>>,
     pub role_history: HashMap<PID, Vec<Role<PID>>>,
 }
 
@@ -151,6 +141,7 @@ impl<PID: ID> State<PID> {
             day_no,
             players,
             phase,
+            timer: None,
             role_history,
         }
     }
@@ -173,7 +164,6 @@ pub async fn send_action<PID: ID>(
     cmd_tx: &CommandTx<PID>,
     action: Action<PID>,
 ) -> Result<(), CoreError<PID>> {
-    println!("Sending action: {:?} to {:?}", action, cmd_tx);
     let (tx, rx) = oneshot::channel();
     cmd_tx
         .send(Command::Action(action, tx))
@@ -186,6 +176,13 @@ pub async fn send_action<PID: ID>(
 pub async fn send_status<PID: ID>(cmd_tx: &CommandTx<PID>) -> Result<State<PID>, CoreError<PID>> {
     let (tx, rx) = oneshot::channel();
     cmd_tx.send(Command::Status(tx)).await.unwrap();
+    let resp = rx.await.unwrap();
+    resp
+}
+
+pub async fn send_rules<PID: ID>(cmd_tx: &CommandTx<PID>) -> Result<Rules, CoreError<PID>> {
+    let (tx, rx) = oneshot::channel();
+    cmd_tx.send(Command::Rules(tx)).await.unwrap();
     let resp = rx.await.unwrap();
     resp
 }
@@ -253,89 +250,84 @@ impl<PID: ID, GID: ID> Core<PID, GID> {
 
     async fn restart_timers(&mut self) {
         // Check if timers need to be spawned?
-        if let Phase::Day {
-            elect_timer,
-            election_imminent,
-            ..
-        } = &self.state.phase
-        {
-            if let None = elect_timer {
-                if let Some((candidate, hammer, datetime)) = election_imminent {
-                    let end_time = instant_from_datetime(datetime);
-                    let t = Timer::new(
-                        end_time,
-                        TimerCallback::Elect {
-                            candidate: *candidate,
-                            hammer: *hammer,
-                        },
-                    );
-                    t.start(self.inter.cmd_tx.clone()).await;
-                    println!("Restarting elect timer: {:?}", t);
-                }
-            }
-        } else if let Phase::Night {
-            dawn_timer,
-            dawn_imminent,
-            ..
-        } = &self.state.phase
-        {
-            if let None = dawn_timer {
-                if let Some(datetime) = dawn_imminent {
-                    let end_time = instant_from_datetime(datetime);
-                    let t = Timer::new(end_time, TimerCallback::Dawn());
-                    t.start(self.inter.cmd_tx.clone()).await;
-                }
-            }
-        }
     }
 
-    async fn cancel_timers(&mut self) {
-        if let Phase::Day { elect_timer, .. } = &mut self.state.phase {
-            if let Some(timer) = elect_timer {
-                timer.cancel().await;
-                *elect_timer = None;
-            }
-        } else if let Phase::Night { dawn_timer, .. } = &mut self.state.phase {
-            if let Some(timer) = dawn_timer {
-                timer.cancel().await;
-                *dawn_timer = None;
-            }
-        }
-    }
+    async fn cancel_timers(&mut self) {}
 
     pub async fn run(mut self) {
-        self.restart_timers().await;
-
         let mut quit = false;
         while !quit {
+            // TODO: do we need this?
             tokio::time::sleep(Duration::from_millis(1)).await;
 
-            let Some(command) = self.inter.cmd_rx.recv().await else {
-                break; // Action Channel closed, quit
+            // Check timer and perform action if required
+            let timer_action = match &self.state.timer {
+                Some(timer) => timer.check().await,
+                None => None,
             };
-            match command {
-                Command::Action(action, response) => {
-                    let resp = self.handle_action(action).await;
-                    response.send(resp).expect("Response channel error: {:?}");
-                }
-                Command::Status(response) => {
-                    response
-                        .send(Ok(self.state.clone()))
-                        .expect("Response channel error: {:?}");
-                }
-                Command::Serialize(response) => {
-                    let json = serde_json::to_string_pretty(&self);
-                    response.send(json).expect("Response channel error: {:?}");
-                }
-                Command::Close => {
-                    quit = true;
-                }
+            if let Some(action) = timer_action {
+                let _ = self.handle_action(action).await;
+                self.state.timer = None;
+            }
+
+            if self.try_handle_command().await {
+                quit = true;
             }
         }
 
         self.cancel_timers().await;
 
         self.inter.send(Event::Close).await.unwrap();
+    }
+
+    fn get_serialized_game(&self) -> Result<SerializedGame, SerializeGameError> {
+        let state_json = serde_json::to_string_pretty(&self.state)?;
+        let rules_toml = toml::to_string_pretty(&self.rules)?;
+        Ok(SerializedGame {
+            id: self.id.to_string(),
+            state: state_json,
+            rules: rules_toml,
+        })
+    }
+
+    async fn try_handle_command(&mut self) -> bool {
+        match self.inter.cmd_rx.try_recv() {
+            Ok(Command::Action(action, response)) => {
+                let resp = self.handle_action(action).await;
+                response.send(resp).expect("Response channel error: {:?}");
+            }
+            Ok(Command::Status(response)) => {
+                response
+                    .send(Ok(self.state.clone()))
+                    .expect("Response channel error: {:?}");
+            }
+            Ok(Command::Rules(response)) => {
+                response
+                    .send(Ok(self.rules.clone()))
+                    .expect("Response channel error: {:?}");
+            }
+            Ok(Command::Serialize(response)) => {
+                let state_json = serde_json::to_string_pretty(&self.state);
+                let rules_toml = toml::to_string_pretty(&self.rules);
+                let saved_game = SerializedGame {
+                    id: self.id.to_string(),
+                    state: state_json.unwrap(),
+                    rules: rules_toml.unwrap(),
+                };
+                response
+                    .send(Ok(saved_game))
+                    .expect("Response channel error: {:?}");
+            }
+
+            Ok(Command::Close) => {
+                return true;
+            }
+            Err(TryRecvError::Empty) => {}
+            Err(TryRecvError::Disconnected) => {
+                return true;
+            }
+        }
+        return false;
     }
 
     async fn handle_action(&mut self, action: Action<PID>) -> Result<(), CoreError<PID>> {
@@ -391,13 +383,7 @@ impl<PID: ID, GID: ID> Core<PID, GID> {
         }
         let n = self.state.players.len();
         // Check if the phase is day
-        let Phase::Day {
-            votes,
-            elect_timer,
-            election_imminent,
-            ..
-        } = &mut self.state.phase
-        else {
+        let Phase::Day { votes, .. } = &mut self.state.phase else {
             let actual = self.state.phase.kind();
             let expected = PhaseKind::Day;
             return Err(CoreError::InvalidPhase { actual, expected });
@@ -429,12 +415,8 @@ impl<PID: ID, GID: ID> Core<PID, GID> {
         // Check for a former election and whether it still has quorum
         if let Some(choice) = former_ballot {
             if let None = Self::check_election(votes, n, choice) {
-                if let Some(timer) = elect_timer {
-                    // Cancel election timer
-                    timer.cancel().await;
-                    *elect_timer = None;
-                    *election_imminent = None;
-                }
+                // If an Elect timer is started, remove it
+                self.state.timer = None;
             }
         }
 
@@ -449,18 +431,16 @@ impl<PID: ID, GID: ID> Core<PID, GID> {
                         hammer: voter,
                     })
                     .await?;
-                // Set election timer
-                let end_time = Instant::now() + Duration::from_secs(1);
-                let t = Timer::new(
-                    end_time,
-                    TimerCallback::Elect {
-                        candidate: candidate.into(),
+                // Set election timer (if not already set)
+                if let None = self.state.timer {
+                    let duration = self.rules.timer_rules.election_imminent_time;
+                    let end_time = chrono::offset::Local::now() + duration;
+                    let data = Action::Elect {
+                        candidate,
                         hammer: voter,
-                    },
-                );
-                t.start(self.inter.cmd_tx.clone()).await;
-                *elect_timer = Some(t);
-                *election_imminent = Some((candidate, voter, datetime_from_instant(end_time)));
+                    };
+                    self.state.timer = Some(Timer { end_time, data });
+                }
             }
         }
 
@@ -862,9 +842,8 @@ impl<PID: ID, GID: ID> Core<PID, GID> {
         self.state.phase = Phase::Day {
             votes: HashMap::new(),
             blocks,
-            election_imminent: None,
-            elect_timer: None,
         };
+        self.state.timer = None;
         self.inter
             .send(Event::Day {
                 day_no: self.state.day_no,
@@ -877,9 +856,8 @@ impl<PID: ID, GID: ID> Core<PID, GID> {
         self.state.phase = Phase::Night {
             targets: HashMap::new(),
             scheme: None,
-            dawn_imminent: None,
-            dawn_timer: None,
         };
+        self.state.timer = None;
         self.inter
             .send(Event::Night {
                 day_no: self.state.day_no,
@@ -899,6 +877,7 @@ impl<PID: ID, GID: ID> Core<PID, GID> {
             hammer,
             options: options.clone(),
         };
+        self.state.timer = None;
         self.inter
             .send(Event::Eclipse {
                 avenger,
@@ -920,13 +899,7 @@ impl<PID: ID, GID: ID> Core<PID, GID> {
     }
 
     async fn check_dawn(&mut self) -> Result<bool, CoreError<PID>> {
-        let Phase::Night {
-            targets,
-            scheme,
-            dawn_imminent,
-            dawn_timer,
-        } = &mut self.state.phase
-        else {
+        let Phase::Night { targets, scheme } = &mut self.state.phase else {
             let actual = self.state.phase.kind();
             let expected = PhaseKind::Night;
             return Err(CoreError::InvalidPhase { actual, expected });
@@ -943,10 +916,14 @@ impl<PID: ID, GID: ID> Core<PID, GID> {
             }
         }
         // Schedule dawn!
-        let end_time = Instant::now() + Duration::from_secs(1);
-        let t = Timer::new(end_time, TimerCallback::Dawn());
-        *dawn_imminent = Some(datetime_from_instant(end_time));
-        *dawn_timer = Some(t);
+        if let None = self.state.timer {
+            let duration = self.rules.timer_rules.dawn_imminent_time;
+            let end_time = chrono::offset::Local::now() + duration;
+            self.state.timer = Some(Timer {
+                end_time,
+                data: Action::Dawn,
+            });
+        }
 
         return Ok(true);
     }
@@ -1093,20 +1070,24 @@ mod test {
         send_action(&cmd_tx, action).await
     }
 
+    async fn wait() {
+        tokio::time::sleep(Duration::from_millis(250)).await;
+    }
+
     #[tokio::test]
-    async fn test_core_targeting() -> Result<(), CoreError<u32>> {
+    async fn test_targeting() -> Result<(), CoreError<u32>> {
         // env::set_var("RUST_BACKTRACE", "1");
 
         let players = get_players(7);
 
-        let (core_join, event_rx, cmd_tx) = Core::new_spawned(0, players, Rules {}).await;
+        let (core_join, event_rx, cmd_tx) = Core::new_spawned(0, players, Rules::test()).await;
 
         let event_handler_join = start_print_event_handler(event_rx).await;
 
         send_action(&cmd_tx, Action::Start).await?;
 
         let state = send_status(&cmd_tx).await?;
-        println!("{:#?}", state);
+        // println!("{:#?}", state);
 
         assert_eq!(state.day_no, 1);
         assert_eq!(state.players.len(), 7);
@@ -1117,10 +1098,10 @@ mod test {
         vote(&cmd_tx, 3, Choice::Player(3)).await?;
         vote(&cmd_tx, 4, Choice::Player(3)).await?;
 
-        tokio::time::sleep(Duration::from_secs(2)).await;
+        wait().await;
 
         let state = send_status(&cmd_tx).await?;
-        println!("{:#?}", state);
+        // println!("{:#?}", state);
         assert_eq!(state.day_no, 1);
         assert_eq!(state.players.len(), 6);
         assert_eq!(state.phase.kind(), PhaseKind::Night);
@@ -1138,11 +1119,11 @@ mod test {
         target(&cmd_tx, 4, Choice::Player(1)).await?;
         target(&cmd_tx, 5, Choice::Player(5)).await?;
 
-        tokio::time::sleep(Duration::from_secs(2)).await;
+        wait().await;
 
         let state = send_status(&cmd_tx).await?;
 
-        println!("{:#?}", state);
+        // println!("{:#?}", state);
 
         assert_eq!(state.day_no, 2);
         assert_eq!(state.players.len(), 6);
@@ -1152,7 +1133,7 @@ mod test {
         vote(&cmd_tx, 6, Choice::Player(1)).await?;
         vote(&cmd_tx, 1, Choice::Player(1)).await?;
 
-        tokio::time::sleep(Duration::from_secs(2)).await;
+        wait().await;
 
         let state = send_status(&cmd_tx).await?;
         assert_eq!(state.phase.kind(), PhaseKind::Day);
@@ -1167,7 +1148,7 @@ mod test {
 
         send_action(&cmd_tx, Action::Unvote { voter: 4 }).await?;
 
-        tokio::time::sleep(Duration::from_secs(2)).await;
+        wait().await;
 
         let state = send_status(&cmd_tx).await?;
         assert_eq!(state.phase.kind(), PhaseKind::Day);
@@ -1175,7 +1156,7 @@ mod test {
         vote(&cmd_tx, 7, Choice::Abstain).await?;
         vote(&cmd_tx, 6, Choice::Abstain).await?;
 
-        tokio::time::sleep(Duration::from_secs(2)).await;
+        wait().await;
 
         let state = send_status(&cmd_tx).await?;
         assert_eq!(state.phase.kind(), PhaseKind::Night);
@@ -1188,7 +1169,7 @@ mod test {
 
         target(&cmd_tx, 4, Choice::Player(1)).await?;
 
-        tokio::time::sleep(Duration::from_secs(2)).await;
+        wait().await;
 
         let state = send_status(&cmd_tx).await?;
         assert_eq!(state.phase.kind(), PhaseKind::Day);
@@ -1197,7 +1178,7 @@ mod test {
         vote(&cmd_tx, 6, Choice::Player(2)).await?;
         vote(&cmd_tx, 2, Choice::Player(2)).await?;
 
-        tokio::time::sleep(Duration::from_secs(2)).await;
+        wait().await;
 
         let state = send_status(&cmd_tx).await?;
 
@@ -1210,7 +1191,7 @@ mod test {
         target(&cmd_tx, 4, Choice::Player(5)).await?;
         target(&cmd_tx, 5, Choice::Player(4)).await?;
 
-        tokio::time::sleep(Duration::from_secs(2)).await;
+        wait().await;
 
         let state = send_status(&cmd_tx).await?;
         assert_eq!(state.phase.kind(), PhaseKind::Day);
@@ -1218,7 +1199,7 @@ mod test {
         vote(&cmd_tx, 7, Choice::Abstain).await?;
         vote(&cmd_tx, 6, Choice::Abstain).await?;
 
-        tokio::time::sleep(Duration::from_secs(2)).await;
+        wait().await;
 
         let state = send_status(&cmd_tx).await?;
         assert_eq!(state.phase.kind(), PhaseKind::Night);
@@ -1228,7 +1209,7 @@ mod test {
         target(&cmd_tx, 5, Choice::Player(5)).await?;
         scheme(&cmd_tx, 6, Choice::Abstain).await?;
 
-        tokio::time::sleep(Duration::from_secs(2)).await;
+        wait().await;
 
         send_action(&cmd_tx, Action::Reveal { player: 7 }).await?;
 
@@ -1236,7 +1217,7 @@ mod test {
         vote(&cmd_tx, 5, Choice::Player(6)).await?;
         vote(&cmd_tx, 4, Choice::Player(6)).await?;
 
-        tokio::time::sleep(Duration::from_secs(2)).await;
+        wait().await;
 
         let state = send_status(&cmd_tx).await?;
         assert_eq!(state.phase.kind(), PhaseKind::End);
@@ -1256,7 +1237,7 @@ mod test {
         // 7-CELEB, 8-IDIOT, 9-SURVIVOR, 10-AGENT(1), 11-GUARD(1)
 
         let players = get_players(11);
-        let (core_join, event_rx, cmd_tx) = Core::new_spawned(0, players, Rules {}).await;
+        let (core_join, event_rx, cmd_tx) = Core::new_spawned(0, players, Rules::test()).await;
         let event_handler_join = start_print_event_handler(event_rx).await;
 
         send_action(&cmd_tx, Action::Start).await?;
@@ -1265,10 +1246,10 @@ mod test {
 
         votes(&cmd_tx, vec![2, 7], Choice::Abstain).await?;
 
-        tokio::time::sleep(Duration::from_secs(2)).await;
+        wait().await;
 
         vote(&cmd_tx, 7, Choice::Player(1)).await?;
-        tokio::time::sleep(Duration::from_secs(2)).await;
+        wait().await;
 
         let state = send_status(&cmd_tx).await?;
         assert_eq!(state.phase.kind(), PhaseKind::Night);
@@ -1280,14 +1261,14 @@ mod test {
         scheme(&cmd_tx, 3, Choice::Player(2)).await?;
         target(&cmd_tx, 6, Choice::Player(10)).await?;
 
-        tokio::time::sleep(Duration::from_secs(2)).await;
+        wait().await;
 
         let state = send_status(&cmd_tx).await?;
         assert_eq!(state.phase.kind(), PhaseKind::Day);
 
         votes(&cmd_tx, vec![3, 4, 5, 6, 7], Choice::Player(8)).await?;
 
-        tokio::time::sleep(Duration::from_secs(2)).await;
+        wait().await;
 
         let state = send_status(&cmd_tx).await?;
         assert_eq!(state.phase.kind(), PhaseKind::Eclipse);
@@ -1301,7 +1282,7 @@ mod test {
         )
         .await?;
 
-        tokio::time::sleep(Duration::from_millis(200)).await;
+        wait().await;
 
         let state = send_status(&cmd_tx).await?;
         println!("{:#?}", state);
@@ -1313,8 +1294,10 @@ mod test {
 
     #[tokio::test]
     async fn test_serialize() -> Result<(), CoreError<u32>> {
+        // Setup a game (in the middle of Election Imminent state)
+
         let players = get_players(11);
-        let (core_join, event_rx, cmd_tx) = Core::new_spawned(0, players, Rules {}).await;
+        let (core_join, event_rx, cmd_tx) = Core::new_spawned(0, players, Rules::test()).await;
         let event_handler_join = start_print_event_handler(event_rx).await;
 
         send_action(&cmd_tx, Action::Start).await?;
@@ -1323,33 +1306,20 @@ mod test {
 
         tokio::time::sleep(Duration::from_millis(100)).await;
 
+        // Try to serialize the game state
+
         let (tx, rx) = oneshot::channel();
         cmd_tx.send(Command::Serialize(tx)).await.unwrap();
-        let json = rx
+        let saved_game = rx
             .await
-            .expect("Response channel error: ")
-            .expect("Serialization failure: ");
-        println!("{}", &json);
+            .expect("Response channel error: {:?}")
+            .expect("Serialization Error: {:?}");
 
         send_close(&cmd_tx).await;
 
-        tokio::time::sleep(Duration::from_millis(1500)).await;
-
-        let _ = join!(core_join, event_handler_join);
-
-        let (core, event_rx, cmd_tx) = serde_json::from_str::<Core<u32, u32>>(&json)
-            .expect("Deserialization failure: ")
-            .take_channels()
-            .await;
-
-        let event_handler_join = start_print_event_handler(event_rx).await;
-        let core_join = core.spawn().await;
-
-        tokio::time::sleep(Duration::from_millis(1500)).await;
-
-        let status = send_status(&cmd_tx).await?;
-
-        println!("{:#?}", status);
+        println!("\nGame ID:\n---\n{}", saved_game.id);
+        println!("\nGame State:\n---\n{}", saved_game.state);
+        println!("\nGame Rules:\n---\n{}", saved_game.rules);
 
         Ok(())
     }

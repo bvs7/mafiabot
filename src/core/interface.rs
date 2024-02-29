@@ -1,8 +1,9 @@
 use crate::base::{Choice, ID};
 use crate::core::{PhaseKind, State};
 use crate::roles::{Role, RoleKind, Team};
+use crate::rules::Rules;
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 // use std::sync::mpsc::{SendError, Sender};
 use serde_json;
@@ -72,18 +73,46 @@ impl<PID: ID> Default for Interface<PID> {
 
 pub type ActionResponder<PID> = oneshot::Sender<Result<(), CoreError<PID>>>;
 pub type StatusResponder<PID> = oneshot::Sender<Result<State<PID>, CoreError<PID>>>;
-pub type SerializeResponder = oneshot::Sender<Result<String, serde_json::Error>>;
+pub type RulesResponser<PID> = oneshot::Sender<Result<Rules, CoreError<PID>>>;
+
+#[derive(Debug)]
+pub struct SerializedGame {
+    pub id: String,    // Stringified id?
+    pub state: String, // json string
+    pub rules: String, // toml string
+}
+
+#[derive(Debug)]
+pub enum SerializeGameError {
+    JsonError(serde_json::Error),
+    TomlError(toml::ser::Error),
+}
+
+impl From<serde_json::Error> for SerializeGameError {
+    fn from(e: serde_json::Error) -> Self {
+        SerializeGameError::JsonError(e)
+    }
+}
+
+impl From<toml::ser::Error> for SerializeGameError {
+    fn from(e: toml::ser::Error) -> Self {
+        SerializeGameError::TomlError(e)
+    }
+}
+
+pub type SerializeResponder = oneshot::Sender<Result<SerializedGame, SerializeGameError>>;
 
 // Responses are either () for Action or status for Status?
 #[derive(Debug)]
 pub enum Command<PID: ID> {
     Action(Action<PID>, ActionResponder<PID>),
     Status(StatusResponder<PID>),
+    Rules(RulesResponser<PID>),
     Serialize(SerializeResponder),
     Close,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Action<PID: ID> {
     Start,
     Vote { voter: PID, choice: Choice<PID> },
