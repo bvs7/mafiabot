@@ -21,46 +21,64 @@ Timers:
 - Can be started, cancelled, and can have their duration changed.
 
 just include data in the callback?
+
+
+Hmmm there is an issue with Serialization.
+How do we get a timer's data in the synchronous serialize function?
+
+We need some kind of non-blocking system for it...
+
+First idea is we just have a non mutexed struct that holds the data and we can serialize that.
+Another idea is that the timer info is stored higher up?
+We could have election info stored in Phase::Day. It is updated whenever we update the timer.
+In addition, the timer itself then doesn't really need to store that data visibly???
 */
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct SerializableTimer<PID: ID> {
-    end_time: SystemTime,
-    callback: TimerCallback<PID>,
-}
+// #[derive(Debug, Clone, Serialize, Deserialize)]
+// struct SerializableTimer<PID: ID> {
+//     end_time: SystemTime,
+//     callback: TimerCallback<PID>,
+//     cancelled: bool,
+// }
 
-impl<PID: ID> From<Timer<PID>> for SerializableTimer<PID> {
-    fn from(timer: Timer<PID>) -> Self {
-        let td = timer.t.blocking_lock();
-        let until_end_time = td.end_time - Instant::now();
-        let end_system_time = SystemTime::now() + until_end_time;
-        SerializableTimer {
-            end_time: end_system_time,
-            callback: td.callback.clone(),
-        }
-    }
-}
+// impl<PID: ID> From<Timer<PID>> for SerializableTimer<PID> {
+//     fn from(timer: Timer<PID>) -> Self {
+//         let td = timer.t.lock().unwrap();
+//         let cancelled = td.cancelled;
+//         let until_end_time = td.end_time - Instant::now();
+//         let end_system_time = SystemTime::now() + until_end_time;
+//         SerializableTimer {
+//             end_time: end_system_time,
+//             callback: td.callback.clone(),
+//             cancelled,
+//         }
+//     }
+// }
 
-impl<PID: ID> From<SerializableTimer<PID>> for Timer<PID> {
-    fn from(st: SerializableTimer<PID>) -> Self {
-        let until_end_time = st
-            .end_time
-            .duration_since(SystemTime::now())
-            .unwrap_or_default();
-        let end_time = Instant::now() + until_end_time;
-        let callback = st.callback;
-        Timer::new(end_time, callback)
-    }
-}
+// impl<PID: ID> From<SerializableTimer<PID>> for Timer<PID> {
+//     fn from(st: SerializableTimer<PID>) -> Self {
+//         let until_end_time = st
+//             .end_time
+//             .duration_since(SystemTime::now())
+//             .unwrap_or_default();
+//         let end_time = Instant::now() + until_end_time;
+//         let callback = st.callback;
+//         if st.cancelled {
+//             Timer::new_cancelled(end_time, callback)
+//         } else {
+//             Timer::new(end_time, callback)
+//         }
+//     }
+// }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone /*Serialize, Deserialize*/)]
 pub enum TimerCallback<PID: ID> {
     Elect {
         candidate: Choice<PID>,
         hammer: PID,
     },
     Dawn(),
-    #[serde(skip)]
+    // #[serde(skip)]
     Test {
         data_ref: Arc<Mutex<i32>>,
         data: i32,
@@ -75,8 +93,8 @@ pub struct TimerData<PID: ID> {
     callback: TimerCallback<PID>,
 }
 
-#[derive(Clone, Serialize, Deserialize)]
-#[serde(from = "SerializableTimer<PID>", into = "SerializableTimer<PID>")]
+#[derive(Clone /*Serialize, Deserialize*/)]
+// #[serde(from = "SerializableTimer<PID>", into = "SerializableTimer<PID>")]
 pub struct Timer<PID: ID> {
     t: Arc<Mutex<TimerData<PID>>>,
 }
@@ -84,6 +102,21 @@ pub struct Timer<PID: ID> {
 impl<PID: ID> Timer<PID> {
     pub fn new(end_time: Instant, callback: TimerCallback<PID>) -> Timer<PID> {
         let cancelled = false;
+        let finished = false;
+        let t = Arc::new(Mutex::new(TimerData {
+            end_time,
+            cancelled,
+            finished,
+            callback,
+        }));
+        let timer = Timer { t };
+
+        timer
+    }
+
+    // Used to start a timer when there probably shouldn't be one. (i.e. deserializing a finished timer.)
+    pub fn new_cancelled(end_time: Instant, callback: TimerCallback<PID>) -> Timer<PID> {
+        let cancelled = true;
         let finished = false;
         let t = Arc::new(Mutex::new(TimerData {
             end_time,
@@ -109,7 +142,7 @@ impl<PID: ID> Timer<PID> {
                         break;
                     }
                     if Instant::now() >= td.end_time {
-                        match &td.callback {
+                        let result = match &td.callback {
                             TimerCallback::Elect { candidate, hammer } => {
                                 send_action(
                                     &cmd_tx,
@@ -125,8 +158,10 @@ impl<PID: ID> Timer<PID> {
                                 *data_ref.lock().await = *data;
                                 Ok(())
                             }
+                        };
+                        if let Err(e) = result {
+                            eprintln!("Error sending action: {:?}", e);
                         }
-                        .expect("Error in timer callback: ");
                         td.finished = true;
                         break;
                     }
@@ -164,12 +199,8 @@ impl<PID: ID> Timer<PID> {
 impl<PID: ID> Debug for Timer<PID> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         // TODO: DON'T BLOCK?!
-        let td = self.t.blocking_lock();
-        write!(
-            f,
-            "Timer {{ end_time: {:?}, cancelled: {:?}, finished: {:?}, callback: {:?} }}",
-            td.end_time, td.cancelled, td.finished, td.callback
-        )
+        // let td = self.t.blocking_lock();
+        write!(f, "Timer Debug!")
     }
 }
 

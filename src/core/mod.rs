@@ -14,6 +14,7 @@ use interface::{
 use roles::{DawnState, DawnStateChange, Role, RoleKind, Team};
 use timer::{Timer, TimerCallback};
 
+use chrono::{DateTime, Local, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::{self, Error};
 use std::collections::{BinaryHeap, HashMap, HashSet};
@@ -21,6 +22,7 @@ use std::fmt::Debug;
 use std::future::Future;
 use std::hash::Hash;
 use std::sync::Arc;
+use std::time::SystemTime;
 use toml;
 
 use tokio::sync::{mpsc, oneshot, Mutex};
@@ -66,6 +68,12 @@ impl<PID: ID> Stats<PID> {
     }
 }
 
+pub struct ElectionImminent<PID: ID> {
+    candidate: Choice<PID>,
+    hammer: PID,
+    datetime: DateTime<Local>,
+}
+
 #[derive(EnumKind, Debug, Clone, Serialize, Deserialize)]
 #[enum_kind(PhaseKind, derive(Serialize, Deserialize))]
 pub enum Phase<PID: ID> {
@@ -73,12 +81,14 @@ pub enum Phase<PID: ID> {
     Day {
         votes: HashMap<PID, Choice<PID>>, // voter -> choice
         blocks: HashMap<PID, Vec<PID>>,   // blocked -> blockers
+        election_imminent: Option<(Choice<PID>, PID, DateTime<Local>)>,
         #[serde(skip)]
-        elect_timer: Option<Timer<PID>>, // candidate, hammer
+        elect_timer: Option<Timer<PID>>,
     },
     Night {
         targets: HashMap<PID, Choice<PID>>, // actor -> target
         scheme: Option<(PID, Choice<PID>)>, // actor -> (target, choice)
+        dawn_imminent: Option<DateTime<Local>>,
         #[serde(skip)]
         dawn_timer: Option<Timer<PID>>,
     },
@@ -96,6 +106,32 @@ impl<PID: ID> Phase<PID> {
     fn kind(&self) -> PhaseKind {
         return PhaseKind::from(self);
     }
+}
+
+fn system_time_from_instant(instant: Instant) -> SystemTime {
+    let until = instant.duration_since(Instant::now());
+    SystemTime::now() + until
+}
+
+fn datetime_from_system_time(time: SystemTime) -> DateTime<Local> {
+    return DateTime::from(time);
+}
+
+fn datetime_from_instant(instant: Instant) -> DateTime<Local> {
+    return datetime_from_system_time(system_time_from_instant(instant));
+}
+
+fn system_time_from_datetime(datetime: &DateTime<Local>) -> SystemTime {
+    datetime.clone().into()
+}
+
+fn instant_from_system_time(time: SystemTime) -> Instant {
+    let until = time.duration_since(SystemTime::now()).unwrap_or_default();
+    Instant::now() + until
+}
+
+fn instant_from_datetime(datetime: &DateTime<Local>) -> Instant {
+    instant_from_system_time(system_time_from_datetime(datetime))
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -137,8 +173,12 @@ pub async fn send_action<PID: ID>(
     cmd_tx: &CommandTx<PID>,
     action: Action<PID>,
 ) -> Result<(), CoreError<PID>> {
+    println!("Sending action: {:?} to {:?}", action, cmd_tx);
     let (tx, rx) = oneshot::channel();
-    cmd_tx.send(Command::Action(action, tx)).await.unwrap();
+    cmd_tx
+        .send(Command::Action(action, tx))
+        .await
+        .expect("Failed to send action: ");
     let resp = rx.await.unwrap();
     resp
 }
@@ -211,7 +251,61 @@ impl<PID: ID, GID: ID> Core<PID, GID> {
         join
     }
 
+    async fn restart_timers(&mut self) {
+        // Check if timers need to be spawned?
+        if let Phase::Day {
+            elect_timer,
+            election_imminent,
+            ..
+        } = &self.state.phase
+        {
+            if let None = elect_timer {
+                if let Some((candidate, hammer, datetime)) = election_imminent {
+                    let end_time = instant_from_datetime(datetime);
+                    let t = Timer::new(
+                        end_time,
+                        TimerCallback::Elect {
+                            candidate: *candidate,
+                            hammer: *hammer,
+                        },
+                    );
+                    t.start(self.inter.cmd_tx.clone()).await;
+                    println!("Restarting elect timer: {:?}", t);
+                }
+            }
+        } else if let Phase::Night {
+            dawn_timer,
+            dawn_imminent,
+            ..
+        } = &self.state.phase
+        {
+            if let None = dawn_timer {
+                if let Some(datetime) = dawn_imminent {
+                    let end_time = instant_from_datetime(datetime);
+                    let t = Timer::new(end_time, TimerCallback::Dawn());
+                    t.start(self.inter.cmd_tx.clone()).await;
+                }
+            }
+        }
+    }
+
+    async fn cancel_timers(&mut self) {
+        if let Phase::Day { elect_timer, .. } = &mut self.state.phase {
+            if let Some(timer) = elect_timer {
+                timer.cancel().await;
+                *elect_timer = None;
+            }
+        } else if let Phase::Night { dawn_timer, .. } = &mut self.state.phase {
+            if let Some(timer) = dawn_timer {
+                timer.cancel().await;
+                *dawn_timer = None;
+            }
+        }
+    }
+
     pub async fn run(mut self) {
+        self.restart_timers().await;
+
         let mut quit = false;
         while !quit {
             tokio::time::sleep(Duration::from_millis(1)).await;
@@ -238,6 +332,8 @@ impl<PID: ID, GID: ID> Core<PID, GID> {
                 }
             }
         }
+
+        self.cancel_timers().await;
 
         self.inter.send(Event::Close).await.unwrap();
     }
@@ -296,7 +392,10 @@ impl<PID: ID, GID: ID> Core<PID, GID> {
         let n = self.state.players.len();
         // Check if the phase is day
         let Phase::Day {
-            votes, elect_timer, ..
+            votes,
+            elect_timer,
+            election_imminent,
+            ..
         } = &mut self.state.phase
         else {
             let actual = self.state.phase.kind();
@@ -334,6 +433,7 @@ impl<PID: ID, GID: ID> Core<PID, GID> {
                     // Cancel election timer
                     timer.cancel().await;
                     *elect_timer = None;
+                    *election_imminent = None;
                 }
             }
         }
@@ -350,8 +450,9 @@ impl<PID: ID, GID: ID> Core<PID, GID> {
                     })
                     .await?;
                 // Set election timer
+                let end_time = Instant::now() + Duration::from_secs(1);
                 let t = Timer::new(
-                    tokio::time::Instant::now() + Duration::from_secs(1),
+                    end_time,
                     TimerCallback::Elect {
                         candidate: candidate.into(),
                         hammer: voter,
@@ -359,6 +460,7 @@ impl<PID: ID, GID: ID> Core<PID, GID> {
                 );
                 t.start(self.inter.cmd_tx.clone()).await;
                 *elect_timer = Some(t);
+                *election_imminent = Some((candidate, voter, datetime_from_instant(end_time)));
             }
         }
 
@@ -760,6 +862,7 @@ impl<PID: ID, GID: ID> Core<PID, GID> {
         self.state.phase = Phase::Day {
             votes: HashMap::new(),
             blocks,
+            election_imminent: None,
             elect_timer: None,
         };
         self.inter
@@ -774,6 +877,7 @@ impl<PID: ID, GID: ID> Core<PID, GID> {
         self.state.phase = Phase::Night {
             targets: HashMap::new(),
             scheme: None,
+            dawn_imminent: None,
             dawn_timer: None,
         };
         self.inter
@@ -819,6 +923,7 @@ impl<PID: ID, GID: ID> Core<PID, GID> {
         let Phase::Night {
             targets,
             scheme,
+            dawn_imminent,
             dawn_timer,
         } = &mut self.state.phase
         else {
@@ -838,11 +943,9 @@ impl<PID: ID, GID: ID> Core<PID, GID> {
             }
         }
         // Schedule dawn!
-        let t = Timer::new(
-            Instant::now() + Duration::from_secs(1),
-            TimerCallback::Dawn(),
-        );
-        t.start(self.inter.cmd_tx.clone()).await;
+        let end_time = Instant::now() + Duration::from_secs(1);
+        let t = Timer::new(end_time, TimerCallback::Dawn());
+        *dawn_imminent = Some(datetime_from_instant(end_time));
         *dawn_timer = Some(t);
 
         return Ok(true);
@@ -1216,6 +1319,10 @@ mod test {
 
         send_action(&cmd_tx, Action::Start).await?;
 
+        votes(&cmd_tx, vec![2, 3, 4, 5, 6, 7, 8], Choice::Player(1)).await?;
+
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
         let (tx, rx) = oneshot::channel();
         cmd_tx.send(Command::Serialize(tx)).await.unwrap();
         let json = rx
@@ -1226,6 +1333,8 @@ mod test {
 
         send_close(&cmd_tx).await;
 
+        tokio::time::sleep(Duration::from_millis(1500)).await;
+
         let _ = join!(core_join, event_handler_join);
 
         let (core, event_rx, cmd_tx) = serde_json::from_str::<Core<u32, u32>>(&json)
@@ -1235,6 +1344,8 @@ mod test {
 
         let event_handler_join = start_print_event_handler(event_rx).await;
         let core_join = core.spawn().await;
+
+        tokio::time::sleep(Duration::from_millis(1500)).await;
 
         let status = send_status(&cmd_tx).await?;
 
