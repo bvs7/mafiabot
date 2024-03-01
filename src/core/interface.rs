@@ -105,19 +105,23 @@ impl<PID: Debug + Eq + Hash> Default for Interface<PID> {
 
 #[derive(Debug)]
 pub struct SerializedGame {
-    pub id: String,    // Stringified id?
-    pub state: String, // json string
-    pub rules: String, // toml string
+    pub game_id: String, // Stringified id?
+    pub state: String,   // json string
+    pub rules: String,   // toml string
 }
 
 impl<PID: ID, GID: Display> TryFrom<&Core<PID, GID>> for SerializedGame {
     type Error = SerializeGameError;
 
     fn try_from(core: &Core<PID, GID>) -> Result<Self, Self::Error> {
-        let id = core.id.to_string();
+        let id = core.game_id.to_string();
         let state = serde_json::to_string(&core.state)?;
         let rules = toml::to_string(&core.rules)?;
-        Ok(SerializedGame { id, state, rules })
+        Ok(SerializedGame {
+            game_id: id,
+            state,
+            rules,
+        })
     }
 }
 
@@ -127,11 +131,11 @@ impl<'a, PID: Debug + Eq + Hash + Deserialize<'a>, GID: FromStr<Err = ParseIntEr
     type Error = DeserializeGameError;
 
     fn try_into(self) -> Result<Core<PID, GID>, Self::Error> {
-        let id: GID = GID::from_str(self.id.as_str())?;
+        let game_id: GID = GID::from_str(self.game_id.as_str())?;
         let state = serde_json::from_str(self.state.as_str())?;
         let rules = toml::from_str(&self.rules)?;
         Ok(Core {
-            id,
+            game_id,
             state,
             rules,
             inter: Interface::new(),

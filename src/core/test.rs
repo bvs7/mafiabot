@@ -332,7 +332,7 @@ async fn test_serialize() -> Result<(), CoreError<u32>> {
 
     Interface::send_close(&cmd_tx).await;
 
-    println!("\nGame ID:\n---\n{}", saved_game.id);
+    println!("\nGame ID:\n---\n{}", saved_game.game_id);
     println!("\nGame State:\n---\n{}", saved_game.state);
     println!("\nGame Rules:\n---\n{}", saved_game.rules);
 

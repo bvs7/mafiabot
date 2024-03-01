@@ -98,7 +98,7 @@ impl<PID: ID> State<PID> {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Core<PID: Debug + Eq + Hash, GID> {
-    pub id: GID,
+    pub game_id: GID,
     state: State<PID>,
     rules: Rules,
     #[serde(skip)]
@@ -107,14 +107,14 @@ pub struct Core<PID: Debug + Eq + Hash, GID> {
 
 impl<PID: ID, GID: ID> Core<PID, GID> {
     pub fn new(
-        id: GID,
+        game_id: GID,
         players: HashMap<PID, Role<PID>>,
         rules: Rules,
     ) -> (Self, EventRx<PID>, CommandTx<PID>) {
         let state = State::new(players);
         let (inter, event_rx, cmd_tx) = Interface::new_with_channels();
         let core = Core {
-            id,
+            game_id,
             state,
             rules,
             inter,
@@ -172,7 +172,7 @@ impl<PID: ID, GID: ID> Core<PID, GID> {
 
         self.cancel_timers();
 
-        println!("Core {:?} quitting!", self.id);
+        println!("Core {:?} quitting!", self.game_id);
 
         self.inter.send(Event::Close).await.unwrap();
     }
@@ -181,7 +181,7 @@ impl<PID: ID, GID: ID> Core<PID, GID> {
         let state_json = serde_json::to_string_pretty(&self.state)?;
         let rules_toml = toml::to_string_pretty(&self.rules)?;
         Ok(SerializedGame {
-            id: self.id.to_string(),
+            game_id: self.game_id.to_string(),
             state: state_json,
             rules: rules_toml,
         })
@@ -207,7 +207,7 @@ impl<PID: ID, GID: ID> Core<PID, GID> {
                 let state_json = serde_json::to_string_pretty(&self.state);
                 let rules_toml = toml::to_string_pretty(&self.rules);
                 let saved_game = SerializedGame {
-                    id: self.id.to_string(),
+                    game_id: self.game_id.to_string(),
                     state: state_json.unwrap(),
                     rules: rules_toml.unwrap(),
                 };
