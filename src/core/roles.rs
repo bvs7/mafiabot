@@ -8,7 +8,7 @@ use crate::interface::{CoreError, Event, EventTx};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, EnumKind, Serialize, Deserialize)]
 #[enum_kind(RoleKind, derive(Serialize, Deserialize))]
-pub enum Role<PID: ID> {
+pub enum Role<PID> {
     TOWN,
     COP,
     DOCTOR,

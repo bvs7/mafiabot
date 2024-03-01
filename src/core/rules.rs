@@ -25,8 +25,6 @@ What rules are there?
     - What roles are available to the rolegen engine?
     - Other Input parameters for the rolegen engine
 
-
-
 */
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
@@ -65,8 +63,8 @@ impl Rules {
 
 mod test {
 
+    #[allow(unused_imports)]
     use super::*;
-    use toml;
 
     #[test]
     fn test_rules_toml_serde() {

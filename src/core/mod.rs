@@ -6,6 +6,7 @@ pub mod base;
 pub mod interface;
 pub mod roles;
 pub mod rules;
+pub mod test;
 pub mod timer;
 
 use base::{Choice, ID};
@@ -21,16 +22,17 @@ use serde::{Deserialize, Serialize};
 use serde_json;
 use std::collections::{BinaryHeap, HashMap};
 use std::fmt::Debug;
+use std::hash::Hash;
 use toml;
 
-use tokio::sync::{mpsc, oneshot};
+use tokio;
+use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
-use tokio::time::Duration;
 
 // Maintains historical data about the game
 // Used for revealing information about the game
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Stats<PID: ID> {
+pub struct Stats<PID: Eq + Hash> {
     role_history: HashMap<PID, Vec<Role<PID>>>,
 }
 
@@ -44,7 +46,7 @@ impl<PID: ID> Stats<PID> {
 
 #[derive(EnumKind, Debug, Clone, Serialize, Deserialize)]
 #[enum_kind(PhaseKind, derive(Serialize, Deserialize))]
-pub enum Phase<PID: ID> {
+pub enum Phase<PID: Eq + Hash> {
     Init,
     Day {
         votes: HashMap<PID, Choice<PID>>, // voter -> choice
@@ -71,7 +73,7 @@ impl<PID: ID> Phase<PID> {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct State<PID: ID> {
+pub struct State<PID: Eq + Hash> {
     pub day_no: u32,
     pub players: HashMap<PID, Role<PID>>,
     pub phase: Phase<PID>,
@@ -95,41 +97,22 @@ impl<PID: ID> State<PID> {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct Core<PID: ID, GID: ID> {
+pub struct Core<PID: Debug + Eq + Hash, GID> {
     pub id: GID,
     state: State<PID>,
     rules: Rules,
     #[serde(skip)]
     pub inter: Interface<PID>,
-    // event_tx: EventTx<PID>,
-    // command_rx: CommandRx<PID>,
-    // cmd_tx: CommandTx<PID>,
 }
 
-/*
-Core game loop:
-- Take in an action + response channel
-- process the action and return the response
-
-Additionaly, the action could spawn some kind of timer. That timer might itself throw an action
-*/
-
-// Idea: Use tokio::sync::oneshot for the Action responses
-
-// We will have Actions for grabbing status? Or maybe we have two commands. Either an Action or just a Status command.
-//  This will probably just copy state and send it back in the oneshot response.
 impl<PID: ID, GID: ID> Core<PID, GID> {
     pub fn new(
         id: GID,
         players: HashMap<PID, Role<PID>>,
         rules: Rules,
     ) -> (Self, EventRx<PID>, CommandTx<PID>) {
-        let day_no = 0;
-
         let state = State::new(players);
-
         let (inter, event_rx, cmd_tx) = Interface::new_with_channels();
-
         let core = Core {
             id,
             state,
@@ -165,7 +148,7 @@ impl<PID: ID, GID: ID> Core<PID, GID> {
         let mut quit = false;
         while !quit {
             // TODO: do we need this?
-            tokio::time::sleep(Duration::from_millis(1)).await;
+            tokio::time::sleep(tokio::time::Duration::from_millis(1)).await;
 
             // Check timer and perform action if required
             let timer_action = match &self.state.timer {
@@ -173,8 +156,13 @@ impl<PID: ID, GID: ID> Core<PID, GID> {
                 None => None,
             };
             if let Some(action) = timer_action {
-                let _ = self.handle_action(action).await;
+                let result = self.handle_action(action).await;
                 self.state.timer = None;
+                if let Err(e) = result {
+                    // TODO: How to handle this?
+                    println!("Error handling timer action!: {:?}", e);
+                }
+                continue;
             }
 
             if self.try_handle_command().await {
@@ -183,6 +171,8 @@ impl<PID: ID, GID: ID> Core<PID, GID> {
         }
 
         self.cancel_timers();
+
+        println!("Core {:?} quitting!", self.id);
 
         self.inter.send(Event::Close).await.unwrap();
     }
@@ -203,7 +193,7 @@ impl<PID: ID, GID: ID> Core<PID, GID> {
                 let resp = self.handle_action(action).await;
                 response.send(resp).expect("Response channel error: {:?}");
             }
-            Ok(Command::Status(response)) => {
+            Ok(Command::State(response)) => {
                 response
                     .send(Ok(self.state.clone()))
                     .expect("Response channel error: {:?}");
@@ -312,22 +302,22 @@ impl<PID: ID, GID: ID> Core<PID, GID> {
             })
             .await?;
 
-        if let Some((candidate, hammer, _)) = self.check_election(voter, ballot, former_ballot) {
-            self.inter
-                .send(Event::ElectionImminent { candidate, hammer })
-                .await?;
-        }
+        self.check_election(voter, ballot, former_ballot).await?;
         Ok(())
     }
 
-    fn check_election(
+    async fn check_election(
         &mut self,
         hammer: PID,
         ballot: Option<Choice<PID>>,
         former_ballot: Option<Choice<PID>>,
-    ) -> Option<(Choice<PID>, PID, Vec<PID>)> {
+    ) -> Result<Option<Vec<PID>>, CoreError<PID>> {
+        let n = self.state.players.len();
         let Phase::Day { votes, .. } = &self.state.phase else {
-            return None;
+            return Err(CoreError::InvalidPhase {
+                actual: self.state.phase.kind(),
+                expected: PhaseKind::Day,
+            });
         };
         // Check if previous election is cancelled
         if let Some(former_candidate) = former_ballot {
@@ -336,7 +326,7 @@ impl<PID: ID, GID: ID> Core<PID, GID> {
                     data: Action::Elect { candidate, .. },
                     ..
                 }) if candidate == former_candidate => {
-                    if let None = Self::check_quorum(votes, former_candidate) {
+                    if let None = Self::check_quorum(votes, n, former_candidate) {
                         self.state.timer = None;
                     }
                 }
@@ -346,7 +336,7 @@ impl<PID: ID, GID: ID> Core<PID, GID> {
 
         if let Some(candidate) = ballot {
             // Check if new election is imminent
-            if let Some(voters) = Self::check_quorum(votes, candidate) {
+            if let Some(voters) = Self::check_quorum(votes, n, candidate) {
                 // Set election timer (if not already set)
                 if let None = self.state.timer {
                     let duration = self.rules.timer_rules.election_imminent_time;
@@ -355,11 +345,38 @@ impl<PID: ID, GID: ID> Core<PID, GID> {
                         end_time,
                         data: Action::Elect { candidate, hammer },
                     });
-                    return Some((candidate, hammer, voters));
+                    self.inter
+                        .send(Event::ElectionImminent { candidate, hammer })
+                        .await?;
+                    return Ok(Some(voters));
                 }
             }
         }
-        None
+        Ok(None)
+    }
+
+    fn check_quorum(
+        votes: &HashMap<PID, Choice<PID>>,
+        n: usize,
+        candidate: Choice<PID>,
+    ) -> Option<Vec<PID>> {
+        let threshold = match candidate {
+            Choice::Player(_) => n / 2 + 1,
+            Choice::Abstain => (n + 1) / 2,
+        };
+
+        let mut voters = Vec::new();
+        for (voter, vote) in votes {
+            if *vote == candidate {
+                voters.push(*voter);
+            }
+        }
+
+        if voters.len() >= threshold {
+            return Some(voters);
+        } else {
+            return None;
+        }
     }
 
     async fn reveal(&self, player: PID) -> Result<(), CoreError<PID>> {
@@ -495,6 +512,7 @@ impl<PID: ID, GID: ID> Core<PID, GID> {
     }
 
     async fn elect(&mut self, candidate: Choice<PID>, hammer: PID) -> Result<(), CoreError<PID>> {
+        let n = self.state.players.len();
         // Ensure the phase is Day
         let Phase::Day { votes, .. } = &mut self.state.phase else {
             let actual = self.state.phase.kind();
@@ -506,7 +524,7 @@ impl<PID: ID, GID: ID> Core<PID, GID> {
             let _ = Self::validate_player(&self.state.players, player)?;
         }
 
-        let Some(voters) = Self::check_quorum(votes, candidate) else {
+        let Some(voters) = Self::check_quorum(votes, n, candidate) else {
             return Err(CoreError::ExpectedElection { candidate });
         };
 
@@ -862,367 +880,5 @@ impl<PID: ID, GID: ID> Core<PID, GID> {
             return Err(CoreError::InvalidPlayer { player });
         };
         Ok(role)
-    }
-
-    fn check_quorum(votes: &HashMap<PID, Choice<PID>>, candidate: Choice<PID>) -> Option<Vec<PID>> {
-        let n = votes.len();
-        let threshold = match candidate {
-            Choice::Player(_) => n / 2 + 1,
-            Choice::Abstain => (n + 1) / 2,
-        };
-
-        let voters: Vec<PID> = votes
-            .iter()
-            .filter_map(|(&v, &ch)| (ch == candidate).then_some(v))
-            .collect();
-
-        if voters.len() >= threshold {
-            return Some(voters);
-        } else {
-            return None;
-        }
-    }
-}
-
-#[cfg(test)]
-
-mod test {
-
-    use super::*;
-    use tokio::join;
-
-    impl ID for u32 {}
-
-    async fn start_print_event_handler(
-        mut event_rx: mpsc::Receiver<Event<u32>>,
-    ) -> tokio::task::JoinHandle<()> {
-        tokio::spawn(async move {
-            loop {
-                let event = event_rx.recv().await.expect("Event to receive");
-                println!("EVENT: {:?}", event);
-                tokio::time::sleep(Duration::from_millis(10)).await;
-                if let Event::Close { .. } = event {
-                    break;
-                }
-            }
-        })
-    }
-
-    fn get_players(n: u8) -> HashMap<u32, Role<u32>> {
-        let mut players = HashMap::new();
-        let role_list = vec![
-            Role::TOWN,         // 1
-            Role::TOWN,         // 2
-            Role::MAFIA,        // 3
-            Role::COP,          // 4
-            Role::DOCTOR,       // 5
-            Role::STRIPPER,     // 6
-            Role::CELEB,        // 7
-            Role::IDIOT(false), // 8
-            Role::SURVIVOR,     // 9
-            Role::AGENT(1),     // 10
-            Role::GUARD(1),     // 11
-        ];
-        for i in 1..=n {
-            players.insert(i as u32, role_list[i as usize - 1]);
-        }
-        players
-    }
-
-    async fn vote(
-        cmd_tx: &CommandTx<u32>,
-        voter: u32,
-        choice: Choice<u32>,
-    ) -> Result<(), CoreError<u32>> {
-        let action = Action::Vote { voter, choice };
-        Interface::send_action(&cmd_tx, action).await
-    }
-
-    async fn votes(
-        cmd_tx: &CommandTx<u32>,
-        voters: Vec<u32>,
-        choice: Choice<u32>,
-    ) -> Result<(), CoreError<u32>> {
-        for voter in voters {
-            vote(&cmd_tx, voter, choice).await?;
-        }
-        Ok(())
-    }
-
-    async fn target(
-        cmd_tx: &CommandTx<u32>,
-        actor: u32,
-        target: Choice<u32>,
-    ) -> Result<(), CoreError<u32>> {
-        let action = Action::Target { actor, target };
-        Interface::send_action(&cmd_tx, action).await
-    }
-
-    async fn scheme(
-        cmd_tx: &CommandTx<u32>,
-        actor: u32,
-        mark: Choice<u32>,
-    ) -> Result<(), CoreError<u32>> {
-        let action = Action::Scheme { actor, mark };
-        Interface::send_action(&cmd_tx, action).await
-    }
-
-    async fn wait() {
-        tokio::time::sleep(Duration::from_millis(250)).await;
-    }
-
-    #[tokio::test]
-    async fn test_targeting() -> Result<(), CoreError<u32>> {
-        // env::set_var("RUST_BACKTRACE", "1");
-
-        let players = get_players(7);
-
-        let (core_join, event_rx, cmd_tx) = Core::new_spawned(0, players, Rules::test()).await;
-
-        let event_handler_join = start_print_event_handler(event_rx).await;
-
-        Interface::send_action(&cmd_tx, Action::Start).await?;
-
-        let state = Interface::send_status(&cmd_tx).await?;
-        // println!("{:#?}", state);
-
-        assert_eq!(state.day_no, 1);
-        assert_eq!(state.players.len(), 7);
-        assert_eq!(state.phase.kind(), PhaseKind::Day);
-
-        vote(&cmd_tx, 1, Choice::Player(3)).await?;
-        vote(&cmd_tx, 2, Choice::Player(3)).await?;
-        vote(&cmd_tx, 3, Choice::Player(3)).await?;
-        vote(&cmd_tx, 4, Choice::Player(3)).await?;
-
-        wait().await;
-
-        let state = Interface::send_status(&cmd_tx).await?;
-        // println!("{:#?}", state);
-        assert_eq!(state.day_no, 1);
-        assert_eq!(state.players.len(), 6);
-        assert_eq!(state.phase.kind(), PhaseKind::Night);
-
-        scheme(&cmd_tx, 6, Choice::Player(1)).await?;
-
-        assert_eq!(
-            target(&cmd_tx, 6, Choice::Player(4)).await,
-            Err(CoreError::StripperOverload { actor: 6 })
-        );
-
-        scheme(&cmd_tx, 6, Choice::Abstain).await?;
-        target(&cmd_tx, 6, Choice::Player(4)).await?;
-
-        target(&cmd_tx, 4, Choice::Player(1)).await?;
-        target(&cmd_tx, 5, Choice::Player(5)).await?;
-
-        wait().await;
-
-        let state = Interface::send_status(&cmd_tx).await?;
-
-        // println!("{:#?}", state);
-
-        assert_eq!(state.day_no, 2);
-        assert_eq!(state.players.len(), 6);
-        assert_eq!(state.phase.kind(), PhaseKind::Day);
-
-        vote(&cmd_tx, 7, Choice::Player(1)).await?;
-        vote(&cmd_tx, 6, Choice::Player(1)).await?;
-        vote(&cmd_tx, 1, Choice::Player(1)).await?;
-
-        wait().await;
-
-        let state = Interface::send_status(&cmd_tx).await?;
-        assert_eq!(state.phase.kind(), PhaseKind::Day);
-
-        vote(&cmd_tx, 1, Choice::Abstain).await?;
-        vote(&cmd_tx, 2, Choice::Abstain).await?;
-        assert_eq!(
-            vote(&cmd_tx, 3, Choice::Abstain).await,
-            Err(CoreError::InvalidPlayer { player: 3 })
-        );
-        vote(&cmd_tx, 4, Choice::Abstain).await?;
-
-        Interface::send_action(&cmd_tx, Action::Unvote { voter: 4 }).await?;
-
-        wait().await;
-
-        let state = Interface::send_status(&cmd_tx).await?;
-        assert_eq!(state.phase.kind(), PhaseKind::Day);
-
-        vote(&cmd_tx, 7, Choice::Abstain).await?;
-        vote(&cmd_tx, 6, Choice::Abstain).await?;
-
-        wait().await;
-
-        let state = Interface::send_status(&cmd_tx).await?;
-        assert_eq!(state.phase.kind(), PhaseKind::Night);
-
-        target(&cmd_tx, 4, Choice::Player(6)).await?;
-        target(&cmd_tx, 5, Choice::Player(5)).await?;
-
-        target(&cmd_tx, 6, Choice::Abstain).await?;
-        scheme(&cmd_tx, 6, Choice::Player(1)).await?;
-
-        target(&cmd_tx, 4, Choice::Player(1)).await?;
-
-        wait().await;
-
-        let state = Interface::send_status(&cmd_tx).await?;
-        assert_eq!(state.phase.kind(), PhaseKind::Day);
-
-        vote(&cmd_tx, 7, Choice::Player(2)).await?;
-        vote(&cmd_tx, 6, Choice::Player(2)).await?;
-        vote(&cmd_tx, 2, Choice::Player(2)).await?;
-
-        wait().await;
-
-        let state = Interface::send_status(&cmd_tx).await?;
-
-        //4-COP, 5-DOCTOR, 6-STRIPPER, 7-CELEB
-        assert_eq!(state.phase.kind(), PhaseKind::Night);
-        assert_eq!(state.players.len(), 4);
-
-        scheme(&cmd_tx, 6, Choice::Abstain).await?;
-        target(&cmd_tx, 6, Choice::Player(4)).await?;
-        target(&cmd_tx, 4, Choice::Player(5)).await?;
-        target(&cmd_tx, 5, Choice::Player(4)).await?;
-
-        wait().await;
-
-        let state = Interface::send_status(&cmd_tx).await?;
-        assert_eq!(state.phase.kind(), PhaseKind::Day);
-
-        vote(&cmd_tx, 7, Choice::Abstain).await?;
-        vote(&cmd_tx, 6, Choice::Abstain).await?;
-
-        wait().await;
-
-        let state = Interface::send_status(&cmd_tx).await?;
-        assert_eq!(state.phase.kind(), PhaseKind::Night);
-
-        target(&cmd_tx, 6, Choice::Player(7)).await?;
-        target(&cmd_tx, 4, Choice::Player(7)).await?;
-        target(&cmd_tx, 5, Choice::Player(5)).await?;
-        scheme(&cmd_tx, 6, Choice::Abstain).await?;
-
-        wait().await;
-
-        Interface::send_action(&cmd_tx, Action::Reveal { player: 7 }).await?;
-
-        vote(&cmd_tx, 7, Choice::Player(6)).await?;
-        vote(&cmd_tx, 5, Choice::Player(6)).await?;
-        vote(&cmd_tx, 4, Choice::Player(6)).await?;
-
-        wait().await;
-
-        let state = Interface::send_status(&cmd_tx).await?;
-        assert_eq!(state.phase.kind(), PhaseKind::End);
-
-        assert!(matches!(state.phase, Phase::End { winner: Team::Town }));
-
-        Interface::send_close(&cmd_tx).await;
-
-        let _ = join!(core_join, event_handler_join);
-
-        return Ok(());
-    }
-
-    #[tokio::test]
-    async fn test_contracts() -> Result<(), CoreError<u32>> {
-        // 1-TOWN, 2-TOWN, 3-MAFIA, 4-COP, 5-DOCTOR, 6-STRIPPER,
-        // 7-CELEB, 8-IDIOT, 9-SURVIVOR, 10-AGENT(1), 11-GUARD(1)
-
-        let players = get_players(11);
-        let (core_join, event_rx, cmd_tx) = Core::new_spawned(0, players, Rules::test()).await;
-        let event_handler_join = start_print_event_handler(event_rx).await;
-
-        Interface::send_action(&cmd_tx, Action::Start).await?;
-
-        votes(&cmd_tx, vec![2, 3, 4, 5, 6, 7, 8], Choice::Player(1)).await?;
-
-        votes(&cmd_tx, vec![2, 7], Choice::Abstain).await?;
-
-        wait().await;
-
-        vote(&cmd_tx, 7, Choice::Player(1)).await?;
-        wait().await;
-
-        let state = Interface::send_status(&cmd_tx).await?;
-        assert_eq!(state.phase.kind(), PhaseKind::Night);
-        assert!(matches!(state.players[&10], Role::GUARD(7)));
-        assert!(matches!(state.players[&11], Role::AGENT(7)));
-
-        target(&cmd_tx, 4, Choice::Player(3)).await?;
-        target(&cmd_tx, 5, Choice::Player(5)).await?;
-        scheme(&cmd_tx, 3, Choice::Player(2)).await?;
-        target(&cmd_tx, 6, Choice::Player(10)).await?;
-
-        wait().await;
-
-        let state = Interface::send_status(&cmd_tx).await?;
-        assert_eq!(state.phase.kind(), PhaseKind::Day);
-
-        votes(&cmd_tx, vec![3, 4, 5, 6, 7], Choice::Player(8)).await?;
-
-        wait().await;
-
-        let state = Interface::send_status(&cmd_tx).await?;
-        assert_eq!(state.phase.kind(), PhaseKind::Eclipse);
-
-        Interface::send_action(
-            &cmd_tx,
-            Action::Avenge {
-                avenger: 8,
-                victim: Choice::Player(7),
-            },
-        )
-        .await?;
-
-        wait().await;
-
-        let state = Interface::send_status(&cmd_tx).await?;
-        println!("{:#?}", state);
-        assert_eq!(state.phase.kind(), PhaseKind::Night);
-
-        Interface::send_close(&cmd_tx).await;
-
-        let _ = join!(core_join, event_handler_join);
-
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn test_serialize() -> Result<(), CoreError<u32>> {
-        // Setup a game (in the middle of Election Imminent state)
-
-        let players = get_players(11);
-        let (core_join, event_rx, cmd_tx) = Core::new_spawned(0, players, Rules::test()).await;
-        let event_handler_join = start_print_event_handler(event_rx).await;
-
-        Interface::send_action(&cmd_tx, Action::Start).await?;
-
-        votes(&cmd_tx, vec![2, 3, 4, 5, 6, 7, 8], Choice::Player(1)).await?;
-
-        tokio::time::sleep(Duration::from_millis(100)).await;
-
-        // Try to serialize the game state
-
-        let (tx, rx) = oneshot::channel();
-        cmd_tx.send(Command::Serialize(tx)).await.unwrap();
-        let saved_game = rx
-            .await
-            .expect("Response channel error: {:?}")
-            .expect("Serialization Error: {:?}");
-
-        Interface::send_close(&cmd_tx).await;
-
-        println!("\nGame ID:\n---\n{}", saved_game.id);
-        println!("\nGame State:\n---\n{}", saved_game.state);
-        println!("\nGame Rules:\n---\n{}", saved_game.rules);
-
-        let _ = join!(core_join, event_handler_join);
-
-        Ok(())
     }
 }
