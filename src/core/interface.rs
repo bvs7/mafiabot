@@ -4,23 +4,14 @@ use crate::roles::{Role, RoleKind, Team};
 use crate::rules::Rules;
 
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-// use std::sync::mpsc::{SendError, Sender};
 use serde_json;
+use std::collections::HashMap;
 use tokio::sync::{mpsc, oneshot};
 
 pub type CommandTx<PID> = mpsc::Sender<Command<PID>>;
 pub type CommandRx<PID> = mpsc::Receiver<Command<PID>>;
 pub type EventTx<PID> = mpsc::Sender<Event<PID>>;
 pub type EventRx<PID> = mpsc::Receiver<Event<PID>>;
-
-pub fn command_channel<PID: ID>() -> (mpsc::Sender<Command<PID>>, mpsc::Receiver<Command<PID>>) {
-    mpsc::channel(100)
-}
-
-pub fn event_channel<PID: ID>() -> (mpsc::Sender<Event<PID>>, mpsc::Receiver<Event<PID>>) {
-    mpsc::channel(100)
-}
 
 #[derive(Debug)]
 pub struct Interface<PID: ID> {
@@ -31,9 +22,9 @@ pub struct Interface<PID: ID> {
 }
 
 impl<PID: ID> Interface<PID> {
-    pub async fn new() -> Self {
-        let (event_tx, event_rx) = event_channel();
-        let (command_tx, command_rx) = command_channel();
+    pub fn new() -> Self {
+        let (event_tx, event_rx) = mpsc::channel(100);
+        let (command_tx, command_rx) = mpsc::channel(100);
         Self {
             event_tx,
             event_rx: Some(event_rx),
@@ -42,7 +33,11 @@ impl<PID: ID> Interface<PID> {
         }
     }
 
-    pub async fn take_channels(self) -> Option<(Self, EventRx<PID>, CommandTx<PID>)> {
+    pub fn new_with_channels() -> (Self, EventRx<PID>, CommandTx<PID>) {
+        Self::new().take_channels().unwrap()
+    }
+
+    pub fn take_channels(self) -> Option<(Self, EventRx<PID>, CommandTx<PID>)> {
         let event_rx = self.event_rx?;
         let inter = Self {
             event_tx: self.event_tx,
@@ -56,18 +51,43 @@ impl<PID: ID> Interface<PID> {
     pub async fn send(&self, event: Event<PID>) -> Result<(), mpsc::error::SendError<Event<PID>>> {
         self.event_tx.send(event).await
     }
+
+    // TODO: handle comms errors?
+    pub async fn send_action(
+        cmd_tx: &CommandTx<PID>,
+        action: Action<PID>,
+    ) -> Result<(), CoreError<PID>> {
+        let (tx, rx) = oneshot::channel();
+        cmd_tx
+            .send(Command::Action(action, tx))
+            .await
+            .expect("Failed to send action: ");
+        let resp = rx.await.unwrap();
+        resp
+    }
+
+    pub async fn send_status(cmd_tx: &CommandTx<PID>) -> Result<State<PID>, CoreError<PID>> {
+        let (tx, rx) = oneshot::channel();
+        cmd_tx.send(Command::Status(tx)).await.unwrap();
+        let resp = rx.await.unwrap();
+        resp
+    }
+
+    pub async fn send_rules(cmd_tx: &CommandTx<PID>) -> Result<Rules, CoreError<PID>> {
+        let (tx, rx) = oneshot::channel();
+        cmd_tx.send(Command::Rules(tx)).await.unwrap();
+        let resp = rx.await.unwrap();
+        resp
+    }
+
+    pub async fn send_close(cmd_tx: &CommandTx<PID>) {
+        cmd_tx.send(Command::Close).await.unwrap();
+    }
 }
 
 impl<PID: ID> Default for Interface<PID> {
     fn default() -> Self {
-        let (event_tx, event_rx) = event_channel();
-        let (command_tx, command_rx) = command_channel();
-        Self {
-            event_tx,
-            event_rx: Some(event_rx),
-            cmd_tx: command_tx,
-            cmd_rx: command_rx,
-        }
+        Self::new()
     }
 }
 

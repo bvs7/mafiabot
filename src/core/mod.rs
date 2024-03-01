@@ -1,5 +1,6 @@
 // don't warn about unused imports
-#![allow(dead_code, unused_variables, unused_imports)]
+#![allow(dead_code)]
+// #![allow(dead_code, unused_variables, unused_imports)]
 
 pub mod base;
 pub mod interface;
@@ -9,48 +10,22 @@ pub mod timer;
 
 use base::{Choice, ID};
 use interface::{
-    command_channel, event_channel, Action, Command, CommandRx, CommandTx, CoreError, Event,
-    EventRx, EventTx, Interface, SerializeGameError, SerializedGame,
+    Action, Command, CommandTx, CoreError, Event, EventRx, Interface, SerializeGameError,
+    SerializedGame,
 };
-use roles::{DawnState, DawnStateChange, Role, RoleKind, Team};
-use rules::{Rules, TimerRules};
+use roles::{DawnState, DawnStateChange, NightAction, Role, RoleKind, Team};
+use rules::Rules;
 use timer::Timer;
 
-use chrono::{DateTime, Local, Utc};
 use serde::{Deserialize, Serialize};
-use serde_json::{self, Error};
-use std::collections::{BinaryHeap, HashMap, HashSet};
+use serde_json;
+use std::collections::{BinaryHeap, HashMap};
 use std::fmt::Debug;
-use std::future::Future;
-use std::hash::Hash;
-use std::sync::Arc;
-use std::time::SystemTime;
 use toml;
 
-use tokio::sync::mpsc::error::TryRecvError;
-use tokio::sync::{mpsc, oneshot, Mutex};
+use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
-use tokio::time::{Duration, Instant};
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-struct NightAction<PID: ID> {
-    actor: PID,
-    role: Role<PID>,
-    target: PID,
-    priority: i8,
-}
-
-impl<PID: ID> PartialOrd for NightAction<PID> {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        self.priority.partial_cmp(&other.priority)
-    }
-}
-
-impl<PID: ID> Ord for NightAction<PID> {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.priority.cmp(&other.priority)
-    }
-}
+use tokio::time::Duration;
 
 // Maintains historical data about the game
 // Used for revealing information about the game
@@ -95,34 +70,6 @@ impl<PID: ID> Phase<PID> {
     }
 }
 
-fn system_time_from_instant(instant: Instant) -> SystemTime {
-    let until = instant.duration_since(Instant::now());
-    SystemTime::now() + until
-}
-
-fn datetime_from_system_time(time: SystemTime) -> DateTime<Local> {
-    return DateTime::from(time);
-}
-
-fn datetime_from_instant(instant: Instant) -> DateTime<Local> {
-    return datetime_from_system_time(system_time_from_instant(instant));
-}
-
-fn system_time_from_datetime(datetime: &DateTime<Local>) -> SystemTime {
-    datetime.clone().into()
-}
-
-fn instant_from_system_time(time: SystemTime) -> Instant {
-    let until = time.duration_since(SystemTime::now()).unwrap_or_default();
-    Instant::now() + until
-}
-
-fn instant_from_datetime(datetime: &DateTime<Local>) -> Instant {
-    instant_from_system_time(system_time_from_datetime(datetime))
-}
-
-// Would there ever be more than one timer active? Maybe
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct State<PID: ID> {
     pub day_no: u32,
@@ -159,38 +106,6 @@ pub struct Core<PID: ID, GID: ID> {
     // cmd_tx: CommandTx<PID>,
 }
 
-// TODO: handle comms errors?
-pub async fn send_action<PID: ID>(
-    cmd_tx: &CommandTx<PID>,
-    action: Action<PID>,
-) -> Result<(), CoreError<PID>> {
-    let (tx, rx) = oneshot::channel();
-    cmd_tx
-        .send(Command::Action(action, tx))
-        .await
-        .expect("Failed to send action: ");
-    let resp = rx.await.unwrap();
-    resp
-}
-
-pub async fn send_status<PID: ID>(cmd_tx: &CommandTx<PID>) -> Result<State<PID>, CoreError<PID>> {
-    let (tx, rx) = oneshot::channel();
-    cmd_tx.send(Command::Status(tx)).await.unwrap();
-    let resp = rx.await.unwrap();
-    resp
-}
-
-pub async fn send_rules<PID: ID>(cmd_tx: &CommandTx<PID>) -> Result<Rules, CoreError<PID>> {
-    let (tx, rx) = oneshot::channel();
-    cmd_tx.send(Command::Rules(tx)).await.unwrap();
-    let resp = rx.await.unwrap();
-    resp
-}
-
-pub async fn send_close<PID: ID>(cmd_tx: &CommandTx<PID>) {
-    cmd_tx.send(Command::Close).await.unwrap();
-}
-
 /*
 Core game loop:
 - Take in an action + response channel
@@ -204,7 +119,7 @@ Additionaly, the action could spawn some kind of timer. That timer might itself 
 // We will have Actions for grabbing status? Or maybe we have two commands. Either an Action or just a Status command.
 //  This will probably just copy state and send it back in the oneshot response.
 impl<PID: ID, GID: ID> Core<PID, GID> {
-    pub async fn new(
+    pub fn new(
         id: GID,
         players: HashMap<PID, Role<PID>>,
         rules: Rules,
@@ -213,7 +128,7 @@ impl<PID: ID, GID: ID> Core<PID, GID> {
 
         let state = State::new(players);
 
-        let (inter, event_rx, cmd_tx) = Interface::new().await.take_channels().await.unwrap();
+        let (inter, event_rx, cmd_tx) = Interface::new_with_channels();
 
         let core = Core {
             id,
@@ -229,14 +144,8 @@ impl<PID: ID, GID: ID> Core<PID, GID> {
         players: HashMap<PID, Role<PID>>,
         rules: Rules,
     ) -> (JoinHandle<()>, EventRx<PID>, CommandTx<PID>) {
-        let (core, event_rx, cmd_tx) = Core::new(id, players, rules).await;
+        let (core, event_rx, cmd_tx) = Core::new(id, players, rules);
         (core.spawn().await, event_rx, cmd_tx)
-    }
-
-    pub async fn take_channels(mut self) -> (Self, EventRx<PID>, CommandTx<PID>) {
-        let (inter, event_rx, cmd_tx) = self.inter.take_channels().await.unwrap();
-        self.inter = inter;
-        (self, event_rx, cmd_tx)
     }
 
     pub async fn spawn(self) -> JoinHandle<()> {
@@ -248,11 +157,9 @@ impl<PID: ID, GID: ID> Core<PID, GID> {
         join
     }
 
-    async fn restart_timers(&mut self) {
-        // Check if timers need to be spawned?
+    fn cancel_timers(&mut self) {
+        self.state.timer = None;
     }
-
-    async fn cancel_timers(&mut self) {}
 
     pub async fn run(mut self) {
         let mut quit = false;
@@ -275,7 +182,7 @@ impl<PID: ID, GID: ID> Core<PID, GID> {
             }
         }
 
-        self.cancel_timers().await;
+        self.cancel_timers();
 
         self.inter.send(Event::Close).await.unwrap();
     }
@@ -322,8 +229,8 @@ impl<PID: ID, GID: ID> Core<PID, GID> {
             Ok(Command::Close) => {
                 return true;
             }
-            Err(TryRecvError::Empty) => {}
-            Err(TryRecvError::Disconnected) => {
+            Err(mpsc::error::TryRecvError::Empty) => {}
+            Err(mpsc::error::TryRecvError::Disconnected) => {
                 return true;
             }
         }
@@ -381,8 +288,6 @@ impl<PID: ID, GID: ID> Core<PID, GID> {
         if let Some(Choice::Player(player)) = ballot {
             let _ = Self::validate_player(&self.state.players, player)?;
         }
-        let n = self.state.players.len();
-        // Check if the phase is day
         let Phase::Day { votes, .. } = &mut self.state.phase else {
             let actual = self.state.phase.kind();
             let expected = PhaseKind::Day;
@@ -407,44 +312,54 @@ impl<PID: ID, GID: ID> Core<PID, GID> {
             })
             .await?;
 
-        // NOTE: Only one choice can have a quorum of votes, and therefore there can only
-        //   ever be an Imminent Election for one possible candidate at a time.
-        //   Right now, the election timer is only started if there is not one already running.
-        //   This means that if there will ever be any kind of election rigging system, this might need rework.
+        if let Some((candidate, hammer, _)) = self.check_election(voter, ballot, former_ballot) {
+            self.inter
+                .send(Event::ElectionImminent { candidate, hammer })
+                .await?;
+        }
+        Ok(())
+    }
 
-        // Check for a former election and whether it still has quorum
-        if let Some(choice) = former_ballot {
-            if let None = Self::check_election(votes, n, choice) {
-                // If an Elect timer is started, remove it
-                self.state.timer = None;
+    fn check_election(
+        &mut self,
+        hammer: PID,
+        ballot: Option<Choice<PID>>,
+        former_ballot: Option<Choice<PID>>,
+    ) -> Option<(Choice<PID>, PID, Vec<PID>)> {
+        let Phase::Day { votes, .. } = &self.state.phase else {
+            return None;
+        };
+        // Check if previous election is cancelled
+        if let Some(former_candidate) = former_ballot {
+            match self.state.timer {
+                Some(Timer {
+                    data: Action::Elect { candidate, .. },
+                    ..
+                }) if candidate == former_candidate => {
+                    if let None = Self::check_quorum(votes, former_candidate) {
+                        self.state.timer = None;
+                    }
+                }
+                _ => {}
             }
         }
 
-        // Check for a new election
         if let Some(candidate) = ballot {
-            if let Some(choice) = Self::check_election(votes, n, candidate) {
-                // TODO: need to associate data with timer
-                // Need to be able to check if elect timer is for a given candidate!
-                self.inter
-                    .send(Event::ElectionImminent {
-                        candidate: candidate,
-                        hammer: voter,
-                    })
-                    .await?;
+            // Check if new election is imminent
+            if let Some(voters) = Self::check_quorum(votes, candidate) {
                 // Set election timer (if not already set)
                 if let None = self.state.timer {
                     let duration = self.rules.timer_rules.election_imminent_time;
                     let end_time = chrono::offset::Local::now() + duration;
-                    let data = Action::Elect {
-                        candidate,
-                        hammer: voter,
-                    };
-                    self.state.timer = Some(Timer { end_time, data });
+                    self.state.timer = Some(Timer {
+                        end_time,
+                        data: Action::Elect { candidate, hammer },
+                    });
+                    return Some((candidate, hammer, voters));
                 }
             }
         }
-
-        Ok(())
+        None
     }
 
     async fn reveal(&self, player: PID) -> Result<(), CoreError<PID>> {
@@ -505,10 +420,10 @@ impl<PID: ID, GID: ID> Core<PID, GID> {
             }
         }
 
-        let former_target = targets.insert(actor, target);
+        targets.insert(actor, target);
         self.inter.send(Event::Target { actor, target }).await?;
 
-        self.check_dawn().await?;
+        self.check_dawn()?;
         Ok(())
     }
 
@@ -545,13 +460,42 @@ impl<PID: ID, GID: ID> Core<PID, GID> {
         scheme.replace((actor, mark));
         self.inter.send(Event::Scheme { actor, mark }).await?;
 
-        self.check_dawn().await?;
+        self.check_dawn()?;
         Ok(())
+    }
+
+    fn check_dawn(&mut self) -> Result<bool, CoreError<PID>> {
+        let Phase::Night { targets, scheme } = &mut self.state.phase else {
+            let actual = self.state.phase.kind();
+            let expected = PhaseKind::Night;
+            return Err(CoreError::InvalidPhase { actual, expected });
+        };
+        if let None = scheme {
+            return Ok(false);
+        }
+        // Check that every targeting role has a target
+        for (player, role) in &self.state.players {
+            if role.is_targeting() {
+                if !targets.contains_key(player) {
+                    return Ok(false);
+                }
+            }
+        }
+        // Schedule dawn!
+        if let None = self.state.timer {
+            let duration = self.rules.timer_rules.dawn_imminent_time;
+            let end_time = chrono::offset::Local::now() + duration;
+            self.state.timer = Some(Timer {
+                end_time,
+                data: Action::Dawn,
+            });
+        }
+
+        return Ok(true);
     }
 
     async fn elect(&mut self, candidate: Choice<PID>, hammer: PID) -> Result<(), CoreError<PID>> {
         // Ensure the phase is Day
-        let n = self.state.players.len();
         let Phase::Day { votes, .. } = &mut self.state.phase else {
             let actual = self.state.phase.kind();
             let expected = PhaseKind::Day;
@@ -562,7 +506,7 @@ impl<PID: ID, GID: ID> Core<PID, GID> {
             let _ = Self::validate_player(&self.state.players, player)?;
         }
 
-        let Some(voters) = Self::check_election(votes, n, candidate) else {
+        let Some(voters) = Self::check_quorum(votes, candidate) else {
             return Err(CoreError::ExpectedElection { candidate });
         };
 
@@ -592,6 +536,36 @@ impl<PID: ID, GID: ID> Core<PID, GID> {
         Ok(())
     }
 
+    fn collect_night_actions(
+        players: &HashMap<PID, Role<PID>>,
+        targets: &HashMap<PID, Choice<PID>>,
+    ) -> Result<(BinaryHeap<NightAction<PID>>, BinaryHeap<NightAction<PID>>), CoreError<PID>> {
+        let mut early_actions = BinaryHeap::new();
+        let mut late_actions = BinaryHeap::new();
+        for (&actor, &target) in targets.iter() {
+            let Choice::Player(target) = target else {
+                continue;
+            };
+            let role = Core::<PID, GID>::validate_player(players, actor)?;
+            let _ = Core::<PID, GID>::validate_player(players, target)?;
+            let Some(priority) = role.night_action_priority() else {
+                return Err(CoreError::ExpectedTargetingRole { role: role.kind() });
+            };
+            let action = NightAction {
+                actor,
+                role,
+                target,
+                priority,
+            };
+            if priority < 0 {
+                early_actions.push(action);
+            } else {
+                late_actions.push(action);
+            }
+        }
+        Ok((early_actions, late_actions))
+    }
+
     async fn dawn(&mut self) -> Result<(), CoreError<PID>> {
         let Phase::Night {
             targets, scheme, ..
@@ -604,31 +578,8 @@ impl<PID: ID, GID: ID> Core<PID, GID> {
 
         self.inter.send(Event::Dawn).await?;
 
-        // Turn targets into night actions
-
-        let mut early_night_actions: BinaryHeap<NightAction<PID>> = BinaryHeap::new();
-        let mut late_night_actions: BinaryHeap<NightAction<PID>> = BinaryHeap::new();
-
-        for (&actor, &target) in targets {
-            let role = Self::validate_player(&self.state.players, actor)?;
-            let Choice::Player(target) = target else {
-                continue;
-            };
-            let priority = role
-                .night_action_priority()
-                .expect("Targeting role should have priority");
-            let action = NightAction {
-                actor,
-                role,
-                target,
-                priority,
-            };
-            if priority > 0 {
-                early_night_actions.push(action);
-            } else {
-                late_night_actions.push(action);
-            }
-        }
+        let (early_night_actions, late_night_actions) =
+            Self::collect_night_actions(&self.state.players, targets)?;
 
         let mut dawn_state: DawnState<PID> = DawnState {
             blocks: HashMap::new(),
@@ -641,13 +592,13 @@ impl<PID: ID, GID: ID> Core<PID, GID> {
 
         self.perform_scheme(scheme, &mut dawn_state).await?;
 
-        // Perform Kills
+        // Perform Kills (first killer does the kill, but end of game isn't checked until all kills are performed)
         if dawn_state.killed.len() > 0 {
-            let mut game_over = false;
-            for (&mark, &killer) in &dawn_state.killed {
-                game_over = self.eliminate(mark, killer).await? | game_over;
+            let mut eliminations = Vec::new();
+            for (&mark, killers) in &dawn_state.killed {
+                eliminations.push((mark, killers.first().unwrap().clone()));
             }
-            if game_over {
+            if self.eliminate_many(eliminations).await? {
                 return Ok(());
             }
         } else {
@@ -674,12 +625,9 @@ impl<PID: ID, GID: ID> Core<PID, GID> {
             let mut changes: Vec<DawnStateChange<PID>> = Vec::new();
 
             while next.is_some_and(|f| f.priority == current_priority) {
-                let a = actions.pop().unwrap();
-                changes.extend(
-                    a.role
-                        .night_action(a.actor, a.target, &dawn_state, &self.inter.event_tx)
-                        .await?,
-                );
+                let action = actions.pop().expect("Checked for some above!");
+                let new_changes = action.perform(dawn_state, &self.inter.event_tx).await?;
+                changes.extend(new_changes);
                 next = actions.peek();
             }
             dawn_state.apply_changes(changes);
@@ -692,35 +640,8 @@ impl<PID: ID, GID: ID> Core<PID, GID> {
         scheme: &Option<(PID, Choice<PID>)>,
         dawn_state: &mut DawnState<PID>,
     ) -> Result<(), CoreError<PID>> {
-        // Perform scheme
-        if let &Some((killer, Choice::Player(mark))) = scheme {
-            // TODO: if killer was blocked or killed, do nothing
-            let mut saved = false;
-            // Check for saviors
-            if let Some(saviors) = dawn_state.saves.get(&mark) {
-                for &savior in saviors {
-                    // Check if doctor was killed or blocked?
-                    if dawn_state.killed.contains_key(&savior) {
-                        continue;
-                    }
-                    if let Some(blockers) = dawn_state.blocks.get(&savior) {
-                        self.inter
-                            .send(Event::EvidentBlock {
-                                blocked: savior,
-                                blockers: blockers.clone(),
-                            })
-                            .await?;
-                        continue;
-                    }
-                    saved = true;
-                    self.inter.send(Event::EvidentSave { savior, mark }).await?;
-                }
-            }
-            if !saved {
-                dawn_state.killed.insert(mark, killer);
-                self.inter.send(Event::Kill { killer, mark }).await?;
-            }
-        }
+        let changes = NightAction::perform_scheme(scheme, dawn_state, &self.inter.event_tx).await?;
+        dawn_state.apply_changes(changes);
         Ok(())
     }
 
@@ -759,34 +680,87 @@ impl<PID: ID, GID: ID> Core<PID, GID> {
 
         self.inter.send(Event::Avenge { avenger, target }).await?;
 
-        self.eliminate(target, avenger).await?;
-
         // change IDIOT's role to win state
         self.refocus(avenger, Role::IDIOT(true)).await?;
 
-        self.eliminate(avenger, hammer).await?;
+        self.eliminate_many(vec![(target, avenger), (avenger, hammer)])
+            .await?;
 
         self.to_night().await?;
         Ok(())
     }
 
     async fn eliminate(&mut self, player: PID, proxy: PID) -> Result<bool, CoreError<PID>> {
-        let role = Self::validate_player(&self.state.players, player)?;
+        self.eliminate_many(vec![(player, proxy)]).await
+    }
 
+    async fn eliminate_many(
+        &mut self,
+        eliminations: Vec<(PID, PID)>,
+    ) -> Result<bool, CoreError<PID>> {
+        for (player, proxy) in eliminations {
+            let role = Self::validate_player(&self.state.players, player)?;
+
+            self.check_refocus(player, proxy).await?;
+
+            self.inter.send(Event::Eliminate { player, role }).await?;
+            self.state.players.remove(&player);
+        }
+        // Check for end of game
+        if let Some(winner) = self.check_end() {
+            self.end(winner).await?;
+            return Ok(true);
+        }
+        Ok(false)
+    }
+
+    fn check_end(&self) -> Option<Team> {
+        let n = self.state.players.len();
+        let n_mafia = self
+            .state
+            .players
+            .values()
+            .filter(|&&role| role.team() == Team::Mafia)
+            .count();
+
+        if n_mafia == 0 {
+            // Town wins!
+            return Some(Team::Town);
+        } else if n - n_mafia <= n_mafia {
+            // Mafia wins!
+            return Some(Team::Mafia);
+        }
+        return None;
+    }
+
+    async fn end(&mut self, winner: Team) -> Result<(), CoreError<PID>> {
+        self.state.phase = Phase::End { winner };
+        self.inter
+            .send(Event::End {
+                winner,
+                alive: self.state.players.iter().map(|(k, _)| *k).collect(),
+                role_history: self.state.role_history.clone(),
+            })
+            .await?;
+        // self.inter.send(Event::Close).await?; // TODO: don't do this here?
+        Ok(())
+    }
+
+    async fn check_refocus(&mut self, player: PID, proxy: PID) -> Result<(), CoreError<PID>> {
         // Check contracting roles
         let mut updates: Vec<(PID, Role<PID>)> = Vec::new();
         for (&contractor, &role) in &self.state.players {
             if let Some(charge) = role.contract() {
                 if charge == player {
                     let new_role = match role {
-                        Role::AGENT(charge) => {
+                        Role::AGENT(_) => {
                             if self.state.players.contains_key(&proxy) && proxy != contractor {
                                 Some(Role::GUARD(proxy))
                             } else {
                                 Some(Role::SURVIVOR)
                             }
                         }
-                        Role::GUARD(charge) => {
+                        Role::GUARD(_) => {
                             if self.state.players.contains_key(&proxy) && proxy != contractor {
                                 Some(Role::AGENT(proxy))
                             } else {
@@ -804,15 +778,7 @@ impl<PID: ID, GID: ID> Core<PID, GID> {
         for (contractor, new_role) in updates {
             self.refocus(contractor, new_role).await?;
         }
-
-        self.inter.send(Event::Eliminate { player, role }).await?;
-        self.state.players.remove(&player);
-        // Check for end of game
-        if let Some(winner) = self.check_end() {
-            self.end(winner).await?;
-            return Ok(true);
-        }
-        Ok(false)
+        Ok(())
     }
 
     async fn refocus(&mut self, player: PID, role: Role<PID>) -> Result<(), CoreError<PID>> {
@@ -898,90 +864,23 @@ impl<PID: ID, GID: ID> Core<PID, GID> {
         Ok(role)
     }
 
-    async fn check_dawn(&mut self) -> Result<bool, CoreError<PID>> {
-        let Phase::Night { targets, scheme } = &mut self.state.phase else {
-            let actual = self.state.phase.kind();
-            let expected = PhaseKind::Night;
-            return Err(CoreError::InvalidPhase { actual, expected });
-        };
-        if let None = scheme {
-            return Ok(false);
-        }
-        // Check that every targeting role has a target
-        for (player, role) in &self.state.players {
-            if role.is_targeting() {
-                if !targets.contains_key(player) {
-                    return Ok(false);
-                }
-            }
-        }
-        // Schedule dawn!
-        if let None = self.state.timer {
-            let duration = self.rules.timer_rules.dawn_imminent_time;
-            let end_time = chrono::offset::Local::now() + duration;
-            self.state.timer = Some(Timer {
-                end_time,
-                data: Action::Dawn,
-            });
-        }
-
-        return Ok(true);
-    }
-
-    fn check_election(
-        votes: &HashMap<PID, Choice<PID>>,
-        n: usize,
-        candidate: Choice<PID>,
-    ) -> Option<Vec<PID>> {
+    fn check_quorum(votes: &HashMap<PID, Choice<PID>>, candidate: Choice<PID>) -> Option<Vec<PID>> {
+        let n = votes.len();
         let threshold = match candidate {
             Choice::Player(_) => n / 2 + 1,
             Choice::Abstain => (n + 1) / 2,
         };
 
-        // count the votes for each player
-        let mut voters: Vec<PID> = Vec::new();
-        for (&voter, &choice) in votes {
-            if choice == candidate {
-                voters.push(voter);
-            }
-        }
+        let voters: Vec<PID> = votes
+            .iter()
+            .filter_map(|(&v, &ch)| (ch == candidate).then_some(v))
+            .collect();
+
         if voters.len() >= threshold {
             return Some(voters);
+        } else {
+            return None;
         }
-
-        return None;
-    }
-
-    fn check_end(&self) -> Option<Team> {
-        let n = self.state.players.len();
-        let n_mafia = self
-            .state
-            .players
-            .values()
-            .filter(|&&role| role.team() == Team::Mafia)
-            .count();
-
-        if n_mafia == 0 {
-            // Town wins!
-            return Some(Team::Town);
-        } else if n - n_mafia <= n_mafia {
-            // Mafia wins!
-            return Some(Team::Mafia);
-        }
-        return None;
-    }
-
-    async fn end(&mut self, winner: Team) -> Result<(), CoreError<PID>> {
-        self.state.phase = Phase::End { winner };
-        self.inter
-            .send(Event::End {
-                winner,
-                alive: self.state.players.iter().map(|(k, _)| *k).collect(),
-                role_history: self.state.role_history.clone(),
-            })
-            .await?;
-        // self.inter.send(Event::Close).await?; // TODO: don't do this here?
-        Ok(())
     }
 }
 
@@ -990,8 +889,6 @@ impl<PID: ID, GID: ID> Core<PID, GID> {
 mod test {
 
     use super::*;
-
-    use std::env;
     use tokio::join;
 
     impl ID for u32 {}
@@ -1038,7 +935,7 @@ mod test {
         choice: Choice<u32>,
     ) -> Result<(), CoreError<u32>> {
         let action = Action::Vote { voter, choice };
-        send_action(&cmd_tx, action).await
+        Interface::send_action(&cmd_tx, action).await
     }
 
     async fn votes(
@@ -1058,7 +955,7 @@ mod test {
         target: Choice<u32>,
     ) -> Result<(), CoreError<u32>> {
         let action = Action::Target { actor, target };
-        send_action(&cmd_tx, action).await
+        Interface::send_action(&cmd_tx, action).await
     }
 
     async fn scheme(
@@ -1067,7 +964,7 @@ mod test {
         mark: Choice<u32>,
     ) -> Result<(), CoreError<u32>> {
         let action = Action::Scheme { actor, mark };
-        send_action(&cmd_tx, action).await
+        Interface::send_action(&cmd_tx, action).await
     }
 
     async fn wait() {
@@ -1084,9 +981,9 @@ mod test {
 
         let event_handler_join = start_print_event_handler(event_rx).await;
 
-        send_action(&cmd_tx, Action::Start).await?;
+        Interface::send_action(&cmd_tx, Action::Start).await?;
 
-        let state = send_status(&cmd_tx).await?;
+        let state = Interface::send_status(&cmd_tx).await?;
         // println!("{:#?}", state);
 
         assert_eq!(state.day_no, 1);
@@ -1100,7 +997,7 @@ mod test {
 
         wait().await;
 
-        let state = send_status(&cmd_tx).await?;
+        let state = Interface::send_status(&cmd_tx).await?;
         // println!("{:#?}", state);
         assert_eq!(state.day_no, 1);
         assert_eq!(state.players.len(), 6);
@@ -1121,7 +1018,7 @@ mod test {
 
         wait().await;
 
-        let state = send_status(&cmd_tx).await?;
+        let state = Interface::send_status(&cmd_tx).await?;
 
         // println!("{:#?}", state);
 
@@ -1135,7 +1032,7 @@ mod test {
 
         wait().await;
 
-        let state = send_status(&cmd_tx).await?;
+        let state = Interface::send_status(&cmd_tx).await?;
         assert_eq!(state.phase.kind(), PhaseKind::Day);
 
         vote(&cmd_tx, 1, Choice::Abstain).await?;
@@ -1146,11 +1043,11 @@ mod test {
         );
         vote(&cmd_tx, 4, Choice::Abstain).await?;
 
-        send_action(&cmd_tx, Action::Unvote { voter: 4 }).await?;
+        Interface::send_action(&cmd_tx, Action::Unvote { voter: 4 }).await?;
 
         wait().await;
 
-        let state = send_status(&cmd_tx).await?;
+        let state = Interface::send_status(&cmd_tx).await?;
         assert_eq!(state.phase.kind(), PhaseKind::Day);
 
         vote(&cmd_tx, 7, Choice::Abstain).await?;
@@ -1158,7 +1055,7 @@ mod test {
 
         wait().await;
 
-        let state = send_status(&cmd_tx).await?;
+        let state = Interface::send_status(&cmd_tx).await?;
         assert_eq!(state.phase.kind(), PhaseKind::Night);
 
         target(&cmd_tx, 4, Choice::Player(6)).await?;
@@ -1171,7 +1068,7 @@ mod test {
 
         wait().await;
 
-        let state = send_status(&cmd_tx).await?;
+        let state = Interface::send_status(&cmd_tx).await?;
         assert_eq!(state.phase.kind(), PhaseKind::Day);
 
         vote(&cmd_tx, 7, Choice::Player(2)).await?;
@@ -1180,7 +1077,7 @@ mod test {
 
         wait().await;
 
-        let state = send_status(&cmd_tx).await?;
+        let state = Interface::send_status(&cmd_tx).await?;
 
         //4-COP, 5-DOCTOR, 6-STRIPPER, 7-CELEB
         assert_eq!(state.phase.kind(), PhaseKind::Night);
@@ -1193,7 +1090,7 @@ mod test {
 
         wait().await;
 
-        let state = send_status(&cmd_tx).await?;
+        let state = Interface::send_status(&cmd_tx).await?;
         assert_eq!(state.phase.kind(), PhaseKind::Day);
 
         vote(&cmd_tx, 7, Choice::Abstain).await?;
@@ -1201,7 +1098,7 @@ mod test {
 
         wait().await;
 
-        let state = send_status(&cmd_tx).await?;
+        let state = Interface::send_status(&cmd_tx).await?;
         assert_eq!(state.phase.kind(), PhaseKind::Night);
 
         target(&cmd_tx, 6, Choice::Player(7)).await?;
@@ -1211,7 +1108,7 @@ mod test {
 
         wait().await;
 
-        send_action(&cmd_tx, Action::Reveal { player: 7 }).await?;
+        Interface::send_action(&cmd_tx, Action::Reveal { player: 7 }).await?;
 
         vote(&cmd_tx, 7, Choice::Player(6)).await?;
         vote(&cmd_tx, 5, Choice::Player(6)).await?;
@@ -1219,12 +1116,12 @@ mod test {
 
         wait().await;
 
-        let state = send_status(&cmd_tx).await?;
+        let state = Interface::send_status(&cmd_tx).await?;
         assert_eq!(state.phase.kind(), PhaseKind::End);
 
         assert!(matches!(state.phase, Phase::End { winner: Team::Town }));
 
-        send_close(&cmd_tx).await;
+        Interface::send_close(&cmd_tx).await;
 
         let _ = join!(core_join, event_handler_join);
 
@@ -1240,7 +1137,7 @@ mod test {
         let (core_join, event_rx, cmd_tx) = Core::new_spawned(0, players, Rules::test()).await;
         let event_handler_join = start_print_event_handler(event_rx).await;
 
-        send_action(&cmd_tx, Action::Start).await?;
+        Interface::send_action(&cmd_tx, Action::Start).await?;
 
         votes(&cmd_tx, vec![2, 3, 4, 5, 6, 7, 8], Choice::Player(1)).await?;
 
@@ -1251,7 +1148,7 @@ mod test {
         vote(&cmd_tx, 7, Choice::Player(1)).await?;
         wait().await;
 
-        let state = send_status(&cmd_tx).await?;
+        let state = Interface::send_status(&cmd_tx).await?;
         assert_eq!(state.phase.kind(), PhaseKind::Night);
         assert!(matches!(state.players[&10], Role::GUARD(7)));
         assert!(matches!(state.players[&11], Role::AGENT(7)));
@@ -1263,17 +1160,17 @@ mod test {
 
         wait().await;
 
-        let state = send_status(&cmd_tx).await?;
+        let state = Interface::send_status(&cmd_tx).await?;
         assert_eq!(state.phase.kind(), PhaseKind::Day);
 
         votes(&cmd_tx, vec![3, 4, 5, 6, 7], Choice::Player(8)).await?;
 
         wait().await;
 
-        let state = send_status(&cmd_tx).await?;
+        let state = Interface::send_status(&cmd_tx).await?;
         assert_eq!(state.phase.kind(), PhaseKind::Eclipse);
 
-        send_action(
+        Interface::send_action(
             &cmd_tx,
             Action::Avenge {
                 avenger: 8,
@@ -1284,11 +1181,14 @@ mod test {
 
         wait().await;
 
-        let state = send_status(&cmd_tx).await?;
+        let state = Interface::send_status(&cmd_tx).await?;
         println!("{:#?}", state);
         assert_eq!(state.phase.kind(), PhaseKind::Night);
 
-        send_close(&cmd_tx).await;
+        Interface::send_close(&cmd_tx).await;
+
+        let _ = join!(core_join, event_handler_join);
+
         Ok(())
     }
 
@@ -1300,7 +1200,7 @@ mod test {
         let (core_join, event_rx, cmd_tx) = Core::new_spawned(0, players, Rules::test()).await;
         let event_handler_join = start_print_event_handler(event_rx).await;
 
-        send_action(&cmd_tx, Action::Start).await?;
+        Interface::send_action(&cmd_tx, Action::Start).await?;
 
         votes(&cmd_tx, vec![2, 3, 4, 5, 6, 7, 8], Choice::Player(1)).await?;
 
@@ -1315,11 +1215,13 @@ mod test {
             .expect("Response channel error: {:?}")
             .expect("Serialization Error: {:?}");
 
-        send_close(&cmd_tx).await;
+        Interface::send_close(&cmd_tx).await;
 
         println!("\nGame ID:\n---\n{}", saved_game.id);
         println!("\nGame State:\n---\n{}", saved_game.state);
         println!("\nGame Rules:\n---\n{}", saved_game.rules);
+
+        let _ = join!(core_join, event_handler_join);
 
         Ok(())
     }
