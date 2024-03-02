@@ -1,22 +1,18 @@
 mod controller;
 mod core;
+mod server;
 
-// use std::collections::HashMap;
-
-// use crate::core::base::*;
-// use crate::core::interface::*;
-// use crate::core::roles::*;
-use crate::controller::*;
 use crate::core::*;
 
 #[macro_use]
 extern crate enum_kinds;
 
-// use std::thread;
-// use std::time;
-
 #[tokio::main]
 async fn main() -> Result<(), ()> {
-    // println!("Hello, world!");
+    let token = std::fs::read_to_string("data/.discord.token").expect("Unable to read file");
+
+    std::env::set_var("DISCORD_TOKEN", token);
+
+    server::start().await;
     Ok(())
 }
