@@ -1,0 +1,317 @@
+Button: ComponentInteraction {
+    id: InteractionId(
+        1213344475921780806,
+    ),
+    application_id: ApplicationId(
+        706572724775944222,
+    ),
+    data: ComponentInteractionData {
+        custom_id: "crab rave",
+        kind: Button,
+    },
+    guild_id: Some(
+        GuildId(
+            706575048504246323,
+        ),
+    ),
+    channel: Some(
+        PartialChannel {
+            id: ChannelId(
+                1208122798464041020,
+            ),
+            name: Some(
+                "test_game",
+            ),
+            kind: Text,
+            permissions: Some(
+                Permissions(
+                    422212465065983,
+                ),
+            ),
+            thread_metadata: None,
+            parent_id: Some(
+                ChannelId(
+                    981630961471070288,
+                ),
+            ),
+        },
+    ),
+    channel_id: ChannelId(
+        1208122798464041020,
+    ),
+    member: Some(
+        Member {
+            user: User {
+                id: UserId(
+                    414848953478021141,
+                ),
+                name: "secondengineer0",
+                discriminator: None,
+                global_name: Some(
+                    "SecondEngineer",
+                ),
+                avatar: Some(
+                    "07e76c11125939cfc6998d2602be10e0",
+                ),
+                bot: false,
+                system: false,
+                mfa_enabled: false,
+                banner: None,
+                accent_colour: None,
+                locale: None,
+                verified: None,
+                email: None,
+                flags: UserPublicFlags(
+                    0,
+                ),
+                premium_type: None,
+                public_flags: Some(
+                    UserPublicFlags(
+                        0,
+                    ),
+                ),
+                member: None,
+            },
+            nick: Some(
+                "The_Creator",
+            ),
+            avatar: None,
+            roles: [],
+            joined_at: Some(
+                Timestamp(
+                    2020-05-03T18:36:59.249Z,
+                ),
+            ),
+            premium_since: None,
+            deaf: false,
+            mute: false,
+            flags: GuildMemberFlags(
+                0,
+            ),
+            pending: false,
+            permissions: Some(
+                Permissions(
+                    422212465065983,
+                ),
+            ),
+            communication_disabled_until: None,
+            guild_id: GuildId(
+                706575048504246323,
+            ),
+            unusual_dm_activity_until: None,
+        },
+    ),
+    user: User {
+        id: UserId(
+            414848953478021141,
+        ),
+        name: "secondengineer0",
+        discriminator: None,
+        global_name: Some(
+            "SecondEngineer",
+        ),
+        avatar: Some(
+            "07e76c11125939cfc6998d2602be10e0",
+        ),
+        bot: false,
+        system: false,
+        mfa_enabled: false,
+        banner: None,
+        accent_colour: None,
+        locale: None,
+        verified: None,
+        email: None,
+        flags: UserPublicFlags(
+            0,
+        ),
+        premium_type: None,
+        public_flags: Some(
+            UserPublicFlags(
+                0,
+            ),
+        ),
+        member: None,
+    },
+    token: "aW50ZXJhY3Rpb246MTIxMzM0NDQ3NTkyMTc4MDgwNjprcmV5c2VrNUNES3A1VFgycmZRNWNXVGExZU9WdWNXSTRwVnVMU1N1Uk5EMjBpUkM5dUxTSVZzUVJjbzNaYTVjY1d5SkpUb3dsUFgwbzk4dVVVOXAyamZOdEdUeThxclVGNWpMVmdXaVVFSmVnWmtaRExKeGR2dVd0elRNY25FQw",
+    version: 1,
+    message: Message {
+        id: MessageId(
+            1213344455713628170,
+        ),
+        channel_id: ChannelId(
+            1208122798464041020,
+        ),
+        author: User {
+            id: UserId(
+                706572724775944222,
+            ),
+            name: "MODERATOR",
+            discriminator: Some(
+                8628,
+            ),
+            global_name: None,
+            avatar: Some(
+                "09aa9d9c91b9b5d9bda8225722c568a9",
+            ),
+            bot: true,
+            system: false,
+            mfa_enabled: false,
+            banner: None,
+            accent_colour: None,
+            locale: None,
+            verified: None,
+            email: None,
+            flags: UserPublicFlags(
+                0,
+            ),
+            premium_type: None,
+            public_flags: Some(
+                UserPublicFlags(
+                    0,
+                ),
+            ),
+            member: None,
+        },
+        content: "You chose: **Ferris**\nNow choose a sound!",
+        timestamp: Timestamp(
+            2024-03-02T04:37:41.092Z,
+        ),
+        edited_timestamp: Some(
+            Timestamp(
+                2024-03-02T04:37:44.446Z,
+            ),
+        ),
+        tts: false,
+        mention_everyone: false,
+        mentions: [],
+        mention_roles: [],
+        mention_channels: [],
+        attachments: [],
+        embeds: [],
+        reactions: [],
+        nonce: None,
+        pinned: false,
+        webhook_id: None,
+        kind: Regular,
+        activity: None,
+        application: None,
+        application_id: None,
+        message_reference: None,
+        flags: Some(
+            MessageFlags(
+                0,
+            ),
+        ),
+        referenced_message: None,
+        interaction: None,
+        thread: None,
+        components: [
+            ActionRow {
+                kind: ActionRow,
+                components: [
+                    Button(
+                        Button {
+                            kind: Button,
+                            data: NonLink {
+                                custom_id: "meow",
+                                style: Primary,
+                            },
+                            label: None,
+                            emoji: Some(
+                                Unicode(
+                                    "🐈",
+                                ),
+                            ),
+                            disabled: false,
+                        },
+                    ),
+                    Button(
+                        Button {
+                            kind: Button,
+                            data: NonLink {
+                                custom_id: "woof",
+                                style: Primary,
+                            },
+                            label: None,
+                            emoji: Some(
+                                Unicode(
+                                    "🐕",
+                                ),
+                            ),
+                            disabled: false,
+                        },
+                    ),
+                    Button(
+                        Button {
+                            kind: Button,
+                            data: NonLink {
+                                custom_id: "neigh",
+                                style: Primary,
+                            },
+                            label: None,
+                            emoji: Some(
+                                Unicode(
+                                    "🐎",
+                                ),
+                            ),
+                            disabled: false,
+                        },
+                    ),
+                    Button(
+                        Button {
+                            kind: Button,
+                            data: NonLink {
+                                custom_id: "hoooooooonk",
+                                style: Primary,
+                            },
+                            label: None,
+                            emoji: Some(
+                                Unicode(
+                                    "🦙",
+                                ),
+                            ),
+                            disabled: false,
+                        },
+                    ),
+                    Button(
+                        Button {
+                            kind: Button,
+                            data: NonLink {
+                                custom_id: "crab rave",
+                                style: Primary,
+                            },
+                            label: None,
+                            emoji: Some(
+                                Custom {
+                                    animated: false,
+                                    id: EmojiId(
+                                        381919740114763787,
+                                    ),
+                                    name: Some(
+                                        "ferris",
+                                    ),
+                                },
+                            ),
+                            disabled: false,
+                        },
+                    ),
+                ],
+            },
+        ],
+        sticker_items: [],
+        position: None,
+        role_subscription_data: None,
+        guild_id: None,
+        member: None,
+    },
+    app_permissions: Some(
+        Permissions(
+            418800620400209,
+        ),
+    ),
+    locale: "en-US",
+    guild_locale: Some(
+        "en-US",
+    ),
+    entitlements: [],
+}

@@ -17,10 +17,11 @@ toml = "0.8.10"
 version = "0.12.1"
 default-features = false
 features = [
-    # "builder",
-    #    "cache", 
+    "builder",
+    # "cache", 
     "chrono",
     "client",
+    "collector",
     # "framework",
     "gateway",
     "http",

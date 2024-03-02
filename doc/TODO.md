@@ -1,12 +1,4 @@
-- [ ] Core Game
-	- [ ] Package Organization
-	- [ ] Unit Testing
-	- [ ] Add Contract Roles
-	- [ ] Add Rules
-	- [ ] Serialization and deserialization
-		- [ ] Core Game State
-		- [ ] Rule Serialization
-- [ ] Controller
-	- [ ] Action Parser
-	- [ ] Event Handler
-	- [ ] 
+
+- [ ] Add logging (from tracing crate)
+- [ ] Figure out how to dissect slash command subcommands?
+	- [ ] Or just use messages... that might be easier
