@@ -1,1 +1,5 @@
 /target
+
+
+# Secret discord token
+data/.discord.token
