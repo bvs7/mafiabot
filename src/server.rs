@@ -5,8 +5,7 @@ use crate::controller::Controller;
 
 use serenity::async_trait;
 use serenity::client::{Client, Context, EventHandler};
-use serenity::http::CacheHttp;
-use serenity::model::application::{Command, Interaction};
+use serenity::model::application::Interaction;
 use serenity::model::channel::Message;
 use serenity::model::gateway::{GatewayIntents, Ready};
 use serenity::model::id::GuildId;
@@ -85,25 +84,6 @@ impl EventHandler for Handler {
         _is_new: Option<bool>,
     ) {
         self.guild_id_create(ctx, guild.id, None).await;
-        // // Check if this guild has the mafia commands
-
-        // let commands = guild
-        //     .id
-        //     .get_commands(&ctx.http)
-        //     .await
-        //     .expect("Failed to get commands");
-
-        // let mut mafia_command_found = false;
-        // for command in commands {
-        //     if command.name == "mafia" {
-        //         mafia_command_found = true;
-        //         break;
-        //     }
-        // }
-        // if !mafia_command_found {
-        //     let _ = create_mafia_command(guild.id, ctx.http).await;
-        //     println!("Created mafia command for guild: {}", guild.name)
-        // }
     }
 
     async fn interaction_create(&self, ctx: Context, interaction: Interaction) {
@@ -114,9 +94,9 @@ impl EventHandler for Handler {
         };
         if let Some(guild_id) = guild_id {
             let ctx2 = ctx.clone();
-            let data = ctx2.data.read().await;
-            let server = data.get::<Server>().unwrap();
-            if let Some(controller) = server.controller.get(&guild_id) {
+            let mut data = ctx2.data.write().await;
+            let server = data.get_mut::<Server>().unwrap();
+            if let Some(controller) = server.controller.get_mut(&guild_id) {
                 controller
                     .interaction_create(ctx.clone(), interaction)
                     .await;

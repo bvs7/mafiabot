@@ -47,8 +47,12 @@ use crate::core::interface::{CommandTx, EventRx, Interface};
 use std::collections::HashMap;
 
 use serenity;
-use serenity::all::{CommandDataOptionValue, User};
+use serenity::all::{CommandDataOptionValue, CommandInteraction, CreateButton, User};
 use serenity::async_trait;
+use serenity::builder::{
+    CreateInteractionResponse, CreateInteractionResponseMessage, CreateMessage, CreateThread,
+    EditMessage,
+};
 use serenity::client::Context;
 use serenity::http::Http;
 use serenity::model::id::{ChannelId, GuildId, MessageId, UserId};
@@ -61,10 +65,37 @@ impl ID for UserId {}
 
 pub type GameId = u64;
 
+#[derive(Clone, Debug)]
 pub struct GameInitializer {
+    pub game_id: GameId,
     pub thread_id: ChannelId,
     pub join_msg_id: MessageId,
     pub status_msg_id: MessageId,
+    pub players: Vec<UserId>,
+}
+
+impl GameInitializer {
+    pub async fn update(&mut self, http: &Http) {
+        // Update the join message with the current players
+        let thread = self.thread_id;
+        let mut join_msg = thread
+            .message(&http, self.join_msg_id)
+            .await
+            .expect("Cannot get message");
+        let mut status_msg = thread
+            .message(&http, self.status_msg_id)
+            .await
+            .expect("Cannot get message");
+        let players = &self.players;
+        let mut content = String::new();
+        for player in players {
+            content.push_str(&format!("<@{}>\n", player));
+        }
+        status_msg
+            .edit(&http, EditMessage::new().content(content))
+            .await
+            .expect("Cannot edit message");
+    }
 }
 
 pub struct GameData {
@@ -215,16 +246,119 @@ impl Controller {
 
         guild_id.create_command(cache_http, mafia_command).await
     }
-}
 
-// Events that take place in this controller's guild are routed here?
-#[async_trait]
-impl serenity::client::EventHandler for Controller {
-    async fn ready(&self, ctx: Context, ready: gateway::Ready) {
-        println!("{} is connected!", ready.user.name);
+    async fn create_lobby(
+        &mut self,
+        ctx: &Context,
+        channel_id: ChannelId,
+        command: &CommandInteraction,
+    ) {
+        if self.lobbies.contains_key(&channel_id) {
+            let data = CreateInteractionResponseMessage::new().content("Lobby already exists.");
+            let builder = CreateInteractionResponse::Message(data);
+            if let Err(why) = command.create_response(&ctx.http, builder).await {
+                println!("Cannot respond to slash command: {why}");
+            }
+            return;
+        }
+        let lobby = Lobby {
+            channel_id,
+            game_initializer: None,
+        };
+        self.lobbies.insert(channel_id, lobby);
+        let data = CreateInteractionResponseMessage::new().content("Lobby created!");
+        let builder = CreateInteractionResponse::Message(data);
+        if let Err(why) = command.create_response(&ctx.http, builder).await {
+            println!("Cannot respond to slash command: {why}");
+        }
     }
 
-    async fn interaction_create(&self, ctx: Context, interaction: application::Interaction) {
+    async fn create_game_initializer(&mut self, ctx: &Context, command: &CommandInteraction) {
+        // Get lobby
+        let lobby_channel_id = command.channel_id;
+        let lobby = self.lobbies.get_mut(&lobby_channel_id);
+        if let None = lobby {
+            let data = CreateInteractionResponseMessage::new()
+                .content("Lobby for this channel not found.");
+            let builder = CreateInteractionResponse::Message(data);
+            if let Err(why) = command.create_response(&ctx.http, builder).await {
+                println!("Cannot respond to slash command: {why}");
+            }
+            return;
+        }
+
+        let lobby = lobby.unwrap();
+        if let Some(_) = lobby.game_initializer {
+            let data = CreateInteractionResponseMessage::new().content("Game already started.");
+            let builder = CreateInteractionResponse::Message(data);
+            if let Err(why) = command.create_response(&ctx.http, builder).await {
+                println!("Cannot respond to slash command: {why}");
+            }
+            return;
+        }
+
+        let game_id = 0; // TODO
+
+        // Send a message to the lobby channel:
+        let msg = lobby_channel_id
+            .send_message(
+                &ctx.http,
+                CreateMessage::new().content(format!("Game #{} Initializer", game_id)),
+            )
+            .await;
+        if let Err(why) = msg {
+            println!("Cannot create message: {why}");
+            return;
+        }
+        let msg = msg.unwrap();
+
+        let create_thread = lobby.channel_id.create_thread_from_message(
+            &ctx.http,
+            msg,
+            CreateThread::new(format!("Game # {} Initializer", game_id))
+                .kind(channel::ChannelType::PrivateThread),
+        );
+        let thread = create_thread.await.expect("Cannot create thread");
+
+        let game_init = GameInitializer {
+            game_id,
+            thread_id: thread.id,
+            join_msg_id: thread
+                .send_message(
+                    &ctx.http,
+                    CreateMessage::new()
+                        .button(CreateButton::new(format!("join_game")).label("Join Game"))
+                        .button(CreateButton::new(format!("start_game")).label("Start Game")),
+                )
+                .await
+                .expect("Cannot create message")
+                .id,
+            status_msg_id: thread
+                .id
+                .send_message(
+                    &ctx.http,
+                    CreateMessage::new().content("Game not started yet"),
+                )
+                .await
+                .expect("Cannot create message")
+                .id,
+            players: vec![],
+        };
+
+        let data = CreateInteractionResponseMessage::new().content("Game Initializer Created.");
+        let builder = CreateInteractionResponse::Message(data);
+        if let Err(why) = command.create_response(&ctx.http, builder).await {
+            println!("Cannot respond to slash command: {why}");
+        }
+
+        lobby.game_initializer = Some(game_init);
+    }
+    pub async fn interaction_create(
+        &mut self,
+        ctx: Context,
+        interaction: application::Interaction,
+    ) {
+        use application::CommandDataOptionValue::{SubCommand, SubCommandGroup};
         use application::ComponentInteractionDataKind::{Button, UserSelect};
         use application::Interaction::{Command, Component, Ping};
         // Things this could be:
@@ -235,7 +369,26 @@ impl serenity::client::EventHandler for Controller {
                 if data.name == "mafia" {
                     let option = &data.options.first().expect("No subcommandgroup?");
                     if option.name == "lobby" {
+                        if let SubCommandGroup(options) = &option.value {
+                            let option = &options.first().expect("No subcommand?");
+                            if option.name == "create" {
+                                println!("Create lobby");
+                            } else if option.name == "open" {
+                                println!("Open lobby");
+                                let channel_id = command.channel_id.clone();
+                                self.create_lobby(&ctx, channel_id, command).await;
+                            } else if option.name == "close" {
+                                println!("Close lobby");
+                            }
+                        }
                     } else if option.name == "game" {
+                        if let SubCommandGroup(options) = &option.value {
+                            let option = &options.first().expect("No subcommand?");
+                            if option.name == "create" {
+                                println!("Create a new mafia game");
+                                self.create_game_initializer(&ctx, command).await;
+                            }
+                        }
                     }
 
                     // TODO: figure out how subcommands are structured and destructure them
@@ -268,7 +421,24 @@ impl serenity::client::EventHandler for Controller {
                     .clone();
                 match self.check_button(button_id, msg_id, msg_channel_id, user_id) {
                     Some(ButtonAction::JoinGame(lobby_channel_id, user_id)) => {
+                        let lobby = self
+                            .lobbies
+                            .get_mut(&lobby_channel_id)
+                            .expect("Lobby not found");
                         // Join the game
+                        let game_init = lobby
+                            .game_initializer
+                            .as_mut()
+                            .expect("Game initializer not found");
+
+                        if !game_init.players.contains(&user_id) {
+                            game_init.players.push(user_id);
+                            game_init.update(&ctx.http).await;
+                        }
+                        let builder = CreateInteractionResponse::Acknowledge;
+                        if let Err(why) = component.create_response(&ctx.http, builder).await {
+                            println!("Cannot respond to button press: {why}");
+                        }
                     }
                     Some(ButtonAction::WatchGame(lobby_channel_id, user_id)) => {
                         // Watch the game
