@@ -1,101 +1,342 @@
-// Basic Game 1
-
-use std::sync::mpsc;
-use std::sync::mpsc::{Receiver, Sender};
-
+#![allow(unused_imports)]
 use super::*;
+use tokio::join;
+use tokio::time::Duration;
 
-// Create a basic game, that, when started will go to Day Phase (because odd number of players)
-fn create_basic_game_1() -> (Game<u64>, Receiver<Event<u64>>) {
-    // Players for a simple 5 player game
-    let players = vec![
-        Player::new(101, Role::TOWN),
-        Player::new(102, Role::COP),
-        Player::new(103, Role::DOCTOR),
-        Player::new(104, Role::MAFIA),
-        Player::new(105, Role::TOWN),
-    ];
-    // No contract roles
-    let contracts = Vec::new();
+impl ID for u32 {}
 
-    // Set up Comm output
-    let (tx, rx): (Sender<Event<u64>>, Receiver<Event<u64>>) = mpsc::channel();
-
-    let game = Game::new(1, players, contracts, Comm::new(&tx));
-    return (game, rx);
+async fn start_print_event_handler(
+    mut event_rx: mpsc::Receiver<Event<u32>>,
+) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        loop {
+            let event = event_rx.recv().await.expect("Event to receive");
+            println!("EVENT: {:?}", event);
+            tokio::time::sleep(Duration::from_millis(10)).await;
+            if let Event::Close { .. } = event {
+                break;
+            }
+        }
+    })
 }
 
-// Create a basic game that will start in Night Phase (because even number of players)
-fn create_basic_game_2() -> (Game<u64>, Receiver<Event<u64>>) {
-    // Players for a simple 4 player game
-    let players = vec![
-        Player::new(101, Role::TOWN),
-        Player::new(102, Role::COP),
-        Player::new(103, Role::DOCTOR),
-        Player::new(104, Role::MAFIA),
+fn get_players(n: u8) -> HashMap<u32, Role<u32>> {
+    let mut players = HashMap::new();
+    let role_list = vec![
+        Role::TOWN,         // 1
+        Role::TOWN,         // 2
+        Role::MAFIA,        // 3
+        Role::COP,          // 4
+        Role::DOCTOR,       // 5
+        Role::STRIPPER,     // 6
+        Role::CELEB,        // 7
+        Role::IDIOT(false), // 8
+        Role::SURVIVOR,     // 9
+        Role::AGENT(1),     // 10
+        Role::GUARD(1),     // 11
     ];
-    // No contract roles
-    let contracts = Vec::new();
-
-    // Set up Comm output
-    let (tx, rx): (Sender<Event<u64>>, Receiver<Event<u64>>) = mpsc::channel();
-
-    let game = Game::new(1, players, contracts, Comm::new(&tx));
-    return (game, rx);
-}
-
-fn expect_eventkind(rx: &Receiver<Event<u64>>, kind: EventKind) {
-    let event = rx.try_recv();
-
-    if let Err(e) = event {
-        assert!(false, "TryRecvError: {:?}", e);
+    for i in 1..=n {
+        players.insert(i as u32, role_list[i as usize - 1]);
     }
-    let event = event.unwrap();
-
-    let event = event;
-    assert_eq!(event.kind(), kind);
+    players
 }
 
-#[test]
-fn invalid_votes() {
-    let (mut game, rx) = create_basic_game_1();
+async fn vote(
+    cmd_tx: &CommandTx<u32>,
+    voter: u32,
+    choice: Choice<u32>,
+) -> Result<(), CoreError<u32>> {
+    let action = Action::Vote { voter, choice };
+    Interface::send_action(&cmd_tx, action).await
+}
 
-    assert!(game.start().is_ok());
-    // Read off event queue and expect Day Phase
-    expect_eventkind(&rx, EventKind::Init);
-    expect_eventkind(&rx, EventKind::Start);
-    expect_eventkind(&rx, EventKind::Day);
+async fn votes(
+    cmd_tx: &CommandTx<u32>,
+    voters: Vec<u32>,
+    choice: Choice<u32>,
+) -> Result<(), CoreError<u32>> {
+    for voter in voters {
+        vote(&cmd_tx, voter, choice).await?;
+    }
+    Ok(())
+}
 
-    assert!(
-        game.handle(Action::Vote {
-            voter: 404,
-            ballot: None
-        })
-        .is_err(),
-        "Invalid voter, should fail"
+async fn target(
+    cmd_tx: &CommandTx<u32>,
+    actor: u32,
+    target: Choice<u32>,
+) -> Result<(), CoreError<u32>> {
+    let action = Action::Target { actor, target };
+    Interface::send_action(&cmd_tx, action).await
+}
+
+async fn scheme(
+    cmd_tx: &CommandTx<u32>,
+    actor: u32,
+    mark: Choice<u32>,
+) -> Result<(), CoreError<u32>> {
+    let action = Action::Scheme { actor, mark };
+    Interface::send_action(&cmd_tx, action).await
+}
+
+async fn wait() {
+    tokio::time::sleep(Duration::from_millis(250)).await;
+}
+
+async fn beat() {
+    tokio::time::sleep(Duration::from_millis(15)).await;
+}
+
+#[tokio::test]
+async fn test_targeting() -> Result<(), CoreError<u32>> {
+    // env::set_var("RUST_BACKTRACE", "1");
+
+    let players = get_players(7);
+
+    let (core_join, event_rx, cmd_tx) = Core::new_spawned(0, players, Rules::test()).await;
+
+    let event_handler_join = start_print_event_handler(event_rx).await;
+
+    Interface::send_action(&cmd_tx, Action::Start).await?;
+
+    let state = Interface::send_status(&cmd_tx).await?;
+    // println!("{:#?}", state);
+
+    assert_eq!(state.day_no, 1);
+    assert_eq!(state.players.len(), 7);
+    assert_eq!(state.phase.kind(), PhaseKind::Day);
+
+    vote(&cmd_tx, 1, Choice::Player(3)).await?;
+    vote(&cmd_tx, 2, Choice::Player(3)).await?;
+    vote(&cmd_tx, 3, Choice::Player(3)).await?;
+    vote(&cmd_tx, 4, Choice::Player(3)).await?;
+
+    wait().await;
+
+    let state = Interface::send_status(&cmd_tx).await?;
+    // println!("{:#?}", state);
+    assert_eq!(state.day_no, 1);
+    assert_eq!(state.players.len(), 6);
+    assert_eq!(state.phase.kind(), PhaseKind::Night);
+
+    scheme(&cmd_tx, 6, Choice::Player(1)).await?;
+
+    assert_eq!(
+        target(&cmd_tx, 6, Choice::Player(4)).await,
+        Err(CoreError::StripperOverload { actor: 6 })
     );
 
-    assert!(
-        game.handle(Action::Vote {
-            voter: 101,
-            ballot: Some(Choice::Player(404))
-        })
-        .is_err(),
-        "Invalid ballot target, should fail"
-    );
+    scheme(&cmd_tx, 6, Choice::Abstain).await?;
+    target(&cmd_tx, 6, Choice::Player(4)).await?;
 
-    let (mut game, rx) = create_basic_game_2();
-    assert!(game.start().is_ok());
-    expect_eventkind(&rx, EventKind::Init);
-    expect_eventkind(&rx, EventKind::Start);
-    expect_eventkind(&rx, EventKind::Night);
+    target(&cmd_tx, 4, Choice::Player(1)).await?;
+    target(&cmd_tx, 5, Choice::Player(5)).await?;
 
-    assert!(
-        game.handle(Action::Vote {
-            voter: 101,
-            ballot: Some(Choice::Player(102))
-        })
-        .is_err(),
-        "Invalid phase, should fail"
+    wait().await;
+
+    let state = Interface::send_status(&cmd_tx).await?;
+
+    // println!("{:#?}", state);
+
+    assert_eq!(state.day_no, 2);
+    assert_eq!(state.players.len(), 6);
+    assert_eq!(state.phase.kind(), PhaseKind::Day);
+
+    vote(&cmd_tx, 7, Choice::Player(1)).await?;
+    vote(&cmd_tx, 6, Choice::Player(1)).await?;
+    vote(&cmd_tx, 1, Choice::Player(1)).await?;
+
+    wait().await;
+
+    let state = Interface::send_status(&cmd_tx).await?;
+    assert_eq!(state.phase.kind(), PhaseKind::Day);
+
+    vote(&cmd_tx, 1, Choice::Abstain).await?;
+    vote(&cmd_tx, 2, Choice::Abstain).await?;
+    assert_eq!(
+        vote(&cmd_tx, 3, Choice::Abstain).await,
+        Err(CoreError::InvalidPlayer { player: 3 })
     );
+    vote(&cmd_tx, 4, Choice::Abstain).await?;
+
+    Interface::send_action(&cmd_tx, Action::Unvote { voter: 4 }).await?;
+
+    wait().await;
+
+    let state = Interface::send_status(&cmd_tx).await?;
+    assert_eq!(state.phase.kind(), PhaseKind::Day);
+
+    vote(&cmd_tx, 7, Choice::Abstain).await?;
+    vote(&cmd_tx, 6, Choice::Abstain).await?;
+
+    wait().await;
+
+    let state = Interface::send_status(&cmd_tx).await?;
+    assert_eq!(state.phase.kind(), PhaseKind::Night);
+
+    target(&cmd_tx, 4, Choice::Player(6)).await?;
+    target(&cmd_tx, 5, Choice::Player(5)).await?;
+
+    target(&cmd_tx, 6, Choice::Abstain).await?;
+    scheme(&cmd_tx, 6, Choice::Player(1)).await?;
+
+    target(&cmd_tx, 4, Choice::Player(1)).await?;
+
+    wait().await;
+
+    let state = Interface::send_status(&cmd_tx).await?;
+    assert_eq!(state.phase.kind(), PhaseKind::Day);
+
+    vote(&cmd_tx, 7, Choice::Player(2)).await?;
+    vote(&cmd_tx, 6, Choice::Player(2)).await?;
+    vote(&cmd_tx, 2, Choice::Player(2)).await?;
+
+    wait().await;
+
+    let state = Interface::send_status(&cmd_tx).await?;
+
+    //4-COP, 5-DOCTOR, 6-STRIPPER, 7-CELEB
+    assert_eq!(state.phase.kind(), PhaseKind::Night);
+    assert_eq!(state.players.len(), 4);
+
+    scheme(&cmd_tx, 6, Choice::Abstain).await?;
+    target(&cmd_tx, 6, Choice::Player(4)).await?;
+    target(&cmd_tx, 4, Choice::Player(5)).await?;
+    target(&cmd_tx, 5, Choice::Player(4)).await?;
+
+    wait().await;
+
+    let state = Interface::send_status(&cmd_tx).await?;
+    assert_eq!(state.phase.kind(), PhaseKind::Day);
+
+    vote(&cmd_tx, 7, Choice::Abstain).await?;
+    vote(&cmd_tx, 6, Choice::Abstain).await?;
+
+    wait().await;
+
+    let state = Interface::send_status(&cmd_tx).await?;
+    assert_eq!(state.phase.kind(), PhaseKind::Night);
+
+    target(&cmd_tx, 6, Choice::Player(7)).await?;
+    target(&cmd_tx, 4, Choice::Player(7)).await?;
+    target(&cmd_tx, 5, Choice::Player(5)).await?;
+    scheme(&cmd_tx, 6, Choice::Abstain).await?;
+
+    wait().await;
+
+    Interface::send_action(&cmd_tx, Action::Reveal { player: 7 }).await?;
+
+    vote(&cmd_tx, 7, Choice::Player(6)).await?;
+    vote(&cmd_tx, 5, Choice::Player(6)).await?;
+    vote(&cmd_tx, 4, Choice::Player(6)).await?;
+
+    wait().await;
+
+    let state = Interface::send_status(&cmd_tx).await?;
+    assert_eq!(state.phase.kind(), PhaseKind::End);
+
+    assert!(matches!(state.phase, Phase::End { winner: Team::Town }));
+
+    Interface::send_close(&cmd_tx).await;
+
+    let _ = join!(core_join, event_handler_join);
+
+    return Ok(());
+}
+
+#[tokio::test]
+async fn test_contracts() -> Result<(), CoreError<u32>> {
+    // 1-TOWN, 2-TOWN, 3-MAFIA, 4-COP, 5-DOCTOR, 6-STRIPPER,
+    // 7-CELEB, 8-IDIOT, 9-SURVIVOR, 10-AGENT(1), 11-GUARD(1)
+
+    let players = get_players(11);
+    let (core_join, event_rx, cmd_tx) = Core::new_spawned(0, players, Rules::test()).await;
+    let event_handler_join = start_print_event_handler(event_rx).await;
+
+    Interface::send_action(&cmd_tx, Action::Start).await?;
+
+    votes(&cmd_tx, vec![2, 3, 4, 5, 6, 7, 8], Choice::Player(1)).await?;
+
+    beat().await;
+
+    votes(&cmd_tx, vec![2, 7], Choice::Abstain).await?;
+
+    vote(&cmd_tx, 7, Choice::Player(1)).await?;
+
+    wait().await;
+
+    let state = Interface::send_status(&cmd_tx).await?;
+    assert_eq!(state.phase.kind(), PhaseKind::Night);
+    assert!(matches!(state.players[&10], Role::GUARD(7)));
+    assert!(matches!(state.players[&11], Role::AGENT(7)));
+
+    target(&cmd_tx, 4, Choice::Player(3)).await?;
+    target(&cmd_tx, 5, Choice::Player(5)).await?;
+    scheme(&cmd_tx, 3, Choice::Player(2)).await?;
+    target(&cmd_tx, 6, Choice::Player(10)).await?;
+
+    wait().await;
+
+    let state = Interface::send_status(&cmd_tx).await?;
+    assert_eq!(state.phase.kind(), PhaseKind::Day);
+
+    votes(&cmd_tx, vec![3, 4, 5, 6, 7], Choice::Player(8)).await?;
+
+    wait().await;
+    wait().await;
+
+    let state = Interface::send_status(&cmd_tx).await?;
+    assert_eq!(state.phase.kind(), PhaseKind::Eclipse);
+
+    Interface::send_action(
+        &cmd_tx,
+        Action::Avenge {
+            avenger: 8,
+            victim: Choice::Player(7),
+        },
+    )
+    .await?;
+
+    wait().await;
+
+    let state = Interface::send_status(&cmd_tx).await?;
+    println!("{:#?}", state);
+    assert_eq!(state.phase.kind(), PhaseKind::Night);
+
+    Interface::send_close(&cmd_tx).await;
+
+    let _ = join!(core_join, event_handler_join);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_serialize() -> Result<(), CoreError<u32>> {
+    // Setup a game (in the middle of Election Imminent state)
+
+    let players = get_players(11);
+    let (core_join, event_rx, cmd_tx) = Core::new_spawned(0, players, Rules::test()).await;
+    let event_handler_join = start_print_event_handler(event_rx).await;
+
+    Interface::send_action(&cmd_tx, Action::Start).await?;
+
+    votes(&cmd_tx, vec![2, 3, 4, 5, 6, 7, 8], Choice::Player(1)).await?;
+
+    beat().await;
+
+    // Try to serialize the game state
+
+    let saved_game = Interface::send_serialize(&cmd_tx)
+        .await
+        .expect("Failed to serialize game");
+
+    Interface::send_close(&cmd_tx).await;
+
+    println!("\nGame ID:\n---\n{}", saved_game.game_id);
+    println!("\nGame State:\n---\n{}", saved_game.state);
+    println!("\nGame Rules:\n---\n{}", saved_game.rules);
+
+    let _ = join!(core_join, event_handler_join);
+
+    Ok(())
 }

@@ -1,0 +1,181 @@
+Interaction: Command(
+    CommandInteraction {
+        id: InteractionId(
+            1213543823767244840,
+        ),
+        application_id: ApplicationId(
+            706572724775944222,
+        ),
+        data: CommandData {
+            id: CommandId(
+                1213543537648468019,
+            ),
+            name: "mafia",
+            kind: ChatInput,
+            resolved: CommandDataResolved {
+                users: {},
+                members: {},
+                roles: {},
+                channels: {},
+                messages: {},
+                attachments: {},
+            },
+            options: [
+                CommandDataOption {
+                    name: "lobby",
+                    value: SubCommandGroup(
+                        [
+                            CommandDataOption {
+                                name: "create",
+                                value: SubCommand(
+                                    [],
+                                ),
+                            },
+                        ],
+                    ),
+                },
+            ],
+            guild_id: Some(
+                GuildId(
+                    706575048504246323,
+                ),
+            ),
+            target_id: None,
+        },
+        guild_id: Some(
+            GuildId(
+                706575048504246323,
+            ),
+        ),
+        channel: Some(
+            PartialChannel {
+                id: ChannelId(
+                    1208122798464041020,
+                ),
+                name: Some(
+                    "test_game",
+                ),
+                kind: Text,
+                permissions: Some(
+                    Permissions(
+                        422212465065983,
+                    ),
+                ),
+                thread_metadata: None,
+                parent_id: Some(
+                    ChannelId(
+                        981630961471070288,
+                    ),
+                ),
+            },
+        ),
+        channel_id: ChannelId(
+            1208122798464041020,
+        ),
+        member: Some(
+            Member {
+                user: User {
+                    id: UserId(
+                        414848953478021141,
+                    ),
+                    name: "secondengineer0",
+                    discriminator: None,
+                    global_name: Some(
+                        "SecondEngineer",
+                    ),
+                    avatar: Some(
+                        "07e76c11125939cfc6998d2602be10e0",
+                    ),
+                    bot: false,
+                    system: false,
+                    mfa_enabled: false,
+                    banner: None,
+                    accent_colour: None,
+                    locale: None,
+                    verified: None,
+                    email: None,
+                    flags: UserPublicFlags(
+                        0,
+                    ),
+                    premium_type: None,
+                    public_flags: Some(
+                        UserPublicFlags(
+                            0,
+                        ),
+                    ),
+                    member: None,
+                },
+                nick: Some(
+                    "The_Creator",
+                ),
+                avatar: None,
+                roles: [],
+                joined_at: Some(
+                    Timestamp(
+                        2020-05-03T18:36:59.249Z,
+                    ),
+                ),
+                premium_since: None,
+                deaf: false,
+                mute: false,
+                flags: GuildMemberFlags(
+                    0,
+                ),
+                pending: false,
+                permissions: Some(
+                    Permissions(
+                        422212465065983,
+                    ),
+                ),
+                communication_disabled_until: None,
+                guild_id: GuildId(
+                    706575048504246323,
+                ),
+                unusual_dm_activity_until: None,
+            },
+        ),
+        user: User {
+            id: UserId(
+                414848953478021141,
+            ),
+            name: "secondengineer0",
+            discriminator: None,
+            global_name: Some(
+                "SecondEngineer",
+            ),
+            avatar: Some(
+                "07e76c11125939cfc6998d2602be10e0",
+            ),
+            bot: false,
+            system: false,
+            mfa_enabled: false,
+            banner: None,
+            accent_colour: None,
+            locale: None,
+            verified: None,
+            email: None,
+            flags: UserPublicFlags(
+                0,
+            ),
+            premium_type: None,
+            public_flags: Some(
+                UserPublicFlags(
+                    0,
+                ),
+            ),
+            member: None,
+        },
+        token: "aW50ZXJhY3Rpb246MTIxMzU0MzgyMzc2NzI0NDg0MDptSjVjTUl3bk96RFRpS2NwYnl6YjNIMGV2dkV6M0pYcXFPODNrcDZtd3dGeU5BMTJQdENGYzFUU1h1eGZ2b3NqUFdMSUlWeFRJMmkwMWx1QmlkbzJITmZyTWVCUFIyZERQMHpVZ3ZsajBxWUVyWEtCbEtGa2dLNlRZNXdnWUlKYQ",
+        version: 1,
+        app_permissions: Some(
+            Permissions(
+                418800620400209,
+            ),
+        ),
+        locale: "en-US",
+        guild_locale: Some(
+            "en-US",
+        ),
+        entitlements: [],
+    },
+)

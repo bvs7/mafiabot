@@ -1,0 +1,102 @@
+Message: Message {
+    id: MessageId(
+        1213341630610804757,
+    ),
+    channel_id: ChannelId(
+        1208122798464041020,
+    ),
+    author: User {
+        id: UserId(
+            414848953478021141,
+        ),
+        name: "secondengineer0",
+        discriminator: None,
+        global_name: Some(
+            "SecondEngineer",
+        ),
+        avatar: Some(
+            "07e76c11125939cfc6998d2602be10e0",
+        ),
+        bot: false,
+        system: false,
+        mfa_enabled: false,
+        banner: None,
+        accent_colour: None,
+        locale: None,
+        verified: None,
+        email: None,
+        flags: UserPublicFlags(
+            0,
+        ),
+        premium_type: None,
+        public_flags: Some(
+            UserPublicFlags(
+                0,
+            ),
+        ),
+        member: None,
+    },
+    content: "test",
+    timestamp: Timestamp(
+        2024-03-02T04:26:27.535Z,
+    ),
+    edited_timestamp: None,
+    tts: false,
+    mention_everyone: false,
+    mentions: [],
+    mention_roles: [],
+    mention_channels: [],
+    attachments: [],
+    embeds: [],
+    reactions: [],
+    nonce: Some(
+        String(
+            "1213341619571392512",
+        ),
+    ),
+    pinned: false,
+    webhook_id: None,
+    kind: Regular,
+    activity: None,
+    application: None,
+    application_id: None,
+    message_reference: None,
+    flags: Some(
+        MessageFlags(
+            0,
+        ),
+    ),
+    referenced_message: None,
+    interaction: None,
+    thread: None,
+    components: [],
+    sticker_items: [],
+    position: None,
+    role_subscription_data: None,
+    guild_id: Some(
+        GuildId(
+            706575048504246323,
+        ),
+    ),
+    member: Some(
+        PartialMember {
+            deaf: false,
+            joined_at: Some(
+                Timestamp(
+                    2020-05-03T18:36:59.249Z,
+                ),
+            ),
+            mute: false,
+            nick: Some(
+                "The_Creator",
+            ),
+            roles: [],
+            pending: false,
+            premium_since: None,
+            guild_id: None,
+            user: None,
+            permissions: None,
+            unusual_dm_activity_until: None,
+        },
+    ),
+}

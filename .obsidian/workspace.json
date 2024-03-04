@@ -1,0 +1,162 @@
+{
+  "main": {
+    "id": "02192178e91a8f8e",
+    "type": "split",
+    "children": [
+      {
+        "id": "9cc180fe55572858",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "cc32833eb98a05ff",
+            "type": "leaf",
+            "state": {
+              "type": "empty",
+              "state": {}
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "vertical"
+  },
+  "left": {
+    "id": "27d1d72c8d7c8512",
+    "type": "split",
+    "children": [
+      {
+        "id": "34f692c925f9d24d",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "cc45d2446ad68209",
+            "type": "leaf",
+            "state": {
+              "type": "file-explorer",
+              "state": {
+                "sortOrder": "alphabetical"
+              }
+            }
+          },
+          {
+            "id": "7febb3e483133004",
+            "type": "leaf",
+            "state": {
+              "type": "search",
+              "state": {
+                "query": "",
+                "matchingCase": false,
+                "explainSearch": false,
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical"
+              }
+            }
+          },
+          {
+            "id": "8e02e37743a9470b",
+            "type": "leaf",
+            "state": {
+              "type": "bookmarks",
+              "state": {}
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300
+  },
+  "right": {
+    "id": "aa6441e1ab9e8282",
+    "type": "split",
+    "children": [
+      {
+        "id": "8abc5614f8d42c55",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "9bd5830f57faa1fb",
+            "type": "leaf",
+            "state": {
+              "type": "backlink",
+              "state": {
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical",
+                "showSearch": false,
+                "searchQuery": "",
+                "backlinkCollapsed": false,
+                "unlinkedCollapsed": true
+              }
+            }
+          },
+          {
+            "id": "b46face2a87fae4c",
+            "type": "leaf",
+            "state": {
+              "type": "outgoing-link",
+              "state": {
+                "linksCollapsed": false,
+                "unlinkedCollapsed": true
+              }
+            }
+          },
+          {
+            "id": "8f9528b2bf98e19d",
+            "type": "leaf",
+            "state": {
+              "type": "tag",
+              "state": {
+                "sortOrder": "frequency",
+                "useHierarchy": true
+              }
+            }
+          },
+          {
+            "id": "fc23117c27932165",
+            "type": "leaf",
+            "state": {
+              "type": "outline",
+              "state": {}
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300,
+    "collapsed": true
+  },
+  "left-ribbon": {
+    "hiddenItems": {
+      "switcher:Open quick switcher": false,
+      "graph:Open graph view": false,
+      "canvas:Create new canvas": false,
+      "daily-notes:Open today's daily note": false,
+      "templates:Insert template": false,
+      "command-palette:Open command palette": false
+    }
+  },
+  "active": "cc32833eb98a05ff",
+  "lastOpenFiles": [
+    "src/server.rs",
+    "src/core/timer.rs",
+    "src/core/state.rs",
+    "src/core/roles.rs",
+    "src/core/mod.rs",
+    "src/core/base.rs",
+    "src/controller/mod.rs",
+    "doc/TODO.md",
+    "doc/Core Game Notes.md",
+    "doc/Controller Notes.md",
+    "data/example_payloads/sub_subcommand_interaction.txt",
+    "data/example_payloads/message.txt",
+    "data/example_payloads/message_with_mention.txt",
+    "data/example_payloads/button_interaction.txt",
+    "doc/Tasks.md",
+    "doc/Roles.md",
+    "doc/Discord.md",
+    "doc/Design.md"
+  ]
+}

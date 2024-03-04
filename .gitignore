@@ -1,13 +1,5 @@
-# VSCode settings
+/target
 
-.vs/*
-.vscode/*
 
-# Saved Games
-*.maf
-
-# Rust target
-target/
-
-# Rust data
-data
+# Secret discord token
+data/.discord.token
