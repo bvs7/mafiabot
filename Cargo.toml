@@ -18,16 +18,16 @@ version = "0.12.1"
 default-features = false
 features = [
     "builder",
-    # "cache", 
+    "cache",
     "chrono",
     "client",
     "collector",
-    # "framework",
+    "framework",
     "gateway",
     "http",
     "model",
-    # "standard_framework",
-    # "utils",
+    "standard_framework",
+    "utils",
     "rustls_backend",
 ]
 

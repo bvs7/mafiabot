@@ -50,8 +50,12 @@ use serenity;
 use serenity::all::{CommandDataOptionValue, User};
 use serenity::async_trait;
 use serenity::client::Context;
+use serenity::http::Http;
 use serenity::model::id::{ChannelId, GuildId, MessageId, UserId};
 use serenity::model::{application, channel, gateway, id};
+use std::sync::Arc;
+
+use serenity::prelude::*;
 
 impl ID for UserId {}
 
@@ -93,6 +97,14 @@ pub enum ButtonAction {
 }
 
 impl Controller {
+    pub fn new(guild_id: GuildId, http: Arc<Http>) -> Self {
+        Self {
+            guild_id,
+            lobbies: HashMap::new(),
+            games: HashMap::new(),
+        }
+    }
+
     pub fn check_button(
         &self,
         button_id: String,
@@ -155,6 +167,54 @@ impl Controller {
         }
         None
     }
+
+    pub async fn create_mafia_command(
+        guild_id: GuildId,
+        cache_http: impl CacheHttp,
+    ) -> Result<serenity::model::application::Command, serenity::Error> {
+        use serenity::builder::{CreateCommand, CreateCommandOption};
+        use serenity::model::application::{CommandOptionType, CommandType};
+
+        let mafia_command = CreateCommand::new("mafia")
+            .kind(CommandType::ChatInput)
+            .description("Mafia Game Commands")
+            .add_option(
+                CreateCommandOption::new(
+                    CommandOptionType::SubCommandGroup,
+                    "lobby",
+                    "Mafia Lobby Commands",
+                )
+                .add_sub_option(CreateCommandOption::new(
+                    CommandOptionType::SubCommand,
+                    "create",
+                    "Create a new channel as a lobby",
+                ))
+                .add_sub_option(CreateCommandOption::new(
+                    CommandOptionType::SubCommand,
+                    "open",
+                    "Open a lobby in this channel",
+                ))
+                .add_sub_option(CreateCommandOption::new(
+                    CommandOptionType::SubCommand,
+                    "close",
+                    "Close the lobby in this channel",
+                )),
+            )
+            .add_option(
+                CreateCommandOption::new(
+                    CommandOptionType::SubCommandGroup,
+                    "game",
+                    "Mafia Game Commands",
+                )
+                .add_sub_option(CreateCommandOption::new(
+                    CommandOptionType::SubCommand,
+                    "create",
+                    "Start the game in a lobby channel",
+                )),
+            );
+
+        guild_id.create_command(cache_http, mafia_command).await
+    }
 }
 
 // Events that take place in this controller's guild are routed here?
@@ -171,12 +231,18 @@ impl serenity::client::EventHandler for Controller {
         match &interaction {
             // - A slash command
             Command(command) => {
-                if command.data.name == "mafia" {
+                let data = &command.data;
+                if data.name == "mafia" {
+                    let option = &data.options.first().expect("No subcommandgroup?");
+                    if option.name == "lobby" {
+                    } else if option.name == "game" {
+                    }
+
                     // TODO: figure out how subcommands are structured and destructure them
 
                     //     - lobby create/open/close
                     //     - game create
-                } else if command.data.name == "vote" {
+                } else if data.name == "vote" {
                     //     - nokill
                     //     - retract
                     //     - for

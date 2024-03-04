@@ -1,4 +1,21 @@
 
-- [ ] Add logging (from tracing crate)
-- [ ] Figure out how to dissect slash command subcommands?
-	- [ ] Or just use messages... that might be easier
+- [ ] vote command
+- [ ] mafia lobby open command
+- [ ] mafia game create command
+	- [ ] Game initializer thread
+	- [ ] Join Game button
+	- [ ] Start Game button
+- [ ] placeholder rolegen
+- [ ] Event Handler
+	- [ ] Start
+	- [ ] Vote
+	- [ ] Scheme
+	- [ ] Eliminate
+	- [ ] Election Imminent
+	- [ ] Election
+	- [ ] Kill
+	- [ ] NoNightKill
+	- [ ] Day
+	- [ ] Night
+	- [ ] End
+	- [ ] Close

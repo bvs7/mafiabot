@@ -1,11 +1,44 @@
+use std::collections::HashMap;
 use std::env;
 
+use crate::controller::Controller;
+
 use serenity::async_trait;
+use serenity::client::{Client, Context, EventHandler};
+use serenity::http::CacheHttp;
+use serenity::model::application::{Command, Interaction};
 use serenity::model::channel::Message;
-use serenity::model::gateway::Ready;
-use serenity::prelude::*;
+use serenity::model::gateway::{GatewayIntents, Ready};
+use serenity::model::id::GuildId;
+use serenity::prelude::TypeMapKey;
+
+struct Server {
+    controller: HashMap<GuildId, Controller>,
+}
+
+impl TypeMapKey for Server {
+    type Value = Server;
+}
 
 struct Handler;
+
+impl Handler {
+    async fn guild_id_create(
+        &self,
+        ctx: Context,
+        guild: serenity::model::id::GuildId,
+        _is_new: Option<bool>,
+    ) {
+        {
+            // Add a controller for this guild
+            let mut data = ctx.data.write().await;
+            let server = data.get_mut::<Server>().unwrap();
+            server
+                .controller
+                .insert(guild, Controller::new(guild, ctx.http.clone()));
+        }
+    }
+}
 
 #[async_trait]
 impl EventHandler for Handler {
@@ -29,18 +62,83 @@ impl EventHandler for Handler {
     // Ids, current user data, private channels, and more.
     //
     // In this case, just print what the current user's username is.
-    async fn ready(&self, _: Context, ready: Ready) {
+    async fn ready(&self, ctx: Context, ready: Ready) {
         println!("{} is connected!", ready.user.name);
+
+        for guild in ready.guilds {
+            println!("{:?} is in the guild list", guild);
+            if guild.unavailable {
+                println!("Guild {} is unavailable...", guild.id);
+                // let result = create_mafia_command(guild.id, &ctx.http).await;
+                // if let Err(why) = result {
+                //     println!("Error creating mafia command: {why:?}");
+                // }
+            }
+            self.guild_id_create(ctx.clone(), guild.id, None).await;
+        }
     }
+
+    async fn guild_create(
+        &self,
+        ctx: Context,
+        guild: serenity::model::guild::Guild,
+        _is_new: Option<bool>,
+    ) {
+        self.guild_id_create(ctx, guild.id, None).await;
+        // // Check if this guild has the mafia commands
+
+        // let commands = guild
+        //     .id
+        //     .get_commands(&ctx.http)
+        //     .await
+        //     .expect("Failed to get commands");
+
+        // let mut mafia_command_found = false;
+        // for command in commands {
+        //     if command.name == "mafia" {
+        //         mafia_command_found = true;
+        //         break;
+        //     }
+        // }
+        // if !mafia_command_found {
+        //     let _ = create_mafia_command(guild.id, ctx.http).await;
+        //     println!("Created mafia command for guild: {}", guild.name)
+        // }
+    }
+
+    async fn interaction_create(&self, ctx: Context, interaction: Interaction) {
+        let guild_id: Option<GuildId> = match &interaction {
+            Interaction::Command(command) => command.guild_id.clone(),
+            Interaction::Component(component) => component.guild_id.clone(),
+            _ => None,
+        };
+        if let Some(guild_id) = guild_id {
+            let ctx2 = ctx.clone();
+            let data = ctx2.data.read().await;
+            let server = data.get::<Server>().unwrap();
+            if let Some(controller) = server.controller.get(&guild_id) {
+                controller
+                    .interaction_create(ctx.clone(), interaction)
+                    .await;
+            }
+        } else {
+            println!("No guild id found for interaction: {:#?}", interaction);
+        }
+    }
+}
+
+fn get_gateway_intents() -> GatewayIntents {
+    GatewayIntents::GUILDS
+        | GatewayIntents::GUILD_MEMBERS
+        | GatewayIntents::GUILD_MESSAGES
+        | GatewayIntents::MESSAGE_CONTENT
 }
 
 pub async fn start() {
     // Configure the client with your Discord bot token in the environment.
     let token = env::var("DISCORD_TOKEN").expect("Expected a token in the environment");
     // Set gateway intents, which decides what events the bot will be notified about
-    let intents = GatewayIntents::GUILD_MESSAGES
-        | GatewayIntents::DIRECT_MESSAGES
-        | GatewayIntents::MESSAGE_CONTENT;
+    let intents = get_gateway_intents();
 
     // Create a new instance of the Client, logging in as a bot. This will automatically prepend
     // your bot token with "Bot ", which is a requirement by Discord for bot users.
@@ -48,6 +146,14 @@ pub async fn start() {
         .event_handler(Handler)
         .await
         .expect("Err creating client");
+
+    // Grab the lock for the client data and insert the new Server struct
+    {
+        let mut data = client.data.write().await;
+        data.insert::<Server>(Server {
+            controller: HashMap::new(),
+        });
+    }
 
     // Finally, start a single shard, and start listening to events.
     //
