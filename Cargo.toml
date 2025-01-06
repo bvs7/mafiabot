@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+axum = { version = "0.8.1", features = ["json", "macros"] }
 chrono = { version = "0.4.34", features = ["serde"] }
 enum-kinds = "0.5.1"
 serde = { version = "1.0.197", features = ["derive"] }
@@ -12,24 +13,6 @@ serde_with = "3.6.1"
 timer = "0.2.0"
 tokio = { version = "1", features = ["full"] }
 toml = "0.8.10"
-
-[dependencies.serenity]
-version = "0.12.1"
-default-features = false
-features = [
-    "builder",
-    "cache",
-    "chrono",
-    "client",
-    "collector",
-    "framework",
-    "gateway",
-    "http",
-    "model",
-    "standard_framework",
-    "utils",
-    "rustls_backend",
-]
 
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html

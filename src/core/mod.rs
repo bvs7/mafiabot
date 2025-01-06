@@ -67,7 +67,7 @@ pub enum Phase<PID: Eq + Hash> {
 }
 
 impl<PID: ID> Phase<PID> {
-    fn kind(&self) -> PhaseKind {
+    pub fn kind(&self) -> PhaseKind {
         return PhaseKind::from(self);
     }
 }
