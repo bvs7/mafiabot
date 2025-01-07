@@ -5,7 +5,7 @@ use std::{collections::HashMap, hash::Hash, sync::Arc};
 
 use axum::{
     debug_handler,
-    extract::{Json, State},
+    extract::{Json, State as AppState},
     response::IntoResponse,
     routing::{get, post},
     Router,
@@ -22,7 +22,7 @@ trait Domain {
 #[macro_use]
 extern crate enum_kinds;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, EnumKind, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, EnumKind, Serialize, Deserialize)]
 #[enum_kind(RoleKind, derive(Hash, Serialize))]
 enum Role {
     TOWN,
@@ -45,7 +45,7 @@ impl Domain for RoleKind {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 enum Team {
     Town,
     Mafia,
@@ -187,7 +187,7 @@ impl Action {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 struct PlayerLog(HashMap<u64, (bool, Vec<Role>)>);
 
 impl PlayerLog {
@@ -274,7 +274,7 @@ impl PlayerLog {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 enum Event {
     Election {
         candidate: Option<u64>, // Choice
@@ -290,7 +290,7 @@ struct Timer {
     data: Option<(DateTime<Local>, Event)>,
 }
 
-#[derive(Debug, EnumKind)]
+#[derive(Debug, Serialize, Deserialize, EnumKind)]
 #[enum_kind(PhaseKind)]
 enum Phase {
     Init,
@@ -307,20 +307,45 @@ enum Phase {
     },
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 struct Rules {}
 
-#[derive(Debug)]
-struct Core {
-    game_id: u64,
+#[derive(Debug, Serialize, Deserialize)]
+struct State {
     day_no: u32,
     player_log: PlayerLog,
     phase: Phase,
-    rules: Rules,
-    event_log: Vec<Event>,
-    timer: Timer,
+    timer_data: Option<(DateTime<Local>, Event)>,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+struct Core {
+    game_id: u64,
+    state: State,
+    rules: Rules,
+    events: Vec<Event>,
+    #[serde(skip)]
+    timer_notify: Arc<Notify>,
+}
+
+/*
+GET /games -> list of game_id -> game state
+GET /games/{game_id} -> state (or privilege state?)
+GET /games/{game_id}/rules
+GET /games/{game_id}/events
+
+
+Should admin access be everything?
+Is it Deserializable?
+Is timer included? Probably not...
+Let's make full serialize and deserialize...
+After deserialization, check for end of day events
+
+Then, also have censored versions of these, which can't be reversed.
+
+Is timer part of state? Or just the timer data maybe
+
+*/
 // fn serialize_core_privilege()
 
 // How to send Core object to users?
@@ -328,7 +353,7 @@ struct Core {
 // We will want some various "privileges":
 
 // Town player
-// Mafia player
+// Mafia
 // Admin
 // Observation
 
@@ -378,7 +403,7 @@ It would be nice to just implement serialize with different privilege levels...
 
 impl Core {
     fn players(&self) -> HashMap<u64, Role> {
-        self.player_log.players()
+        self.state.player_log.players()
     }
 
     async fn handle_action(&mut self, action: Action) {
@@ -392,7 +417,7 @@ impl Core {
             Action::Target { .. } | Action::Scheme { .. } => Some(PhaseKind::Night),
         };
         if let Some(expected) = expected {
-            let actual: PhaseKind = (&self.phase).into();
+            let actual: PhaseKind = (&self.state.phase).into();
             if expected != actual {
                 return Err(Error::InvalidPhase { actual, expected });
             }
@@ -433,17 +458,40 @@ impl Core {
 }
 
 /*
-- events
-    - EventLog
-- state
-    - Day_no
-    - Phase Data
-    - Playerlog
-    - Counts
-- meta-info
-    - Game_id
-    - Rules
-    - Role Assignments (starting players if not priveleged)
+
+The meta part is like the Game Gen info?
+
+GET /games/{game-id} -> Game state
+GET /games/{game-id}/events -> Get events ?from to get them after an index?
+GET /games/{game-id}/rules -> Get game rules
+GET /games/{game-id}/entrants -> Starting players and maybe roles
+
+POST /games/{game-id}/action -> Post a new action. Payload is Action
+
+GET /games/{game-id} -> Game state. A typical status request
+- game_id
+- day_no
+- phase (obj)
+    - Init
+    - Day: votes
+    - Night
+    - End: winner
+- playerlog (obj) pid -> Option<Role> (Role can just be like TOWN or GUARD(u64))
+- counts (obj) Role/Team/Mafia/Not Mafia/Players -> u32
+
+GET /games/{game-id}/events -> Get events ?after to get them after an index?
+- events (obj) idx -> Event
+
+GET /games/{game-id}/rules -> Get game rules
+- rules (obj) rule_str -> Rule
+
+GET /games/{game-id}/entrants -> Starting role assignments for the game
+
+POST /games/{game-id}/actions -> Player posts a new action
+
+
+
+
 */
 
 enum Privilege {
@@ -457,11 +505,9 @@ type ActionResponder = oneshot::Sender<Result<(), Error>>;
 type ActionSender = mpsc::Sender<(Action, ActionResponder)>;
 type ActionReceiver = mpsc::Receiver<(Action, ActionResponder)>;
 
-type AppState = Arc<RwLock<Core>>;
-
 async fn get_game_status(
     action_input: ActionSender,
-    State(state): State<AppState>,
+    AppState(state): AppState<Arc<RwLock<Core>>>,
 ) -> &'static str {
     "Get Game Status"
 }
@@ -486,15 +532,16 @@ async fn run_api(action_input: ActionSender, core: Arc<RwLock<Core>>) -> Result<
     let action_input_1 = action_input.clone();
     let action_input_2 = action_input.clone();
 
-    let get_game_status = |state: State<AppState>| get_game_status(action_input_1, state);
+    let get_game_status =
+        |state: AppState<Arc<RwLock<Core>>>| get_game_status(action_input_1, state);
 
-    let post_action = |State(state): State<AppState>, Json(action): Json<Action>| {
+    let post_action = |AppState(state): AppState<Arc<RwLock<Core>>>, Json(action): Json<Action>| {
         post_action(action_input_2, state, action)
     };
 
     let app = Router::new()
-        .route("/", get(get_game_status))
-        .route("/", post(post_action))
+        .route("/games", get(get_game_status))
+        .route("/games", post(post_action))
         .with_state(core);
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:3000")
@@ -527,7 +574,7 @@ async fn handle_timer(core: &Arc<RwLock<Core>>) {
 async fn run_game(mut action_queue: ActionReceiver, core: Arc<RwLock<Core>>) -> Result<(), ()> {
     // get notify from core
     let read_core = core.read().await;
-    let timer_notify = read_core.timer.notify.clone();
+    let timer_notify = read_core.timer_notify.clone();
     loop {
         tokio::select! {
             a = action_queue.recv() => handle_action(&core, a).await,
