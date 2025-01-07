@@ -6,18 +6,17 @@ use std::{collections::HashMap, hash::Hash, sync::Arc};
 use axum::{
     debug_handler,
     extract::{Json, State as AppState},
+    http::{header, HeaderMap},
     response::IntoResponse,
     routing::{get, post},
     Router,
 };
 use chrono::{DateTime, Local};
-use serde::{de::DeserializeOwned, Deserialize, Serialize, Serializer};
+use serde::{de::DeserializeOwned, ser::SerializeStruct, Deserialize, Serialize, Serializer};
 use serde_json;
 use tokio::sync::{mpsc, oneshot, Notify, RwLock};
-
-trait Domain {
-    fn domain() -> impl Iterator<Item = Self>;
-}
+use tracing::{self, event, info};
+use tracing_subscriber;
 
 #[macro_use]
 extern crate enum_kinds;
@@ -36,12 +35,15 @@ impl Role {
         use Role::*;
         matches!(self, COP | DOCTOR)
     }
+    fn team(&self) -> Team {
+        return Team::from(*self);
+    }
 }
 
-impl Domain for RoleKind {
-    fn domain() -> impl Iterator<Item = Self> {
-        use RoleKind::*;
-        return vec![TOWN, COP, DOCTOR, MAFIA].into_iter();
+impl PartialEq<Role> for RoleKind {
+    fn eq(&self, role: &Role) -> bool {
+        let role_kind: RoleKind = role.into();
+        self == &role_kind
     }
 }
 
@@ -62,13 +64,7 @@ impl From<Role> for Team {
     }
 }
 
-impl Domain for Team {
-    fn domain() -> impl Iterator<Item = Self> {
-        use Team::*;
-        return vec![Town, Mafia, Rogue].into_iter();
-    }
-}
-
+#[derive(Debug)]
 enum Error {
     InvalidPhase {
         expected: PhaseKind,
@@ -85,13 +81,7 @@ enum Error {
     },
 }
 
-impl IntoResponse for Error {
-    fn into_response(self) -> axum::response::Response {
-        todo!();
-    }
-}
-
-#[derive(Clone, Copy, Deserialize)]
+#[derive(Debug, Clone, Copy, Deserialize)]
 enum Action {
     Start,
     Vote {
@@ -187,15 +177,43 @@ impl Action {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-struct PlayerLog(HashMap<u64, (bool, Vec<Role>)>);
+// right now it's a wrapper... how could it be different?
+// What do we want. to do with it?
+/*
+create from role assignments
+check if a player_id is alive
+get a living player's current role
+show role history after the game ends (in very few cases will it be more than one!)
+*/
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct LogEntry {
+    alive: bool,
+    role: Role,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    log: Vec<Role>,
+}
+
+impl From<Role> for LogEntry {
+    fn from(role: Role) -> Self {
+        LogEntry {
+            alive: true,
+            role,
+            log: Vec::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct PlayerLog(HashMap<u64, LogEntry>);
 
 impl PlayerLog {
-    fn new(role_assignments: HashMap<u64, Role>) -> Self {
+    fn new(registry: impl IntoIterator<Item = (u64, Role)>) -> Self {
         PlayerLog(
-            role_assignments
+            registry
                 .into_iter()
-                .map(|(pid, role)| (pid, (true, vec![role])))
+                .map(|(pid, role)| (pid, role.into()))
                 .collect(),
         )
     }
@@ -204,77 +222,78 @@ impl PlayerLog {
     fn players(&self) -> HashMap<u64, Role> {
         self.0
             .iter()
-            .filter_map(|(&pid, (alive, role_log))| {
-                alive.then_some((pid, *role_log.last().expect("At least one role")))
-            })
+            .filter_map(|(&pid, LogEntry { alive, role, .. })| (*alive).then_some((pid, *role)))
             .collect()
     }
 
     fn get_role_assignments(&self) -> HashMap<u64, Role> {
         self.0
             .iter()
-            .map(|(&pid, (_, log))| (pid, *log.first().expect("At least one role")))
+            .map(|(&pid, LogEntry { role, log, .. })| (pid, *(log.get(0).unwrap_or(role))))
             .collect()
     }
 
     fn log_new_role(&mut self, pid: u64, new_role: Role) {
-        let (_, log) = self.0.get_mut(&pid).expect("fn should get valid pid");
-        log.push(new_role);
+        let LogEntry { alive, role, log } = self.0.get_mut(&pid).expect("fn should get valid pid");
+        log.push(*role);
+        *role = new_role;
     }
 
     fn eliminate(&mut self, pid: u64) -> Result<(), ()> {
-        let (ref mut alive, _) = self.0.get_mut(&pid).expect("fn should get valid pid");
-        if *alive {
-            *alive = false;
-            Ok(())
-        } else {
-            Err(())
-        }
+        let LogEntry { alive, .. } = self.0.get_mut(&pid).expect("fn should get valid pid");
+        alive.then(|| *alive = false).ok_or(())
     }
 
-    fn amts_from_roles_domain<T>(&self) -> HashMap<T, u32>
+    /// Count the number of roles using f(role)
+    ///
+    /// Examples:
+    /// ```
+    /// // plog roles: [TOWN;5] + [MAFIA;2] + [IDIOT]
+    /// let rolekinds_counts = plog.counts(|r| RoleKind::from(r));
+    /// // {RoleKind::TOWN : 5, RoleKind::MAFIA : 2, RoleKind::IDIOT: 1}
+    /// let team_counts = plog.counts(|r| Team::from(r));
+    /// // {Team::Town: 5, Team::Mafia: 2, Team::Rogue: 1}
+    /// let mafia_counts = plog.counts(|r|
+    ///     if matches!(Team::from(r), Team::Mafia) {"Mafia"} else {"Not Mafia"});
+    /// // {"Not Mafia": 6, "Mafia": 2}
+    /// let player_count = plog.counts(|_| "Players");
+    /// // {"Players": 8}
+    /// ```
+    fn counts<T, F>(&self, f: F) -> HashMap<T, u32>
     where
-        T: From<Role> + Domain + Hash + Eq,
+        T: Eq + Hash,
+        F: Fn(Role) -> T,
     {
-        let mut result = self.amts_roles_that(T::from);
-        for item in T::domain() {
-            if !result.contains_key(&item) {
-                result.insert(item, 0);
+        let mut counts = HashMap::new();
+        for (_, role) in self.players() {
+            *counts.entry(f(role)).or_insert(0) += 1;
+        }
+        return counts;
+    }
+
+    fn mafia_counter() -> fn(Role) -> &'static str {
+        |r| {
+            if matches!(r.team(), Team::Mafia) {
+                "Mafia"
+            } else {
+                "Not Mafia"
             }
         }
-        return result;
     }
 
-    // Have a "domain" for types?
-    fn amts_from_roles<T>(&self) -> HashMap<T, u32>
-    where
-        T: From<Role> + Hash + Eq,
-    {
-        self.amts_roles_that(T::from)
-    }
-
-    fn amt_roles_that<P>(&self, cond: P) -> u32
-    where
-        P: Fn(Role) -> bool,
-    {
-        *self.amts_roles_that(cond).get(&true).unwrap_or(&0)
-    }
-
-    fn amts_roles_that<T, P>(&self, cond: P) -> HashMap<T, u32>
-    where
-        T: Hash + Eq,
-        P: Fn(Role) -> T,
-    {
-        let mut result = HashMap::<T, u32>::new();
-        let _ = self.players().iter().map(|(_, &role)| {
-            let entry = result.entry(cond(role)).or_default();
-            *entry += 1;
-        });
-        return result;
+    /// players() but censors based on a player's perspective
+    fn censored(&self, role: Role) -> HashMap<u64, Option<Role>> {
+        let map = match role {
+            m if m.team() == Team::Mafia => |r: Role| (r.team() == Team::Mafia).then_some(r),
+            t if t.team() == Team::Town => |_| None,
+            _ => |_| None,
+        };
+        let map = |(pid, r)| (pid, map(r));
+        return self.players().into_iter().map(map).collect();
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 enum Event {
     Election {
         candidate: Option<u64>, // Choice
@@ -290,7 +309,7 @@ struct Timer {
     data: Option<(DateTime<Local>, Event)>,
 }
 
-#[derive(Debug, Serialize, Deserialize, EnumKind)]
+#[derive(Debug, Clone, Serialize, Deserialize, EnumKind)]
 #[enum_kind(PhaseKind)]
 enum Phase {
     Init,
@@ -310,12 +329,49 @@ enum Phase {
 #[derive(Debug, Serialize, Deserialize)]
 struct Rules {}
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct State {
     day_no: u32,
+    #[serde(rename = "players")]
     player_log: PlayerLog,
     phase: Phase,
+    #[serde(skip_serializing_if = "Option::is_none")]
     timer_data: Option<(DateTime<Local>, Event)>,
+}
+
+// Return a struct that can be serialized with censorship
+impl<'a> State {
+    fn censor_serialize(&'a self) -> impl Serialize + use<'a> {
+        struct SerState<'a> {
+            state: &'a State,
+        }
+
+        impl<'a> Serialize for SerState<'a> {
+            fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+            where
+                S: Serializer,
+            {
+                let state = self.state;
+                let players = state.player_log.censored(Role::MAFIA);
+                let counts = state.player_log.counts(PlayerLog::mafia_counter());
+
+                let mut n = 4;
+                if self.state.timer_data.is_some() {
+                    n += 1;
+                }
+                let mut s = serializer.serialize_struct("State", n)?;
+                s.serialize_field("day_no", &state.day_no)?;
+                s.serialize_field("players", &players)?;
+                s.serialize_field("counts", &counts)?;
+                s.serialize_field("phase", &state.phase)?;
+                if self.state.timer_data.is_some() {
+                    s.serialize_field("timer_data", &state.timer_data)?;
+                }
+                s.end()
+            }
+        }
+        SerState { state: &self }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -328,89 +384,31 @@ struct Core {
     timer_notify: Arc<Notify>,
 }
 
-/*
-GET /games -> list of game_id -> game state
-GET /games/{game_id} -> state (or privilege state?)
-GET /games/{game_id}/rules
-GET /games/{game_id}/events
-
-
-Should admin access be everything?
-Is it Deserializable?
-Is timer included? Probably not...
-Let's make full serialize and deserialize...
-After deserialization, check for end of day events
-
-Then, also have censored versions of these, which can't be reversed.
-
-Is timer part of state? Or just the timer data maybe
-
-*/
-// fn serialize_core_privilege()
-
-// How to send Core object to users?
-
-// We will want some various "privileges":
-
-// Town player
-// Mafia
-// Admin
-// Observation
-
-// Rules:
-//   Known Role amts
-//   Known Team amts
-//   Known Mafia amt
-//   Known Player amt
-
-// What gets sent?
-/*
-- game_id
-- day_no
-- phase data:
-    - Day: votes
-    - Night: ...
-    - End: winner
-- PlayerLog: Map<pid, Option<Role>> can work (null otherwise)
-    - For Admin, this can be full?
-    - For Town, this is just players -> null
-    - For Mafia, this is just players but known teammates have Role given...
-- Counts (based on rules, get amts of roles/teams/etc) This is based on public knowledge
-    - Either: Mapping one following to u32 amt:
-        - RoleKind
-        - Team
-        - "mafia"/"not mafia"
-        - "players"
-- Rules (Are these always needed? Or should there be state vs metadata?)
-- Event Log
-- Timer
-
-What kinds of reads do we have?
-- events
-    - EventLog
-- state
-    - Day_no
-    - Phase Data
-    - Playerlog
-    - Counts
-- meta-info
-    - Game_id
-    - Rules
-    - Role Assignments (starting players if not priveleged)
-
-It would be nice to just implement serialize with different privilege levels...
-*/
-
 impl Core {
+    fn new(game_id: u64, registry: impl IntoIterator<Item = (u64, Role)>, rules: Rules) -> Self {
+        Core {
+            game_id,
+            state: State {
+                day_no: 0,
+                player_log: PlayerLog::new(registry),
+                phase: Phase::Init,
+                timer_data: None,
+            },
+            rules,
+            events: Vec::new(),
+            timer_notify: Arc::new(Notify::new()),
+        }
+    }
+
     fn players(&self) -> HashMap<u64, Role> {
         self.state.player_log.players()
     }
 
-    async fn handle_action(&mut self, action: Action) {
-        todo!()
-    }
+    async fn handle_action(&mut self, action: Action) {}
 
+    #[tracing::instrument]
     fn validate_action(&self, action: &Action) -> Result<(), Error> {
+        info!("{:?}", self);
         let expected = match action {
             Action::Start => Some(PhaseKind::Init),
             Action::Vote { .. } | Action::Reveal { .. } => Some(PhaseKind::Day),
@@ -458,48 +456,17 @@ impl Core {
 }
 
 /*
+API description
 
-The meta part is like the Game Gen info?
+Model:
+We have the Core, which includes State (everything needed to know about the game) and other handles.
 
-GET /games/{game-id} -> Game state
-GET /games/{game-id}/events -> Get events ?from to get them after an index?
-GET /games/{game-id}/rules -> Get game rules
-GET /games/{game-id}/entrants -> Starting players and maybe roles
+Views:
+Full Core. Serialization of the Full Core is used to save the core?
 
-POST /games/{game-id}/action -> Post a new action. Payload is Action
-
-GET /games/{game-id} -> Game state. A typical status request
-- game_id
-- day_no
-- phase (obj)
-    - Init
-    - Day: votes
-    - Night
-    - End: winner
-- playerlog (obj) pid -> Option<Role> (Role can just be like TOWN or GUARD(u64))
-- counts (obj) Role/Team/Mafia/Not Mafia/Players -> u32
-
-GET /games/{game-id}/events -> Get events ?after to get them after an index?
-- events (obj) idx -> Event
-
-GET /games/{game-id}/rules -> Get game rules
-- rules (obj) rule_str -> Rule
-
-GET /games/{game-id}/entrants -> Starting role assignments for the game
-
-POST /games/{game-id}/actions -> Player posts a new action
-
-
-
+Then state. State includes core.state and counts as well?
 
 */
-
-enum Privilege {
-    Town,
-    Mafia,
-    Admin,
-    Observer,
-}
 
 type ActionResponder = oneshot::Sender<Result<(), Error>>;
 type ActionSender = mpsc::Sender<(Action, ActionResponder)>;
@@ -508,22 +475,27 @@ type ActionReceiver = mpsc::Receiver<(Action, ActionResponder)>;
 async fn get_game_status(
     action_input: ActionSender,
     AppState(state): AppState<Arc<RwLock<Core>>>,
-) -> &'static str {
-    "Get Game Status"
+) -> Json<impl Serialize> {
+    // Grab state
+    let read_core = state.read().await;
+    let st = read_core.state.clone();
+    Json(st)
 }
 
 async fn post_action(
     action_input: ActionSender,
     state: Arc<RwLock<Core>>,
     action: Action,
-) -> &'static str {
+) -> Result<(), String> {
     let (responder, response) = oneshot::channel();
     action_input
         .send((action, responder))
         .await
         .expect("Action Send");
-    let resp = response.await.expect("Action Response");
-    "Post Action"
+    response
+        .await
+        .expect("Action Response")
+        .map_err(|e| format!("{:?}", e))
 }
 
 // Serve api.
@@ -540,16 +512,15 @@ async fn run_api(action_input: ActionSender, core: Arc<RwLock<Core>>) -> Result<
     };
 
     let app = Router::new()
-        .route("/games", get(get_game_status))
-        .route("/games", post(post_action))
+        .route("/", get(get_game_status))
+        .route("/", post(post_action))
         .with_state(core);
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:3000")
         .await
         .unwrap();
     axum::serve(listener, app).await.unwrap();
-
-    todo!();
+    Ok(())
 }
 
 async fn handle_action(core: &Arc<RwLock<Core>>, a: Option<(Action, ActionResponder)>) {
@@ -585,16 +556,28 @@ async fn run_game(mut action_queue: ActionReceiver, core: Arc<RwLock<Core>>) -> 
     Ok(())
 }
 
-/* Stuff we need in top level:
-- Set up axum and serve
-  - Needs reference to RwLock? Part of state
-  - Also needs ActionQueue Sender
-
-*/
-
 #[tokio::main]
 async fn main() -> Result<(), ()> {
-    // TODO: spawn game loop task and axum serve task
+    let subscriber = tracing_subscriber::FmtSubscriber::new();
+    // use that subscriber to process traces emitted after this point
+    tracing::subscriber::set_global_default(subscriber).unwrap();
+
+    info!("Starting");
+
+    let (tx, rx) = mpsc::channel(100);
+
+    let registry = HashMap::from([
+        (1, Role::TOWN),
+        (2, Role::COP),
+        (3, Role::DOCTOR),
+        (4, Role::MAFIA),
+    ]);
+    let core = Arc::new(RwLock::new(Core::new(0, registry, Rules {})));
+    let core2 = core.clone();
+
+    let game_task = tokio::spawn(async move { run_game(rx, core).await });
+
+    run_api(tx, core2).await.unwrap();
 
     Ok(())
 }
