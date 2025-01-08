@@ -1,4 +1,14 @@
 
+## 2025 refactor:
+
+Should the RwLock be internal? Yes. So State should have everything, right?
+
+Our interface consists of:
+- external `action_tx: mpsc::Sender<(Action, oneshot::Sender<Result<...>>)>`
+- external `event_rx: broadcast::Receiver<Event>`
+- `pub game_id: u64` field
+- `pub state: State` field
+- `pub rules: Rules` field
 ## Returning 2025 ideas:
 Axum. Make the core an API
 - Figure out how to create a new core (it will spawn its own app/server)
