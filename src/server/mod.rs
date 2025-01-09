@@ -84,3 +84,12 @@
 //     axum::serve(listener, app).await.unwrap();
 //     Ok(())
 // }
+
+use crate::engine::Error;
+use axum::{http::StatusCode, response::IntoResponse};
+
+impl IntoResponse for Error {
+    fn into_response(self) -> axum::response::Response {
+        (StatusCode::BAD_REQUEST, self.to_string()).into_response()
+    }
+}
