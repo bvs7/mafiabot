@@ -209,6 +209,15 @@ mod state {
 
     use super::{Action, Error, Event, EventTx, Role, RoleKind, Team};
 
+    // I have made PlayerLog so complex because I know we will have to deal with changing roles eventually
+    // Also, roles like "VIGILANTE(1)" will become VIGILANTE(0) after the kill!
+    // But maybe the log part could be elsewhere? If events are logged, it could just come from there...
+    // Let's just plan on that for now
+
+    // It could be multiple hashmaps... or it could just be a hashmap wrapper
+
+    // Hashmap wrapper seems nice... maybe just deref to hashmap
+
     #[derive(Debug, Clone, Serialize, Deserialize)]
     struct LogEntry {
         alive: bool,
@@ -248,6 +257,13 @@ mod state {
             )
         }
 
+        fn iter(&self) -> impl Iterator<Item = (&u64, &Role)> {
+            self.0
+                .iter()
+                .filter_map(|(pid, LogEntry { alive, role, .. })| alive.then(|| (pid, role)))
+        }
+
+        // TODO: Just make this all &mut. Is that ok? Actually just get it all as &!
         /// Living players and their roles
         fn players(&self) -> HashMap<u64, Role> {
             self.0
@@ -323,12 +339,6 @@ mod state {
         }
     }
 
-    #[derive(Debug)]
-    struct Timer {
-        notify: Arc<Notify>, // Arc to allow cloning
-        data: Option<(DateTime<Local>, Event)>,
-    }
-
     #[derive(Debug, Clone, Serialize, Deserialize, EnumKind)]
     #[enum_kind(PhaseKind)]
     pub enum Phase {
@@ -382,7 +392,7 @@ mod state {
     pub struct State {
         game_id: u64,
         day_no: u32,
-        players: PlayerLog,
+        players: ,
         phase: Phase,
         rules: Rules,
         #[serde(skip_serializing_if = "Option::is_none")]
