@@ -28,9 +28,10 @@ use super::{
     Action, Error, Event, EventTx, Role, RoleKind, Team,
 };
 
-#[derive(Debug, Clone, Serialize, Deserialize, EnumKind)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, EnumKind)]
 #[enum_kind(PhaseKind, derive(Serialize, Deserialize))]
 pub enum Phase {
+    #[default]
     Init,
     Day {
         votes: HashMap<u64, Option<u64>>, // voter -> ballot
@@ -132,7 +133,7 @@ impl std::fmt::Display for CountKey {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Default, Serialize, Deserialize)]
 struct InnerState {
     id: u64,
     day: u32,
@@ -523,6 +524,13 @@ impl State {
 
 pub trait RoleGen {
     fn role_gen(&mut self, n: usize, rng: &mut ThreadRng) -> Result<Vec<Role>>;
+}
+
+struct Game {
+    inner: Arc<RwLock<InnerState>>,
+    a_tx: ActionTx,
+    e_tx: EventTx,
+    abort: AbortHandle,
 }
 
 #[cfg(test)]
