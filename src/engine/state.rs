@@ -15,8 +15,9 @@ use chrono::{DateTime, Local};
 use rand::rngs::ThreadRng;
 use serde::{Deserialize, Serialize};
 use tokio::{
+    io::Join,
     sync::{broadcast, Mutex, Notify, RwLock},
-    task::JoinHandle,
+    task::{AbortHandle, JoinHandle},
 };
 use tracing::{debug, error, event, info};
 
@@ -185,20 +186,6 @@ impl InnerState {
         counts
     }
 
-    pub fn save<W>(&self, writer: W) -> serde_json::Result<()>
-    where
-        W: Write,
-    {
-        serde_json::to_writer(writer, self)
-    }
-
-    pub fn load<R>(reader: R) -> serde_json::Result<Self>
-    where
-        R: Read,
-    {
-        serde_json::from_reader(reader)
-    }
-
     pub fn validate_action(&self, action: &Action) -> Result<(), Error> {
         info!("Validating action {:?}", action);
         let expected = match action {
@@ -321,77 +308,10 @@ impl InnerState {
         Ok(())
     }
 
-    // async fn check_election(
-    //     &mut self,
-    //     voter: u64,
-    //     ballot: Option<Option<u64>>,
-    //     former: Option<Option<u64>>,
-    //     tx: &EventTx,
-    // ) -> Result<()> {
-    //     let Phase::Day { votes, .. } = &mut self.phase else {
-    //         panic!("Checking election when phase is not Day");
-    //     };
-
-    //     let thresh = self.players.len() / 2 + 1;
-    //     let p_thresh = (self.players.len() + 1) / 2;
-
-    //     if let Some(choice) = former {
-    //         let choice_count = votes.iter().filter(|(_, c)| (c == &&choice)).count();
-    //         tx.send(Event::CheckElection {
-    //             choice,
-    //             choice_count,
-    //         })?;
-    //         // Check if we undo an election
-    //         let thresh = if choice.is_some() { thresh } else { p_thresh };
-    //     }
-
-    //     if let Some(choice) = ballot {
-    //         let voters: Vec<u64> = votes
-    //             .iter()
-    //             .filter_map(|(pid, c)| (c == &choice).then(|| *pid))
-    //             .collect();
-    //         let choice_count = voters.len();
-    //         tx.send(Event::CheckElection {
-    //             choice,
-    //             choice_count,
-    //         })?;
-    //         // Check if we cause an election
-    //         let thresh = if choice.is_some() { thresh } else { p_thresh };
-    //         if choice_count >= thresh {
-    //             // Start election timer!
-    //             let candidate = choice;
-    //             let hammer = voter;
-    //             let time = Local::now() + Duration::from_secs(5);
-    //             let time_ = time.clone();
-    //             let timer_notify = self.timer_notify.clone();
-    //             let event = Event::Election {
-    //                 candidate,
-    //                 hammer,
-    //                 voters,
-    //             };
-    //             let handle = tokio::spawn(async move {
-    //                 let mut interval = tokio::time::interval(Duration::from_millis(500));
-    //                 while Local::now() < time_ {
-    //                     interval.tick().await;
-    //                 }
-    //                 timer_notify.notify_one();
-    //             });
-    //             self.timer.replace(Timer {
-    //                 time,
-    //                 event,
-    //                 handle,
-    //             });
-    //         }
-    //     }
-
-    //     Ok(())
-    // }
-
     pub async fn handle_election(
         &mut self,
         candidate: Option<u64>,
         _hammer: u64,
-        _voters: Vec<u64>,
         tx: &EventTx,
     ) -> Result<()> {
         // eliminate
@@ -412,6 +332,18 @@ impl InnerState {
             counts: self.counts(CountKeyKind::Team),
         })?;
         Ok(())
+    }
+
+    pub fn check_dawn(&self) -> Result<bool> {
+        let Phase::Night { targets, scheme } = &self.phase else {
+            bail!("Tried to check dawn when phase is not night");
+        };
+        let total = self
+            .players()
+            .iter()
+            .filter(|(_, r)| r.is_targeting())
+            .count();
+        Ok(scheme.is_some() && targets.len() == total)
     }
 }
 
@@ -448,7 +380,7 @@ impl State {
     }
 
     #[tracing::instrument]
-    async fn action_handler(&self, mut action_rx: ActionRx) {
+    async fn action_handler(self: &Arc<State>, mut action_rx: ActionRx) {
         loop {
             match action_rx.recv().await {
                 Some((action, responder)) => {
@@ -480,19 +412,73 @@ impl State {
     }
 
     #[tracing::instrument]
-    async fn event_listener(&self) {
+    async fn event_listener(self: &Arc<State>) {
         let mut rx = self.tx.subscribe();
 
         enum State {
             Init,
-            Day { n: usize, imm: Option<Election> },
-            Night { n: usize },
-            DawnImminent,
+            Day,
+            DayEl(AbortHandle),
+            Night,
             End,
         }
+        let mut n: usize;
+        let mut state = State::Init;
+        let mut thresh = 0;
+        let mut pthresh = 0;
         loop {
             match rx.recv().await {
                 Ok(event) => {
+                    // Really, there is only 4 things to watch for.
+                    match (&mut state, event) {
+                        (_, Event::Day { counts, .. }) => {
+                            n = counts.into_iter().map(|(_, c)| c).sum();
+                            thresh = n / 2 + 1;
+                            pthresh = (n + 1) / 2;
+                            state = State::Day;
+                        }
+                        (_, Event::Night { .. }) => {
+                            state = State::Night;
+                        }
+                        (
+                            State::Day,
+                            Event::Vote {
+                                voter: hammer,
+                                ballot: Some((choice, count)),
+                                ..
+                            },
+                        ) => {
+                            let t = if choice.is_some() { thresh } else { pthresh };
+                            if count >= t {
+                                // Election!
+                                let s = self.clone();
+                                let h = tokio::spawn(async move { s.elect(choice, hammer).await })
+                                    .abort_handle();
+                                state = State::DayEl(h);
+                            }
+                        }
+                        (
+                            State::DayEl(h),
+                            Event::Vote {
+                                former: Some((choice, count)),
+                                ..
+                            },
+                        ) => {
+                            let t = if choice.is_some() { thresh } else { pthresh };
+                            if count < t {
+                                // Unelection!!!
+                                // Grab read lock on inner to ensure timer doesn't have it
+                                let read_inner = self.inner.read().await;
+                                // Check that election hasn't happened
+                                if matches!(read_inner.phase, Phase::Day { .. }) {
+                                    h.abort();
+                                    state = State::Day;
+                                }
+                                drop(read_inner);
+                            }
+                        }
+                        _ => {}
+                    }
                     // Event_State Handler?
                     // Can't get voters from last Vote event...
                     // But maybe we can check for election with InnerState
@@ -502,6 +488,10 @@ impl State {
                     // So have ElectionImminent and ElectionAverted events.
 
                     // Then, for Dawn, just have a Dawn Imminent event. Start the timer then go.
+
+                    // Day or Night events mean go to day/night
+                    // Vote during Day has count checked. If above thresh... schedule election. Not the whole event, just the timer
+                    //
                 }
                 Err(broadcast::error::RecvError::Closed) => {
                     debug!("Event channel closed");
@@ -512,6 +502,15 @@ impl State {
                 }
             }
         }
+    }
+
+    async fn elect(self: &Arc<State>, choice: Option<u64>, hammer: u64) {
+        tokio::time::sleep(Duration::from_secs(10)).await;
+        let mut write_inner = self.inner.write().await;
+        if let Err(e) = write_inner.handle_election(choice, hammer, &self.tx).await {
+            error!(?e);
+        }
+        drop(write_inner);
     }
 
     async fn quit(&self) {

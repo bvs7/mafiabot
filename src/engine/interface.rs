@@ -128,10 +128,6 @@ pub enum Event {
         ballot: Option<(Option<u64>, usize)>,
         former: Option<(Option<u64>, usize)>,
     },
-    CheckElection {
-        choice: Option<u64>,
-        choice_count: usize,
-    },
     Election(Election),
     Dawn, // Potentially note those who failed to do night actions
     Debug,
