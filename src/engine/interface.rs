@@ -102,35 +102,37 @@ impl Action {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Election {
+    pub candidate: Option<u64>,
+    pub hammer: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Event {
     Start {
         id: u64,
         players: HashMap<u64, Role>,
         rules: Rules,
-        counts: HashMap<CountKey, u32>,
+        counts: HashMap<CountKey, usize>,
     },
     Day {
         day: u32,
-        counts: HashMap<CountKey, u32>, // Use to get thresholds
+        counts: HashMap<CountKey, usize>, // Use to get thresholds
     },
     Night {
         day: u32,
-        counts: HashMap<CountKey, u32>,
+        counts: HashMap<CountKey, usize>,
     },
     Vote {
         voter: u64,
-        ballot: Option<Option<u64>>,
-        former: Option<Option<u64>>,
+        ballot: Option<(Option<u64>, usize)>,
+        former: Option<(Option<u64>, usize)>,
     },
     CheckElection {
         choice: Option<u64>,
         choice_count: usize,
     },
-    Election {
-        candidate: Option<u64>, // Choice
-        hammer: u64,
-        voters: Vec<u64>,
-    },
+    Election(Election),
     Dawn, // Potentially note those who failed to do night actions
     Debug,
 }
