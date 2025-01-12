@@ -24,8 +24,14 @@ impl Role {
             TOWN | COP | DOCTOR => false,
         }
     }
+    pub fn is_mafia(&self) -> bool {
+        self.team() == Team::Mafia
+    }
     pub fn team(&self) -> Team {
-        return Team::from(*self);
+        Team::from(*self)
+    }
+    pub fn kind(&self) -> RoleKind {
+        RoleKind::from(self)
     }
 }
 

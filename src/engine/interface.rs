@@ -1,9 +1,10 @@
 use std::collections::HashMap;
 
-use super::{
-    role::Role,
-    state::{CountKey, PhaseKind, Rules},
-    RoleKind,
+use super::state::{
+    phase::PhaseKind,
+    players::Context,
+    role::{RoleKind, Team},
+    rules::Rules,
 };
 use serde::{Deserialize, Serialize};
 use tokio::sync::{broadcast, mpsc, oneshot};
@@ -103,15 +104,58 @@ impl Action {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Election {
-    pub candidate: Option<u64>,
+    pub choice: Option<u64>,
     pub hammer: u64,
+    pub voters: Vec<u64>,
+}
+
+#[derive(Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize, EnumKind)]
+#[enum_kind(CountKeyKind)]
+pub enum CountKey {
+    Role(RoleKind),
+    Team(Team),
+    IsMafia(bool),
+    Players,
+}
+
+impl std::fmt::Display for CountKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            CountKey::Role(rk) => write!(f, "{}", rk),
+            CountKey::Team(t) => write!(f, "{}", t),
+            CountKey::IsMafia(m) => {
+                if *m {
+                    write!(f, "Mafia Aligned")
+                } else {
+                    write!(f, "Not Mafia Aligned")
+                }
+            }
+            CountKey::Players => write!(f, "Players"),
+        }
+    }
+}
+
+impl From<RoleKind> for CountKey {
+    fn from(kind: RoleKind) -> Self {
+        CountKey::Role(kind)
+    }
+}
+impl From<Team> for CountKey {
+    fn from(team: Team) -> Self {
+        CountKey::Team(team)
+    }
+}
+impl From<bool> for CountKey {
+    fn from(is_mafia: bool) -> Self {
+        CountKey::IsMafia(is_mafia)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Event {
     Start {
         id: u64,
-        players: HashMap<u64, Role>,
+        players: Vec<u64>,
         rules: Rules,
         counts: HashMap<CountKey, usize>,
     },
@@ -130,6 +174,10 @@ pub enum Event {
     },
     Election(Election),
     Dawn, // Potentially note those who failed to do night actions
+    Eliminate {
+        player: u64,
+        context: Context,
+    },
     Debug,
 }
 
