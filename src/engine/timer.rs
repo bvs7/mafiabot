@@ -27,12 +27,12 @@ type TimeRx = watch::Receiver<Option<(DateTime<Local>)>>;
 /// let m = Arc::new(Mutex::new(0));
 /// let m2 = m.clone();
 /// let t = Timer::spawn(async move {
-///     let mm = m2.lock().await;
+///     let mut mm = m2.lock().await;
 ///     *mm = 1;
 ///     drop(mm);
 /// });
 ///
-/// let mm = m2.lock().await;
+/// let mm = m.lock().await;
 /// assert!(*mm == 0);
 /// drop(mm);
 ///
@@ -42,13 +42,13 @@ type TimeRx = watch::Receiver<Option<(DateTime<Local>)>>;
 ///
 /// sleep(Duration::from_millis(50)).await;
 ///
-/// let mm = m2.lock().await;
+/// let mm = m.lock().await;
 /// assert!(*mm == 0);
 /// drop(mm);
 ///
 /// sleep(Duration::from_millis(400)).await;
 ///
-/// let mm = m2.lock().await;
+/// let mm = m.lock().await;
 /// assert!(*mm == 1);
 /// drop(mm);
 ///
@@ -97,5 +97,48 @@ impl<T> Timer<T> {
             }
             t = rx.borrow_and_update().clone();
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+
+    #[tokio::test]
+    async fn basic() {
+        use crate::engine::timer::*;
+        use chrono::{DateTime, Local};
+        use std::sync::Arc;
+        use tokio::sync::Mutex;
+        use tokio::time::{sleep, Duration};
+
+        let m = Arc::new(Mutex::new(0));
+        let m2 = m.clone();
+        let t = Timer::spawn(async move {
+            let mut mm = m2.lock().await;
+            *mm = 1;
+            drop(mm);
+        });
+
+        let mm = m.lock().await;
+        assert!(*mm == 0);
+        drop(mm);
+
+        sleep(Duration::from_millis(50)).await;
+
+        let _ = t
+            .time_tx
+            .send(Some(Local::now() + Duration::from_millis(200)));
+
+        sleep(Duration::from_millis(50)).await;
+
+        let mm = m.lock().await;
+        assert!(*mm == 0);
+        drop(mm);
+
+        sleep(Duration::from_millis(400)).await;
+
+        let mm = m.lock().await;
+        assert!(*mm == 1);
+        drop(mm);
     }
 }
