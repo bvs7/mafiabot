@@ -5,6 +5,7 @@ use crate::engine::interface::{Election, Event};
 use super::{
     interface::{Action, ActionMsg, ActionRx, ActionTx, EventRx, EventTx},
     state::State,
+    timer::Timer,
 };
 use std::{
     sync::{mpsc::RecvError, Arc},
@@ -109,5 +110,7 @@ impl Game {
         todo!()
     }
 
-    async fn election_watcher(self: Arc<Self>, event_rx: EventRx) {}
+    async fn try_election(self: &Arc<Self>) {}
+
+    async fn election_watcher(self: &Arc<Self>, event_rx: EventRx) {}
 }

@@ -3,6 +3,7 @@ use std::future::Future;
 use chrono::{DateTime, Local};
 use tokio::sync::watch::error::{RecvError, SendError};
 use tokio::sync::{mpsc, oneshot, Mutex};
+use tokio::task::JoinHandle;
 use tokio::{
     sync::watch::{self},
     task::AbortHandle,
@@ -14,18 +15,21 @@ type Time = Option<DateTime<Local>>;
 type TimeTx = watch::Sender<Time>;
 type TimeRx = watch::Receiver<Time>;
 
-struct Timer<T> {
+pub struct Timer<T> {
     time_tx: TimeTx,
     return_rx: mpsc::Receiver<T>,
     handle: AbortHandle,
 }
 
 // TODO: Figure out how to pass a method to spawn?
+// New Generic, pass in a self clone? Can't be reference...
+// But we could pass the input into spawn then just have the fn call on it each time...
 
 impl<T> Timer<T> {
-    pub fn spawn<F, Fut>(t: Option<DateTime<Local>>, f: F) -> Self
+    pub fn spawn<S, F, Fut>(s: S, t: Option<DateTime<Local>>, f: F) -> Self
     where
-        F: (Fn() -> Fut) + Send + 'static,
+        S: Send + 'static,
+        F: (Fn(&S) -> Fut) + Send + 'static,
         Fut: Future<Output = T> + Send + 'static,
         T: Send + 'static,
     {
@@ -36,7 +40,7 @@ impl<T> Timer<T> {
             let mut time_rx = time_rx;
             while Self::timer(&mut time_rx).await.is_ok() {
                 let _ = time_tx2.send(None);
-                let _ = return_tx.send(f().await).await;
+                let _ = return_tx.send(f(&s).await).await;
             }
         })
         .abort_handle();
@@ -67,15 +71,64 @@ impl<T> Timer<T> {
             sleep(dur).await;
         }
     }
-    fn set(&self, dt: Time) -> Result<(), SendError<Time>> {
+    pub fn set(&self, dt: Time) -> Result<(), SendError<Time>> {
         self.time_tx.send(dt)
     }
-    async fn get(&mut self) -> Option<T> {
+    pub async fn get(&mut self) -> Option<T> {
         self.return_rx.recv().await
     }
 
-    fn abort(&self) {
+    pub fn abort(&self) {
         self.handle.abort();
+    }
+}
+
+// new timer
+
+pub struct Timer2 {
+    join: JoinHandle<()>,
+    time_tx: watch::Sender<DateTime<Local>>,
+}
+
+pub struct TimerDropped;
+
+pub fn timer(time: DateTime<Local>) -> JoinHandle<()> {
+    timer_with_editor(time).0
+}
+
+pub fn timer_with_editor(
+    time: DateTime<Local>,
+) -> (JoinHandle<()>, watch::Sender<DateTime<Local>>) {
+    let (tx, mut rx) = watch::channel(time);
+    let h = tokio::spawn(async move { timer_internal(rx).await });
+    (h, tx)
+}
+
+async fn timer_internal(mut rx: watch::Receiver<DateTime<Local>>) -> () {
+    let mut time = rx.borrow_and_update().clone();
+    let mut r = Some(rx);
+    loop {
+        let t = (time - Local::now()).to_std();
+
+        let result = match (&mut r, t) {
+            (_, Err(_)) => return,
+            (None, Ok(dur)) => {
+                sleep(dur).await;
+                return;
+            }
+            (Some(rx), Ok(dur)) => {
+                tokio::select!(
+                    result = rx.changed() => {
+                        time = rx.borrow_and_update();
+                        result
+                    }, // if tx is dropped, just continue...
+                    _ = sleep(dur) => {return ()},
+                )
+            }
+        };
+        if result.is_err() {
+            r = None;
+        }
     }
 }
 
@@ -92,10 +145,10 @@ mod test {
     fn setup() -> (Timer<i32>, Arc<Mutex<i32>>) {
         let m = Arc::new(Mutex::new(0));
         let m2 = m.clone();
-        let t = Timer::spawn(None, move || {
-            let m2 = m2.clone();
+        let t = Timer::spawn(m2, None, move |m| {
+            let m = m.clone();
             async move {
-                let mut mm = m2.lock().await;
+                let mut mm = m.lock().await;
                 *mm = 1;
                 drop(mm);
                 3
@@ -190,7 +243,7 @@ mod test {
         let m = Arc::new(Mutex::new(0));
         let m2 = m.clone();
 
-        let f = move || {
+        let f = |m2: &Arc<Mutex<i32>>| {
             let m = m2.clone();
             async move {
                 let mut mm = m.lock().await;
@@ -202,7 +255,7 @@ mod test {
 
         let soon = Local::now() + Duration::from_millis(200);
 
-        let mut t = Timer::spawn(Some(soon), f);
+        let mut t = Timer::spawn(m2, Some(soon), f);
 
         assert!(cmp_mutex(&m, 0).await);
         sleep(Duration::from_millis(300)).await;
