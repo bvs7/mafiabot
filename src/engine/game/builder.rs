@@ -131,22 +131,22 @@ impl<U, R, O, S> GameBuilder<U, R, O, S> {
 use super::State;
 
 impl<O> GameBuilder<Users, Roles, O, ()> {
-    async fn build(self) -> Arc<Game> {
+    fn build(self) -> Arc<Game> {
         let (a_tx, a_rx) = self.actions.unwrap_or_else(|| mpsc::channel(100));
         let e_tx = self.event_tx.unwrap_or_else(|| broadcast::channel(100).0);
         let id = self.id.unwrap_or_default(); // TODO generate id?
         let registry: Vec<_> = self.users.0.into_iter().zip(self.roles.0).collect();
         let rules = self.rules.unwrap_or_default();
         let state = State::new(id, &registry, rules);
-        Game::new(state, (a_tx, a_rx), e_tx).await
+        Game::new(state, (a_tx, a_rx), e_tx)
     }
 }
 impl GameBuilder<(), (), (), State_> {
-    async fn build(self) -> Arc<Game> {
+    fn build(self) -> Arc<Game> {
         let (a_tx, a_rx) = self.actions.unwrap_or_else(|| mpsc::channel(100));
         let e_tx = self.event_tx.unwrap_or_else(|| broadcast::channel(100).0);
         let state = self.state.0;
-        Game::new(state, (a_tx, a_rx), e_tx).await
+        Game::new(state, (a_tx, a_rx), e_tx)
     }
 }
 
@@ -162,94 +162,4 @@ fn test() {
 }
 
 #[cfg(test)]
-mod test {
-    use super::Game;
-
-    #[test]
-    fn builder() {
-        let game = Game::builder();
-    }
-}
-
-// #[cfg(test)]
-// mod test {
-//     use tokio::sync::oneshot;
-//     use tracing_test::traced_test;
-
-//     use super::*;
-
-//     #[traced_test]
-//     #[tokio::test]
-//     async fn build_new() -> Result<()> {
-//         let registry = vec![
-//             (1, Role::TOWN),
-//             (2, Role::COP),
-//             (3, Role::DOCTOR),
-//             (4, Role::MAFIA),
-//         ];
-//         let inner = InnerStateBuilder::new()
-//             .with_game_id(0)
-//             .with_registry(registry)
-//             .with_rules(Rules {})
-//             .build()?;
-//         let state = StateBuilder::from_inner_state(inner).build().await?;
-//         tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
-//         // Should be started?
-//         let a_tx = state.a_tx.clone();
-//         let mut event_rx = state.tx.subscribe();
-//         let (responder, response) = oneshot::channel();
-
-//         debug!(msg = "Sending start action", ?a_tx);
-
-//         a_tx.send((Action::Start, responder)).await?;
-//         let _ = response.await?;
-
-//         tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
-//         let n = event_rx.len();
-//         debug!(n);
-//         assert!(event_rx.len() == 2);
-//         let start = event_rx.recv().await?;
-//         assert!(matches!(start, Event::Start { .. }));
-//         debug!(?start);
-
-//         state.quit().await;
-
-//         Ok(())
-//     }
-
-//     #[test]
-//     fn build_inner() -> Result<()> {
-//         assert!(InnerStateBuilder::new().build().is_err());
-//         assert!(InnerStateBuilder::new()
-//             .with_users(vec![1, 2, 3, 4])
-//             .build()
-//             .is_err());
-//         assert!(InnerStateBuilder::new()
-//             .with_users(vec![1, 2, 3, 4])
-//             .with_roles(vec![Role::TOWN, Role::COP, Role::DOCTOR, Role::MAFIA])
-//             .build()
-//             .is_ok());
-
-//         Ok(())
-//     }
-
-//     #[tokio::test]
-//     async fn from_state() -> Result<()> {
-//         let state = StateBuilder::from_inner_state(InnerState::new(
-//             0,
-//             &vec![
-//                 (1, Role::TOWN),
-//                 (2, Role::COP),
-//                 (3, Role::DOCTOR),
-//                 (4, Role::MAFIA),
-//             ],
-//             Rules {},
-//         ))
-//         .build()
-//         .await?;
-
-//         state.quit().await;
-
-//         Ok(())
-//     }
-// }
+mod test {}

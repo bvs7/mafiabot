@@ -5,11 +5,12 @@ use super::state::{
     players::Context,
     role::{RoleKind, Team},
     rules::Rules,
+    Choice,
 };
 use serde::{Deserialize, Serialize};
 use tokio::sync::{broadcast, mpsc, oneshot};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Error {
     InvalidPhase {
         expected: PhaseKind,
@@ -103,6 +104,13 @@ impl Action {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Vote {
+    pub voter: u64,
+    pub ballot: Option<(Choice, usize)>,
+    pub former: Option<(Choice, usize)>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Election {
     pub choice: Option<u64>,
     pub hammer: u64,
@@ -167,6 +175,7 @@ pub enum Event {
         day: u32,
         counts: HashMap<CountKey, usize>,
     },
+    Vvote(Vote),
     Vote {
         voter: u64,
         ballot: Option<(Option<u64>, usize)>,
@@ -177,6 +186,14 @@ pub enum Event {
     Eliminate {
         player: u64,
         context: Context,
+    },
+    Target {
+        actor: u64,
+        choice: Choice,
+    },
+    Scheme {
+        killer: u64,
+        mark: Choice,
     },
     Debug,
 }

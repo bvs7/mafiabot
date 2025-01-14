@@ -23,8 +23,8 @@ use tracing::{debug, error, event, info};
 type Valid = std::result::Result<(), Error>;
 type Result<T> = std::result::Result<T, SendError<Event>>;
 
-type Choice = Option<u64>;
-type Ballot = Option<Choice>;
+pub type Choice = Option<u64>;
+pub type Ballot = Option<Choice>;
 
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct State {
@@ -142,7 +142,7 @@ impl State {
         Ok(())
     }
 
-    pub fn vote(&mut self, voter: u64, ballot: Ballot, tx: &EventTx) -> Result<Option<Election>> {
+    pub fn vote(&mut self, voter: u64, ballot: Ballot, tx: &EventTx) -> Result<()> {
         let Phase::Day { votes, .. } = &mut self.phase else {
             panic!("Handling vote when phase is not Day");
         };
@@ -179,42 +179,35 @@ impl State {
             former: former_check.as_ref().map(count),
         })?;
 
-        let hammer = voter;
-        let n = self.players.alive().count();
-        let thresh = (n / 2) + 1;
-        let pthresh = (n + 1) / 2;
-
-        let check_elect = |Check { choice, voters }: Check| {
-            let t = if choice.is_some() { thresh } else { pthresh };
-            (voters.len() >= t).then_some(Election {
-                choice,
-                hammer,
-                voters,
-            })
-        };
-
-        Ok(ballot_check
-            .map(check_elect)
-            .flatten()
-            .or_else(|| former_check.map(check_elect).flatten()))
+        Ok(())
     }
 
-    pub fn get_election(&self, choice: Choice, thresh: usize, hammer: u64) -> Option<Election> {
-        let Phase::Day { votes, .. } = &self.phase else {
-            return None;
-        };
-        let voters: Vec<_> = votes
-            .iter()
-            .filter_map(|(p, c)| (c == &choice).then(|| *p))
-            .collect();
-        if voters.len() < thresh {
-            return None;
-        }
-        Some(Election {
-            choice,
-            hammer,
-            voters,
-        })
+    pub fn reveal(&mut self, actor: u64, tx: &EventTx) -> Result<()> {
+        todo!()
+    }
+
+    pub fn scheme(&mut self, killer: u64, mark: Choice, tx: &EventTx) -> Result<()> {
+        todo!()
+    }
+
+    pub fn target(&mut self, actor: u64, choice: Choice, tx: &EventTx) -> Result<()> {
+        todo!()
+    }
+
+    pub fn check_election(&self) -> Option<Choice> {
+        todo!()
+    }
+
+    pub fn try_election(&mut self, choice: Choice, tx: &EventTx) {
+        todo!()
+    }
+
+    pub fn check_dawn(&self) -> bool {
+        todo!()
+    }
+
+    pub fn dawn(&mut self, tx: &EventTx) {
+        todo!()
     }
 
     pub fn election(&mut self, tx: &EventTx) -> Result<()> {
