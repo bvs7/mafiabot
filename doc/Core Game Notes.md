@@ -127,3 +127,89 @@ Look into redoing timer:
 
 Idea: Don't use SystemTime for anything except storage?
 - When saving a timer, get current instant and current System time, and add time remaining to system time
+
+### Dawn
+Make a Night Action object
+
+
+## Rolegen
+
+We want to generate fair but random games.
+
+How many mafia should we have?
+
+### Number of town/maf votes
+If we assume that there is a probability p of voting out mafia each round...
+
+7 players, 1 mafia... killing town results in 2 town deaths, killing mafia results in 1 town 1 maf death...
+
+So 7-1 = 6, 6-1 = 5, 5/2 = 2.5 => 3 mistakes allowed vs 1 mafia kill needed. For this to be equal, then, there must be a 1/4 chance of killing maf each round?
+
+P, M => T := (P-2M)/2, M/(T+M) => 25%
+7,2 => T=1.5->2; 2,2
+So, P=7, M=2 => T := 2 => 2/(2+2) => 50%
+
+9, 2 => 3 => 2/(2+3) = 40%
+9,3 => 3 -> 3/(3+3) = 50%
+
+Let's assume we want the pct maf kills to be less than or equal to 50%. 
+`m/(n-(2*m)+m)`
+
+`(n+1)/2-m = t`
+`p = m / m+t`
+`n/2 + 1/2 - m = t`
+`2m/ (n+1)`
+
+| P\M | 1        | 2        | 3          | 4          | 5         | 6   |     |
+| --- | -------- | -------- | ---------- | ---------- | --------- | --- | --- |
+| 3   | 1,1; 50% |          |            |            |           |     |     |
+| 5   | 2,1; 33% | 1,2; 66% |            |            |           |     |     |
+| 7   | 3,1; 25% | 2,2; 50% | *1,3; 75%* | *-*        | *-*       |     |     |
+| 9   | 4,1; 20% | 3,2; 40% | *2,3; 60%* | *1,4 80%*  | *-*       |     |     |
+| 11  | 5,1; 17% | 4,2; 33% | 3,3; 50%   | *2,4 67%*  | *1,5 83%* |     |     |
+| 13  | 6,1; 14% | 5,2; 29% | 4,3; 43%   | *3,4; 57%* | *2,5 71%* |     |     |
+| 15  | 7,1; 13% | 6,2; 25% | 5,3; 37%   | 4,4; 50%   | 3,5; 63%  |     |     |
+| 17  | 8,1; 11% | 7,2; 22% | 6,3; 33%   | 5,4; 44%   | 4,5; 56%  |     |     |
+| 19  | 9,1; 10% | 8,2; 20% | 7,3; 30%   | 4,6; 40%   | 5,5; 50%  |     |     |
+| 21  | 9%       | 18%      | 27%        | 36%        | 45%       | 55% |     |
+|     |          |          |            |            |           |     |     |
+
+Say we want 25%-50%:
+
+| P   | M     |
+| --- | ----- |
+| 3   | 1     |
+| 5   | 1     |
+| 7   | 1,2   |
+| 9   | 2     |
+| 11  | 2,3   |
+| 13  | 2,3   |
+| 15  | 2,3,4 |
+| 17  | 3,4   |
+| 19  | 3,4,5 |
+
+Specifically, if the odds of picking mafia are `p`, then a fair game has a number of mafia:
+`m = p(n+1)` where `n` is the number of players and `m` is the number of mafia.
+
+So, given a number of players and a number of mafia, we can construct `p`:
+`p = m/(n-1)`
+
+Given `p`, we know how difficult a game will be for mafia or for town. A higher `p` means the game is easier for mafia, while a lower `p` is harder for mafia.
+
+We could potentially define a range of `p` which is acceptable, say 25% to 50%, where a game is "valid", then pepper in other roles based on that setup.
+
+In summary, about 1/8 to 1/4 mafia. And the closer to 1/4 we are, the more power roles we have for town.
+
+Let's start with at least one COP and one DOC? Or 
+
+
+## Rolegen
+
+`v: f64` is generated from the number of players:
+```rust
+let x_0 = 3.0 / 16.0 * (n + 1.0);
+let k = 10.0 / x_0;
+let x: f64 = rng.sample(Open01);
+let v = -f64::ln(1.0 / x - 1.0) / k + x_0;
+```
+`p` is calculated based on n and v:
