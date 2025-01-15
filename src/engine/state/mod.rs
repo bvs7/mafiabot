@@ -3,6 +3,7 @@
 pub mod phase;
 pub mod players;
 pub mod role;
+pub mod rolegen;
 pub mod rules;
 
 use super::interface::{
