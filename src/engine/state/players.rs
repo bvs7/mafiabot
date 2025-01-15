@@ -44,25 +44,16 @@ impl PlayerLog {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub enum Cause {
-    Election(Election),
+    Election,
     Kill,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct Context {
-    day: u32,
-    cause: Cause,
-}
-
-impl From<(u32, Election)> for Context {
-    fn from((day, elect): (u32, Election)) -> Self {
-        Self {
-            day,
-            cause: Cause::Election(elect),
-        }
-    }
+    pub day: u32,
+    pub cause: Cause,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]

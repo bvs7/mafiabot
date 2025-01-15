@@ -28,6 +28,9 @@ pub enum Error {
     ExpectedSchemingRole {
         actual: RoleKind,
     },
+    ExpectedCeleb {
+        actual: RoleKind,
+    },
     IneffectiveVote,
 }
 
@@ -44,6 +47,9 @@ impl std::fmt::Display for Error {
             }
             Error::ExpectedSchemingRole { actual } => {
                 write!(f, "Expected scheming role, got {actual}")
+            }
+            Error::ExpectedCeleb { actual } => {
+                write!(f, "Expected celeb, got {actual}")
             }
             Error::IneffectiveVote => {
                 write!(f, "This vote would not have any effect")
@@ -175,16 +181,23 @@ pub enum Event {
         day: u32,
         counts: HashMap<CountKey, usize>,
     },
-    Vvote(Vote),
     Vote {
         voter: u64,
         ballot: Option<(Option<u64>, usize)>,
         former: Option<(Option<u64>, usize)>,
     },
-    Election(Election),
+    Reveal {
+        celeb: u64,
+    },
+    Election {
+        choice: Option<u64>,
+        hammer: u64,
+        voters: Vec<u64>,
+    },
     Dawn, // Potentially note those who failed to do night actions
     Eliminate {
         player: u64,
+        role: RoleKind,
         context: Context,
     },
     Target {
@@ -194,6 +207,13 @@ pub enum Event {
     Scheme {
         killer: u64,
         mark: Choice,
+    },
+    Block {
+        blocked: u64,
+        blockers: Vec<u64>,
+    },
+    End {
+        winner: Team,
     },
     Debug,
 }

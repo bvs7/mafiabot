@@ -16,7 +16,7 @@ pub enum Phase {
         scheme: Option<(u64, Option<u64>)>, // killer -> mark
     },
     End {
-        winning_team: Team,
+        winner: Team,
     },
 }
 
@@ -32,9 +32,7 @@ impl Phase {
                 targets: HashMap::new(),
                 scheme: None,
             },
-            PhaseKind::End => Phase::End {
-                winning_team: Team::Town,
-            },
+            PhaseKind::End => Phase::End { winner: Team::Town },
         }
     }
     pub fn kind(&self) -> PhaseKind {

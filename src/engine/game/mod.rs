@@ -1,26 +1,16 @@
 mod builder;
 
-use crate::engine::{
-    interface::{Election, Event, Vote},
-    state::Choice,
-};
+use crate::engine::{interface::Event, state::Choice};
 
 use super::{
-    interface::{Action, ActionMsg, ActionRx, ActionTx, EventRx, EventTx},
+    interface::{Action, ActionRx, ActionTx, EventRx, EventTx},
     state::State,
-    timer::{TimeTx, Timer},
+    timer::{Timer, TimerEditor},
 };
-use chrono::Local;
+use chrono::{DateTime, Local, TimeDelta};
 use std::{sync::Arc, time::Duration};
 use tokio::sync::{broadcast::error::RecvError, Mutex, Notify, RwLock, TryLockError};
 use tracing::{debug, error, info};
-
-#[derive(Debug)]
-pub enum Quit {
-    Continue,
-    Save,
-    Abort,
-}
 
 #[derive(Debug)]
 pub struct Game {
@@ -112,15 +102,16 @@ impl Game {
                     Action::Scheme { killer, mark } => wstate.scheme(killer, mark, tx),
                     Action::Target { actor, choice } => wstate.target(actor, choice, tx),
                 };
+                let _ = result;
             }
         }
     }
 
-    fn election_timer(self: Arc<Self>, timer: Timer, choice: Choice) {
+    fn election_timer(self: Arc<Self>, timer: Timer, choice: Choice, hammer: u64) {
         tokio::spawn(async move {
             if timer.await {
                 let mut wstate = self.state.write().await;
-                wstate.try_election(choice, &self.event_tx);
+                wstate.try_election(choice, hammer, &self.event_tx);
                 drop(wstate);
             }
         });
@@ -128,19 +119,32 @@ impl Game {
 
     #[tracing::instrument]
     async fn election_watcher(self: Arc<Self>, mut event_rx: EventRx) {
-        let mut election: Option<(Choice, TimeTx)> = None;
+        fn soon() -> DateTime<Local> {
+            return Local::now() + TimeDelta::seconds(10);
+        }
+        let rstate = self.state.read().await;
+        let el = rstate.check_election();
+        drop(rstate);
+        let mut election = el.map(|el| {
+            let timer = Timer::new(soon());
+            (el, 0, timer.editor()) // TODO: how to get hammer?
+        });
         loop {
-            match event_rx.recv().await {
+            let hammer = match event_rx.recv().await {
                 Err(RecvError::Closed) => break,
                 Err(RecvError::Lagged(n)) => {
-                    error!(msg = "Missed recv events", ?n)
+                    error!(msg = "Missed recv events", ?n);
+                    0 // TODO: how to deal with this???
                 }
                 Ok(Event::Vote {
                     voter,
                     ballot,
                     former,
-                }) => debug!(?voter, ?ballot, ?former),
-                Ok(Event::Election(_)) => {
+                }) => {
+                    debug!(?voter, ?ballot, ?former);
+                    voter
+                }
+                Ok(Event::Election { .. }) => {
                     election = None;
                     continue;
                 }
@@ -153,20 +157,19 @@ impl Game {
             // If new, and new isn't old, then stop timer and start new timer
 
             // test for cancelling old election
-            let cancel_tx = match (&new_election, &election) {
-                (None, Some((_, tx))) => Some(tx),
-                (Some(new), Some((old, tx))) if new != old => Some(tx),
+            let edit = match (&new_election, &election) {
+                (None, Some((_, _, edit))) => Some(edit),
+                (Some(new), Some((old, _, edit))) if new != old => Some(edit),
                 _ => None,
             };
-            if let Some(tx) = cancel_tx {
-                let _ = tx.send(None); // Cancel timer
+            if let Some(edit) = edit {
+                let _ = edit.cancel(); // Cancel timer
                 election = None;
             }
             if let Some(choice) = new_election {
-                let soon = Local::now() + Duration::from_secs(10);
-                let (timer, tx) = Timer::new(soon);
-                election = Some((choice.clone(), tx));
-                self.clone().election_timer(timer, choice);
+                let timer = Timer::new(soon());
+                election = Some((choice.clone(), hammer, timer.editor()));
+                self.clone().election_timer(timer, choice, hammer);
             }
         }
     }
@@ -183,7 +186,9 @@ impl Game {
 
     #[tracing::instrument]
     async fn dawn_watcher(self: Arc<Self>, mut event_rx: EventRx) {
-        let mut dawn_imminent: bool = false;
+        let rstate = self.state.read().await;
+        let mut dawn_imminent: bool = rstate.check_dawn();
+        drop(rstate);
         loop {
             match event_rx.recv().await {
                 Err(RecvError::Closed) => break,
@@ -200,7 +205,7 @@ impl Game {
             if !dawn_imminent && dawn {
                 dawn_imminent = true;
                 let soon = Local::now() + Duration::from_secs(10);
-                let (timer, _) = Timer::new(soon);
+                let timer = Timer::new(soon);
                 self.clone().dawn_timer(timer);
             }
         }

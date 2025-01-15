@@ -17,8 +17,11 @@ use rules::Rules;
 use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
-use tokio::sync::broadcast::{self, error::SendError};
-use tracing::{debug, error, event, info};
+use tokio::{
+    net,
+    sync::broadcast::{self, error::SendError},
+};
+use tracing::{debug, error, event, info, warn};
 
 type Valid = std::result::Result<(), Error>;
 type Result<T> = std::result::Result<T, SendError<Event>>;
@@ -84,6 +87,12 @@ impl State {
                 .players
                 .get(&actor)
                 .ok_or(Error::InvalidActor { pid: actor })?;
+
+            if matches!(action, Action::Reveal { .. }) && role != &Role::CELEB {
+                return Err(Error::ExpectedCeleb {
+                    actual: role.into(),
+                });
+            }
 
             if matches!(action, Action::Target { .. }) && !role.is_targeting() {
                 return Err(Error::ExpectedTargetingRole {
@@ -182,87 +191,140 @@ impl State {
         Ok(())
     }
 
-    pub fn reveal(&mut self, actor: u64, tx: &EventTx) -> Result<()> {
-        todo!()
+    pub fn reveal(&mut self, celeb: u64, tx: &EventTx) -> Result<()> {
+        let Phase::Day { blocks, .. } = &self.phase else {
+            panic!("Handling reveal when phase is not Day");
+        };
+        if let Some(blockers) = blocks.get(&celeb) {
+            tx.send(Event::Block {
+                blocked: celeb,
+                blockers: blockers.clone(),
+            })?;
+        } else {
+            tx.send(Event::Reveal { celeb })?;
+        }
+        Ok(())
     }
-
     pub fn scheme(&mut self, killer: u64, mark: Choice, tx: &EventTx) -> Result<()> {
-        todo!()
-    }
-
-    pub fn target(&mut self, actor: u64, choice: Choice, tx: &EventTx) -> Result<()> {
-        todo!()
-    }
-
-    pub fn check_election(&self) -> Option<Choice> {
-        todo!()
-    }
-
-    pub fn try_election(&mut self, choice: Choice, tx: &EventTx) {
-        todo!()
-    }
-
-    pub fn check_dawn(&self) -> bool {
-        todo!()
-    }
-
-    pub fn dawn(&mut self, tx: &EventTx) {
-        todo!()
-    }
-
-    pub fn election(&mut self, tx: &EventTx) -> Result<()> {
-        // find election? Or should it already be here?
-
-        // tx.send(Event::Election(elect.clone()))?;
-        // let Election {
-        //     choice,
-        //     hammer,
-        //     voters,
-        // } = elect.clone();
-        // if let Some(pid) = choice {
-        //     self.eliminate(&pid, (self.day, elect).into(), tx);
-        // }
-
-        // // to night
-        // self.phase = Phase::Night {
-        //     targets: HashMap::new(),
-        //     scheme: None,
-        // };
-        // let _ = tx.send(Event::Night {
-        //     day: self.day,
-        //     counts: self.counts(CountKeyKind::Team),
-        // })?;
+        let Phase::Night { scheme, .. } = &mut self.phase else {
+            panic!("Handling scheme when phase is not Night");
+        };
+        *scheme = Some((killer, mark));
+        tx.send(Event::Scheme { killer, mark })?;
         Ok(())
     }
 
-    pub fn eliminate(&mut self, pid: &u64, context: Context, tx: &EventTx) -> Result<Option<Team>> {
+    pub fn target(&mut self, actor: u64, choice: Choice, tx: &EventTx) -> Result<()> {
+        let Phase::Night { targets, .. } = &mut self.phase else {
+            panic!("Handling scheme when phase is not Night");
+        };
+        targets.insert(actor, choice);
+        tx.send(Event::Target { actor, choice })?;
+        Ok(())
+    }
+
+    pub fn check_election(&self) -> Option<Choice> {
+        let Phase::Day { votes, .. } = &self.phase else {
+            warn!(msg = "Got check_election during not Day");
+            return None;
+        };
+        let n = self.players.alive().count();
+
+        let count = votes.iter().filter(|(_, c)| c.is_none()).count();
+        if count >= (n + 1) / 2 {
+            return Some(None);
+        }
+
+        let thresh = (n / 2) + 1;
+        for (pid, _) in self.players.alive() {
+            let pid = Some(*pid);
+            let count = votes.iter().filter(|(_, p)| p == &&pid).count();
+            if count >= thresh {
+                return Some(pid);
+            }
+        }
+        None
+    }
+
+    pub fn try_election(&mut self, choice: Choice, hammer: u64, tx: &EventTx) -> Result<()> {
+        let Phase::Day { votes, .. } = &self.phase else {
+            return Ok(()); // Can't elect when not in Day
+        };
+        let voters = votes
+            .iter()
+            .filter_map(|(p, c)| (&choice == c).then_some(*p))
+            .collect();
+        tx.send(Event::Election {
+            choice,
+            hammer,
+            voters,
+        })?;
+
+        if let Some(elected) = choice {
+            let context = Context {
+                day: self.day,
+                cause: Cause::Election,
+            };
+            self.eliminate(&elected, context, tx)?;
+        }
+
+        Ok(())
+    }
+
+    pub fn check_dawn(&self) -> bool {
+        let Phase::Night { targets, scheme } = &self.phase else {
+            return false;
+        };
+        if scheme.is_none() {
+            return false;
+        }
+        let total = targets.len();
+        let found = self
+            .players
+            .alive()
+            .filter(|(_, r)| r.is_targeting())
+            .count();
+        if found < total {
+            return false;
+        }
+        return true;
+    }
+
+    pub fn dawn(&mut self, tx: &EventTx) -> Result<()> {
+        let Phase::Night { targets, scheme } = &self.phase else {
+            panic!("Dawn when not night");
+        };
+
+        Ok(())
+    }
+
+    pub fn eliminate(&mut self, pid: &u64, context: Context, tx: &EventTx) -> Result<()> {
+        let role = self.players.get(pid).unwrap();
         tx.send(Event::Eliminate {
             player: *pid,
+            role: role.into(),
             context: context.clone(),
         })?;
         self.players.eliminate(pid, context);
-        // Check to see if the game has ended
-        let n = self.players.alive().count();
-        let n_maf = self.players.alive().filter(|(_, r)| r.is_mafia()).count();
-
-        Ok(if n_maf == 0 {
-            Some(Team::Town)
-        } else if (n - n_maf) <= n_maf {
-            Some(Team::Mafia)
-        } else {
-            None
-        })
+        self.check_end(tx)?;
+        Ok(())
     }
 
-    // pub fn check_dawn(&self) -> Result<bool> {
-    //     let Phase::Night { targets, scheme } = &self.phase else {};
-    //     let total = self
-    //         .players
-    //         .alive()
-    //         .filter(|(_, r)| r.is_targeting())
-    //         .count();
-    //     Ok(scheme.is_some() && targets.len() == total)
-    // }
+    pub fn check_end(&mut self, tx: &EventTx) -> Result<()> {
+        let n = self.players.alive().count();
+        let n_maf = self.players.alive().filter(|(_, r)| r.is_mafia()).count();
+        let mut winner = None;
+        if n_maf == 0 {
+            winner = Some(Team::Town)
+        } else if n - n_maf <= n_maf {
+            winner = Some(Team::Mafia)
+        }
+        if let Some(winner) = winner {
+            tx.send(Event::End { winner })?;
+            self.phase = Phase::End { winner }
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]

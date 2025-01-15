@@ -13,6 +13,27 @@ pub type Time = Option<DateTime<Local>>;
 pub type TimeTx = watch::Sender<Time>;
 type TimeRx = watch::Receiver<Time>;
 
+pub struct TimerLapsedError;
+
+pub struct TimerEditor {
+    time_tx: TimeTx,
+}
+
+impl TimerEditor {
+    pub fn set(&self, time: DateTime<Local>) -> Result<(), TimerLapsedError> {
+        self.time_tx.send(Some(time)).map_err(|_| TimerLapsedError)
+    }
+    pub fn add(&self, delta: TimeDelta) {
+        self.time_tx.send_modify(|time| match time.as_mut() {
+            Some(time) => *time += delta,
+            None => {}
+        });
+    }
+    pub fn cancel(&self) {
+        let _ = self.time_tx.send(None);
+    }
+}
+
 /// A Timer that can be awaited, dropped, or adjusted
 pub struct Timer {
     join: JoinHandle<bool>,
@@ -20,11 +41,10 @@ pub struct Timer {
 }
 
 impl Timer {
-    pub fn new(time: DateTime<Local>) -> (Self, TimeTx) {
+    pub fn new(time: DateTime<Local>) -> Self {
         let (time_tx, time_rx) = watch::channel(Some(time));
         let join = tokio::spawn(Self::timer_internal(time_rx));
-        let tx = time_tx.clone();
-        (Self { join, time_tx }, tx)
+        Self { join, time_tx }
     }
 
     async fn timer_internal(mut rx: TimeRx) -> bool {
@@ -45,8 +65,10 @@ impl Timer {
         }
     }
 
-    fn get_time_tx(&self) -> TimeTx {
-        self.time_tx.clone()
+    pub fn editor(&self) -> TimerEditor {
+        TimerEditor {
+            time_tx: self.time_tx.clone(),
+        }
     }
 }
 
@@ -65,51 +87,74 @@ impl Future for Timer {
             .map(|r| r.unwrap())
     }
 }
-/*
+
 #[cfg(test)]
 mod test {
     use super::Timer;
 
-    use chrono::{Local, TimeDelta};
+    use chrono::{DateTime, Local, TimeDelta};
     use std::time::Duration;
-    use tokio::time::sleep;
+
+    fn soon(ms: i64) -> DateTime<Local> {
+        return Local::now() + TimeDelta::milliseconds(ms);
+    }
+
+    async fn sleep(ms: u64) {
+        tokio::time::sleep(Duration::from_millis(ms)).await;
+    }
 
     #[tokio::test]
     async fn basic() {
-        let mut timer = Timer::new(Local::now() + Duration::from_millis(200));
+        let timer = Timer::new(soon(200));
         assert!(tokio::select! {
-            _ = &mut timer => true,
-            _ = sleep(Duration::from_millis(300)) => false,
+            t = timer => t,
+            _ = sleep(300) => false,
         });
     }
 
     #[tokio::test]
-    async fn dropping() {
-        let timer = Timer::new(Local::now() + Duration::from_millis(100));
-        drop(timer);
-
-        sleep(Duration::from_millis(500)).await;
+    async fn cancel() {
+        let timer = Timer::new(soon(200));
+        let edit = timer.editor();
+        edit.cancel();
+        assert!(tokio::select! {
+            t = timer => !t,
+            _ = sleep(50) => false,
+        });
     }
 
     #[tokio::test]
     async fn set() {
-        let mut timer = Timer::new(Local::now() + Duration::from_millis(200));
-        sleep(Duration::from_millis(100)).await;
+        let mut timer = Timer::new(soon(200));
+        let edit = timer.editor();
+        edit.set(soon(400));
+        assert!(tokio::select! {
+            _ = &mut timer => false,
+            _ = sleep(200) => true
+        });
+        edit.set(soon(-100));
+        assert!(tokio::select! {
+            t = timer => t,
+            _ = sleep(50) => false
+        });
+    }
 
-        for _ in 0..10 {
-            timer.add(TimeDelta::milliseconds(200));
+    #[tokio::test[]]
+    async fn add() {
+        let mut timer = Timer::new(soon(100));
+        let edit = timer.editor();
+
+        for _ in 0..5 {
+            edit.add(TimeDelta::milliseconds(200));
             assert!(tokio::select! {
-                _ = sleep(Duration::from_millis(200)) => true,
                 _ = &mut timer => false,
+                _ = sleep(200) => true,
             });
         }
-
-        timer.add(TimeDelta::milliseconds(-200));
-
+        edit.add(TimeDelta::milliseconds(-200));
         assert!(tokio::select! {
-            _ = &mut timer => true,
-            _ = sleep(Duration::from_millis(10)) => false,
+            t = timer => true,
+            _ = sleep(200) => false,
         });
     }
 }
-*/

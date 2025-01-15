@@ -6,6 +6,7 @@ pub enum Role {
     TOWN,
     COP,
     DOCTOR,
+    CELEB,
     MAFIA,
 }
 
@@ -14,14 +15,14 @@ impl Role {
         use Role::*;
         match self {
             COP | DOCTOR => true,
-            TOWN | MAFIA => false,
+            TOWN | CELEB | MAFIA => false,
         }
     }
     pub fn is_scheming(&self) -> bool {
         use Role::*;
         match self {
             MAFIA => true,
-            TOWN | COP | DOCTOR => false,
+            TOWN | COP | DOCTOR | CELEB => false,
         }
     }
     pub fn is_mafia(&self) -> bool {
@@ -59,7 +60,7 @@ impl From<Role> for Team {
     fn from(role: Role) -> Self {
         use Role::*;
         match role {
-            TOWN | COP | DOCTOR => Self::Town,
+            TOWN | COP | DOCTOR | CELEB => Self::Town,
             MAFIA => Self::Mafia,
         }
     }
