@@ -106,6 +106,19 @@ Things that benefit town:
 - Change a mafia to a GOON
 - Upgrade a Town to COP or DOCTOR
 
+
+List of things to try doing, in order of helping mafia most to helping town most
+- Change a town to mafia
+- Upgrade a mafia to STRIPPER
+- Upgrade a mafia to GODFATHER
+- Change a town to MILLER
+Neutral
+- Upgrade a town to CELEB
+- Upgrade two town to MASONs
+- Upgrade a town to COP
+- Upgrade a town to DOCTOR
+
+
 So let's say that K is the number of kinky roles to pick... depending on where P is at,
 let's pick some k_1, k_2, ... k_k such that they come out to about 0.5 - P.
 For example, if P is 0.75, we want our total k to be about 0.25. Then each of those k's gets fuzzed

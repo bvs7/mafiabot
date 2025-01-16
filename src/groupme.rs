@@ -9,6 +9,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 const MODERATOR_UID: &str = "43040067";
 
+const MAIN_CHAT_ID: &str = "105362524";
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(from = "String", into = "String")]
 pub struct PushId(u64);
@@ -154,8 +156,16 @@ fn handshake_msg(id: &mut PushId) -> PushMessage {
         .supported_connection_types(&["websocket"])
 }
 
-fn subscribe_msg(id: &mut PushId, client_id: &str) -> PushMessage {
-    let sub = format!("/user/{MODERATOR_UID}");
+fn subscribe_user_msg(id: &mut PushId, client_id: &str, user_id: &str) -> PushMessage {
+    let sub = format!("/user/{user_id}");
+    PushMessage::new(id, Channel::Subscribe)
+        .client_id(&client_id)
+        .subscription(&sub)
+        .ext(Ext::now().unwrap())
+}
+
+fn subscribe_group_msg(id: &mut PushId, client_id: &str, group_id: &str) -> PushMessage {
+    let sub = format!("/group/{group_id}");
     PushMessage::new(id, Channel::Subscribe)
         .client_id(&client_id)
         .subscription(&sub)
@@ -164,7 +174,7 @@ fn subscribe_msg(id: &mut PushId, client_id: &str) -> PushMessage {
 
 pub async fn get_websocket(client: &Client, uri: &str) -> Result<WebSocket> {
     Ok(client
-        .get("https://push.groupme.com/faye")
+        .get(uri)
         .upgrade()
         .send()
         .await?
@@ -199,8 +209,24 @@ pub async fn try_websocket_subscribe() -> Result<()> {
 
     let client_id = resp.client_id.with_context(|| "Missing client_id")?;
 
-    let req = subscribe_msg(&mut id, &client_id);
+    let req = subscribe_group_msg(&mut id, &client_id, MAIN_CHAT_ID);
+    tracing::info!("Request: {req:#?}");
     tx.send(Message::Text(serde_json::to_string(&req)?)).await?;
+
+    while let Some(message) = rx.next().await {
+        let msg = message?;
+        tracing::debug!("Got {msg:?}");
+        match msg {
+            Message::Text(t) => {
+                let value: serde_json::Value = serde_json::from_str(&t)?;
+                tracing::info!("Json: {value:#?}");
+            }
+            Message::Ping(i) => {
+                tx.send(Message::Pong(i)).await?;
+            }
+            _ => {}
+        }
+    }
 
     Ok(())
 }
