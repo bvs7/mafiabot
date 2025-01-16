@@ -156,16 +156,16 @@
   },
   "active": "c39e65324f7f9df9",
   "lastOpenFiles": [
-    "target/debug/incremental/mafiabot-0u8fa4ptb9hn4/s-h3pkhjtatb-0sagaot-7xj43s71d4hi22vg2augi5ois/work-products.bin",
-    "target/debug/incremental/mafiabot-0u8fa4ptb9hn4/s-h3pkhjtatb-0sagaot-7xj43s71d4hi22vg2augi5ois/query-cache.bin",
-    "target/debug/incremental/mafiabot-0u8fa4ptb9hn4/s-h3pkhjtatb-0sagaot-7xj43s71d4hi22vg2augi5ois/dep-graph.bin",
-    "target/debug/incremental/mafiabot-0u8fa4ptb9hn4/s-h3pkhjtatb-0sagaot-7xj43s71d4hi22vg2augi5ois",
-    "target/debug/deps/libthiserror-77d90dc9f702b6d8.rmeta",
-    "target/debug/deps/libtokio_util-582fb0b8e98f4065.rmeta",
-    "target/debug/incremental/mafiabot-0u8fa4ptb9hn4/s-h3pkhjtatb-0sagaot-working/dep-graph.part.bin",
-    "target/debug/incremental/mafiabot-0u8fa4ptb9hn4/s-h3pkhjtatb-0sagaot-working/query-cache.bin",
-    "target/debug/incremental/mafiabot-0u8fa4ptb9hn4/s-h3pkhjtatb-0sagaot-working/work-products.bin",
-    "target/debug/incremental/mafiabot-0u8fa4ptb9hn4/s-h3pkhjtatb-0sagaot-working/dep-graph.bin",
-    "target/debug/incremental/mafiabot-0u8fa4ptb9hn4/s-h3pkhjtatb-0sagaot-working"
+    "target/debug/deps/mafiabot.pdb",
+    "target/debug/deps/mafiabot.exe",
+    "target/debug/deps/mafiabot.1y5855ljscm4xamvq6wnp4ei1.rcgu.o",
+    "target/debug/deps/mafiabot.1hye6v0cd9rwmhuz57z4z0o01.rcgu.o",
+    "target/debug/deps/mafiabot.0klr7it4zop4bephxkefgjvar.rcgu.o",
+    "target/debug/deps/mafiabot.0jlaibxs4jpsg0lneptple580.rcgu.o",
+    "target/debug/deps/mafiabot.09xvv1v00ho5i5odhhcfe0ksc.rcgu.o",
+    "target/debug/deps/mafiabot.08067wokgt6jbguh02bmn3p08.rcgu.o",
+    "target/debug/deps/mafiabot.039o1gjnbwaivxmo0lnlrdw4z.rcgu.o",
+    "target/debug/deps/mafiabot.00hucix3zf8rie5u1xczvrt1x.rcgu.o",
+    "target/debug/deps/mafiabot.em0ee282pjybr5r5ikdqg76jf.rcgu.o"
   ]
 }

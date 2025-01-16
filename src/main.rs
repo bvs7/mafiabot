@@ -15,5 +15,6 @@ async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt::init();
     tracing::debug!("Getting groupme_token");
 
-    groupme::try_websocket_subscribe().await
+    groupme::run().await;
+    Ok(())
 }
