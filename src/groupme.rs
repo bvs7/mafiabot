@@ -27,13 +27,20 @@ pub struct PushId(u64);
 
 impl From<PushId> for String {
     fn from(value: PushId) -> Self {
+        let mut x = value.0;
+        let mut s = String::new();
+        while x > 0 {
+            let c = char::from_u32(((x % 36) + 48) as u32).unwrap();
+            x = x / 36;
+            s.insert(0, c);
+        }
         format!("{:x}", value.0)
     }
 }
 
 impl From<String> for PushId {
     fn from(value: String) -> Self {
-        Self(u64::from_str_radix(value.as_str(), 16).unwrap_or_else(|e| {
+        Self(u64::from_str_radix(value.as_str(), 36).unwrap_or_else(|e| {
             tracing::error!("Error parsing pushid: {value}, {e}");
             0
         }))
@@ -683,7 +690,7 @@ impl Controller {
                                     tracing::info!("Cmd: {cmd:#?}");
                                 }
                             }
-                            Err(err) => tracing::error!("Error parsing Message Data: {err:?}"),
+                            Err(err) => tracing::warn!("Couldn't parse Message Data: {err:?}"),
                         }
                     }
                 }
