@@ -959,14 +959,13 @@ mod api {
 
 /*
 TODO:
-- API calls to make things happen
-- Make Game a server? So we can hot swap the controller and that server?
 
-
-Api abilities we need:
-- Send a message
-- add/remove users
-- like a message
+Lobby behavior
+For now, let's just do a single game
+- Have all targets etc look at that game
+- Setup game server?
+- Look at Game Saving
+- Finish Rolegen
 
 Notes:
 The groupme adapter needs to know certain thing to route requests:
