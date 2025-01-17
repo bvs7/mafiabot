@@ -7,77 +7,79 @@ use super::{
     state::State,
     timer::{Timer, TimerEditor},
 };
+use anyhow::Result;
 use chrono::{DateTime, Local, TimeDelta};
 use std::{sync::Arc, time::Duration};
-use tokio::sync::{broadcast::error::RecvError, Mutex, Notify, RwLock, TryLockError};
+use tokio::sync::{
+    broadcast::error::RecvError, oneshot, Mutex as AsyncMutex, Notify, RwLock, TryLockError,
+};
 use tracing::{debug, error, info};
 
 #[derive(Debug)]
 pub struct Game {
     state: Arc<RwLock<State>>,
     action_tx: ActionTx,
+    action_rx: AsyncMutex<ActionRx>,
     event_tx: EventTx,
-    quit: Notify,
-    run_lock: Mutex<()>,
+    //
 }
 
+/*
+Would we ever not want to use the Start method to start the game?
+
+*/
+
 impl Game {
-    fn new(
-        state: State,
-        (action_tx, action_rx): (ActionTx, ActionRx),
-        event_tx: EventTx,
-    ) -> Arc<Self> {
+    fn new(state: State, (action_tx, action_rx): (ActionTx, ActionRx), event_tx: EventTx) -> Self {
         let state = Arc::new(RwLock::new(state));
-        let quit = Notify::new();
-        let run_lock = Mutex::new(());
-        let game = Arc::new(Self {
+        let action_rx = AsyncMutex::new(action_rx);
+        Self {
             state,
             action_tx,
+            action_rx,
             event_tx,
-            quit,
-            run_lock,
-        });
-        let s = game.clone();
-        tokio::spawn(s.run(action_rx));
-        game
+        }
     }
 
     /// Get a broadcast rx subscribed to this game
-    pub fn event_rx(self: &Arc<Self>) -> EventRx {
+    pub fn event_rx(&self) -> EventRx {
         self.event_tx.subscribe()
     }
     /// Get a mpsc Sender to send actions to this game
-    pub fn action_tx(self: &Arc<Self>) -> ActionTx {
+    pub fn action_tx(&self) -> ActionTx {
         self.action_tx.clone()
     }
 
-    pub fn quit(self: Arc<Self>) {
-        self.quit.notify_one()
+    // pub fn quit(self: Arc<Self>) {
+    //     self.quit.notify_one()
+    // }
+
+    /// Consumes self and returns Arc, as only shared refs can be used after starting
+    async fn start(self) -> Result<Arc<Self>> {
+        let (resp, resp_rx) = oneshot::channel();
+        let arc_self = Arc::new(self);
+        let s = arc_self.clone();
+        tokio::spawn(s.run(resp));
+        resp_rx.await?;
+        Ok(arc_self)
     }
 
-    /// Synchronous run...
-    #[tracing::instrument]
-    async fn run(self: Arc<Self>, action_rx: ActionRx) -> Result<(), TryLockError> {
-        let s = self.clone();
-        let action_handler = tokio::spawn(s.action_handler(action_rx));
-        let s = self.clone();
-        let event_rx = self.event_rx();
-        let election_watcher = tokio::spawn(s.election_watcher(event_rx));
-        let s = self.clone();
-        let event_rx = self.event_rx();
-        let dawn_watcher = tokio::spawn(s.dawn_watcher(event_rx));
-
-        self.quit.notified().await;
-
-        action_handler.abort();
-        election_watcher.abort();
-        dawn_watcher.abort();
-
-        Ok(())
+    #[tracing::instrument(skip_all)]
+    async fn run(self: Arc<Self>, resp: oneshot::Sender<Result<(), TryLockError>>) {
+        match self.clone().action_rx.try_lock() {
+            Ok(mut action_rx) => {
+                resp.send(Ok(()));
+                // Do other init here?
+                self.clone().action_handler(&mut action_rx).await;
+            }
+            Err(e) => {
+                resp.send(Err(e));
+            }
+        }
     }
 
     #[tracing::instrument]
-    async fn action_handler(self: Arc<Self>, mut action_rx: ActionRx) {
+    async fn action_handler(self: Arc<Self>, action_rx: &mut ActionRx) {
         loop {
             let input = action_rx.recv().await;
             let Some((action, responder)) = input else {

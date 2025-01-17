@@ -156,16 +156,16 @@
   },
   "active": "c39e65324f7f9df9",
   "lastOpenFiles": [
-    "target/debug/deps/mafiabot.pdb",
-    "target/debug/deps/mafiabot.exe",
-    "target/debug/incremental/mafiabot-3dum0hnslg036/s-h3qnuo2wjm-00sgbbw-dl54atjisjh7ii4bn4u7uykgh/em0ee282pjybr5r5ikdqg76jf.o",
-    "target/debug/incremental/mafiabot-3dum0hnslg036/s-h3qnuo2wjm-00sgbbw-dl54atjisjh7ii4bn4u7uykgh/f4b2wbx6v88yno955foz0fc5g.o",
-    "target/debug/incremental/mafiabot-3dum0hnslg036/s-h3qnuo2wjm-00sgbbw-dl54atjisjh7ii4bn4u7uykgh/query-cache.bin",
-    "target/debug/incremental/mafiabot-3dum0hnslg036/s-h3qnuo2wjm-00sgbbw-dl54atjisjh7ii4bn4u7uykgh/work-products.bin",
-    "target/debug/incremental/mafiabot-3dum0hnslg036/s-h3qnuo2wjm-00sgbbw-dl54atjisjh7ii4bn4u7uykgh/ezzpufrojzv8h69ifbyhpbg2r.o",
-    "target/debug/incremental/mafiabot-3dum0hnslg036/s-h3qnuo2wjm-00sgbbw-dl54atjisjh7ii4bn4u7uykgh/exnbyt2tabbf2pzf8vpryrc7r.o",
-    "target/debug/incremental/mafiabot-3dum0hnslg036/s-h3qnuo2wjm-00sgbbw-dl54atjisjh7ii4bn4u7uykgh/ent9usxgbdey84mnodyn0a947.o",
-    "target/debug/incremental/mafiabot-3dum0hnslg036/s-h3qnuo2wjm-00sgbbw-dl54atjisjh7ii4bn4u7uykgh/ew766ekpo79mvhevjl5gkh56b.o",
-    "target/debug/incremental/mafiabot-3dum0hnslg036/s-h3qnuo2wjm-00sgbbw-dl54atjisjh7ii4bn4u7uykgh/euosni8j93ni1mbkc5urw7q5i.o"
+    "target/debug/incremental/mafiabot-2jghgmey8kvs9/s-h3rphpvpks-1c8fy46-working/work-products.bin",
+    "target/debug/incremental/mafiabot-2jghgmey8kvs9/s-h3rphpvpks-1c8fy46-working/query-cache.bin",
+    "target/debug/incremental/mafiabot-2jghgmey8kvs9/s-h3rphpvpks-1c8fy46-working/dep-graph.part.bin",
+    "target/debug/incremental/mafiabot-2jghgmey8kvs9/s-h3rphpvpks-1c8fy46-working/dep-graph.bin",
+    "target/debug/incremental/mafiabot-2jghgmey8kvs9/s-h3rphpvpks-1c8fy46-working",
+    "target/debug/incremental/mafiabot-2jghgmey8kvs9/s-h3rphpvpks-1c8fy46.lock",
+    "target/debug/incremental/mafiabot-2afs12b245imv/s-h3rphpvodb-076y6fg-working/query-cache.bin",
+    "target/debug/incremental/mafiabot-2afs12b245imv/s-h3rphpvodb-076y6fg-working/work-products.bin",
+    "target/debug/incremental/mafiabot-2afs12b245imv/s-h3rphpvodb-076y6fg-working/dep-graph.bin",
+    "target/debug/incremental/mafiabot-2afs12b245imv/s-h3rphpvodb-076y6fg-working/dep-graph.part.bin",
+    "target/debug/incremental/mafiabot-2afs12b245imv/s-h3rphpvodb-076y6fg-working"
   ]
 }

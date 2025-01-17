@@ -130,7 +130,7 @@ impl State {
         // If number of players is odd, start day, if even, start night
         tx.send(Event::Start {
             id: self.id,
-            players: self.players.alive().map(|(p, _)| *p).collect(),
+            players: self.players.alive().map(|(p, r)| (*p, *r)).collect(),
             rules: self.rules.clone(),
             counts: self.counts(CountKeyKind::Team), // TODO: set with rules
         })?;

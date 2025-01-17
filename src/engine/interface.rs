@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use super::state::{
     phase::PhaseKind,
     players::Context,
-    role::{RoleKind, Team},
+    role::{Role, RoleKind, Team},
     rules::Rules,
     Choice,
 };
@@ -169,7 +169,7 @@ impl From<bool> for CountKey {
 pub enum Event {
     Start {
         id: u64,
-        players: Vec<u64>,
+        players: Vec<(u64, Role)>,
         rules: Rules,
         counts: HashMap<CountKey, usize>,
     },
