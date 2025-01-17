@@ -10,12 +10,13 @@ use std::env;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::{broadcast, mpsc};
 use tokio::task::JoinHandle;
-use tracing::Level;
+use tracing::{debug_span, Instrument, Level};
 
 use crate::engine::game::Game;
 use crate::engine::interface::Action;
 
 const MODERATOR_UID: &str = "43040067";
+const BRIAN_UID: &str = "21642197";
 
 const LOBBY_CHAT_ID: &str = "25833774";
 const MAIN_CHAT_ID: &str = "105362524";
@@ -251,6 +252,7 @@ async fn forward_rx_to_ws(output: Option<PushMessage>, ws: &mut WebSocket) -> Re
     Ok(true)
 }
 
+#[tracing::instrument(skip_all)]
 async fn websocket_handler(
     mut ws: WebSocket,
     tx: FromWebSocketTx,
@@ -264,6 +266,7 @@ async fn websocket_handler(
     Ok(())
 }
 
+#[tracing::instrument(skip_all)]
 async fn handshaker_and_subscriber(
     tx: ToWebSocketTx,
     mut rx: FromWebSocketRx,
@@ -298,6 +301,7 @@ async fn handshaker_and_subscriber(
     Ok(())
 }
 
+#[tracing::instrument(skip_all)]
 async fn msg_tracer(mut rx: FromWebSocketRx) {
     loop {
         match rx.recv().await {
@@ -311,7 +315,7 @@ async fn msg_tracer(mut rx: FromWebSocketRx) {
 async fn start_websocket_handler(
     uri: &str,
     client: Client,
-) -> Result<(FromWebSocketTx, ToWebSocketTx, JoinHandle<()>)> {
+) -> Result<(FromWebSocketTx, ToWebSocketTx, JoinHandle<Result<()>>)> {
     let from_websocket_tx = broadcast::Sender::new(100);
     let (to_websocket_tx, to_websocket_rx) = mpsc::channel(100);
 
@@ -329,21 +333,7 @@ async fn start_websocket_handler(
         to_websocket_rx,
     ));
 
-    let h = tokio::spawn(async move {
-        let (r1, r2) = tokio::join!(h1, h2,);
-        match r1 {
-            Ok(Ok(())) => {}
-            Err(err) => tracing::error!(?err),
-            Ok(Err(err)) => tracing::error!(?err),
-        }
-        match r2 {
-            Ok(Ok(())) => {}
-            Err(err) => tracing::error!(?err),
-            Ok(Err(err)) => tracing::error!(?err),
-        }
-    });
-
-    Ok((from_websocket_tx, to_websocket_tx, h))
+    Ok((from_websocket_tx, to_websocket_tx, h2))
 }
 
 pub async fn run() {
@@ -373,6 +363,39 @@ pub async fn run() {
     let _ = tokio::join!(h, h2, h3);
 }
 
+pub async fn test() -> Result<()> {
+    use api::*;
+    let client = Client::new();
+
+    // let msg_id = send_dm(&client, BRIAN_UID.parse().unwrap(), "Sending a test DM")
+    //     .await
+    //     .unwrap();
+
+    // tokio::time::sleep(Duration::from_secs(5)).await;
+
+    // like_message(&client, &format!("{BRIAN_UID}+{MODERATOR_UID}"), &msg_id)
+    //     .await
+    //     .unwrap();
+
+    // let new_group_id = create_group(&client, "Test Lobby").await?;
+    let new_group_id = 105412553;
+    tracing::info!("New Group Id {new_group_id}");
+
+    add_members(
+        &client,
+        new_group_id,
+        vec![("Brian".to_owned(), BRIAN_UID.parse().unwrap())],
+    )
+    .await?;
+
+    send_group_message(&client, new_group_id, "Hello everyone").await?;
+
+    // tokio::time::sleep(Duration::from_secs(30)).await;
+
+    // delete_group(&client, new_group_id).await.unwrap();
+    Ok(())
+}
+
 fn get_token() -> anyhow::Result<String> {
     env::var("GROUPME_TOKEN").with_context(|| "failed to get groupme token")
 }
@@ -393,16 +416,6 @@ pub async fn get_user_id() -> anyhow::Result<()> {
     tracing::info!("Body: {:#?}", json_body);
     Ok(())
 }
-
-/* What kinds of commands or interactions can we have?
-// Command
-// - Lobby
-// - Game
-// - DM
-// Action
-// - Game
-// - DM
-*/
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "snake_case", tag = "type")]
@@ -677,6 +690,7 @@ impl Controller {
         None
     }
 
+    #[tracing::instrument(skip_all)]
     async fn process_msg_data(&mut self, mut rx: FromWebSocketRx) {
         loop {
             match rx.recv().await {
@@ -701,10 +715,292 @@ impl Controller {
     }
 }
 
+/// API calls
+mod api {
+    use anyhow::{bail, Result};
+    use http::header::CONTENT_TYPE;
+    use reqwest::Client;
+    use serde::{Deserialize, Serialize};
+    use serde_json::{json, to_string, Map as JsonMap, Value as JsonValue};
+    use uuid::Uuid;
+
+    use super::get_token;
+
+    pub type UserId = u64;
+
+    pub type GroupId = u64;
+
+    pub type MessageId = String;
+
+    const BASE_API_URI: &str = "https://api.groupme.com/v3";
+
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    pub struct Member {
+        nickname: String,
+        user_id: UserId,
+    }
+
+    #[tracing::instrument(skip(client))]
+    pub async fn add_members(
+        client: &Client,
+        group_id: u64,
+        members: Vec<(String, UserId)>,
+    ) -> Result<()> {
+        let uri = format!("{BASE_API_URI}/groups/{group_id}/members/add");
+        let mut members_vec = Vec::new();
+        for (nickname, user_id) in members {
+            let user_id_str = user_id.to_string();
+            members_vec.push(json!(
+                {
+                    "nickname":nickname,
+                    "user_id": user_id_str
+                }
+            ));
+        }
+        let members = json!({
+            "members": members_vec
+        });
+        let body = serde_json::to_string(&members)?;
+        tracing::debug!(%body);
+        let resp = client
+            .post(uri)
+            .header(CONTENT_TYPE, "application/json")
+            .query(&[("token", get_token()?)])
+            .body(body)
+            .send()
+            .await?
+            // .error_for_status()?
+            .text()
+            .await?;
+        tracing::debug!(%resp);
+        let body: JsonValue = serde_json::from_str(&resp)?;
+        let result_id = match &body["response"]["results_id"] {
+            JsonValue::String(s) => s.to_owned(),
+            _ => bail!("Failed to parse result_id: {body:?}"),
+        };
+        let uri = format!("{BASE_API_URI}/groups/{group_id}/members/results/{result_id}");
+        let resp = client
+            .get(uri)
+            .query(&[("token", get_token()?)])
+            .send()
+            .await?
+            .error_for_status()?
+            .text()
+            .await?;
+        tracing::debug!(?resp);
+        Ok(())
+    }
+
+    #[tracing::instrument(skip(client))]
+    pub async fn create_group(client: &Client, name: &str) -> Result<GroupId> {
+        let uri = format!("{BASE_API_URI}/groups");
+        let body = json!({"name": name});
+        let body = serde_json::to_string(&body)?;
+        let resp = client
+            .post(uri)
+            .header(CONTENT_TYPE, "application/json")
+            .query(&[("token", get_token()?)])
+            .body(body)
+            .send()
+            .await?
+            .error_for_status()?
+            .text()
+            .await?;
+        tracing::debug!(?resp);
+        let body: JsonValue = serde_json::from_str(&resp)?;
+        let id = match &body["response"]["id"] {
+            JsonValue::String(s) => s.to_owned(),
+            _ => {
+                bail!("Failed to parse group id: {body:?}");
+            }
+        };
+        let id = id.parse()?;
+        Ok(id)
+    }
+
+    #[tracing::instrument(skip(client))]
+    pub async fn delete_group(client: &Client, group_id: GroupId) -> Result<()> {
+        let uri = format!("{BASE_API_URI}/groups/{group_id}/destroy");
+        let resp = client
+            .post(uri)
+            .query(&[("token", get_token()?)])
+            .send()
+            .await?
+            .error_for_status()?;
+        tracing::debug!(?resp);
+        Ok(())
+    }
+
+    #[tracing::instrument(skip(client))]
+    pub async fn send_group_message(
+        client: &Client,
+        group_id: GroupId,
+        text: &str,
+    ) -> Result<MessageId> {
+        let uri = format!("{BASE_API_URI}/groups/{group_id}/messages");
+        let uuid = Uuid::new_v4();
+        let body = json!({
+            "message": {
+                "source_guid": uuid.to_string(),
+                "text" : text,
+            }
+        });
+        let body = serde_json::to_string(&body)?;
+        let resp = client
+            .post(uri)
+            .header(CONTENT_TYPE, "application/json")
+            .query(&[("token", get_token()?)])
+            .body(body)
+            .send()
+            .await?
+            .error_for_status()?
+            .text()
+            .await?;
+
+        tracing::debug!(?resp);
+        let body: JsonValue = serde_json::from_str(&resp)?;
+        let id = match &body["response"]["message"]["id"] {
+            JsonValue::String(id) => id.to_owned(),
+            _ => {
+                bail!("Failed to parse response json: {body:#?}")
+            }
+        };
+
+        Ok(id)
+    }
+
+    #[tracing::instrument(skip(client))]
+    pub async fn send_dm(client: &Client, user_id: UserId, text: &str) -> Result<MessageId> {
+        let uri = format!("{BASE_API_URI}/direct_messages");
+        let uuid = Uuid::new_v4();
+        let body = json!({
+            "direct_message": {
+                "source_guid": uuid.to_string(),
+                "recipient_id" : user_id,
+                "text" : text,
+            }
+        });
+        let body = serde_json::to_string(&body)?;
+        let resp = client
+            .post(uri)
+            .header(CONTENT_TYPE, "application/json")
+            .query(&[("token", get_token()?)])
+            .body(body)
+            .send()
+            .await?
+            .error_for_status()?
+            .text()
+            .await?;
+
+        tracing::debug!(?resp);
+        let body: JsonValue = serde_json::from_str(&resp)?;
+        let id = match &body["response"]["direct_message"]["id"] {
+            JsonValue::String(id) => id.to_owned(),
+            _ => {
+                bail!("Failed to parse response json: {body:#?}")
+            }
+        };
+
+        Ok(id)
+    }
+
+    #[tracing::instrument(skip(client))]
+    pub async fn get_group_message_likes(
+        client: &Client,
+        group_id: GroupId,
+        msg_id: &MessageId,
+    ) -> Result<Vec<UserId>> {
+        let uri = format!("{BASE_API_URI}/groups/{group_id}/messages");
+        let prev_msg_id = (msg_id.parse::<u64>()? - 1).to_string();
+        let resp = client
+            .get(uri)
+            .query(&[
+                ("token", get_token()?),
+                ("after_id", prev_msg_id),
+                ("limit", "1".to_owned()),
+            ])
+            .send()
+            .await?
+            .error_for_status()?
+            .text()
+            .await?;
+
+        tracing::debug!(?resp);
+        let body: JsonValue = serde_json::from_str(&resp)?;
+        let id = match &body["response"]["messages"][0]["id"] {
+            JsonValue::String(s) => s.to_owned(),
+            _ => bail!("Failed to parse id from resp: {body:#?}"),
+        };
+        if msg_id != &id {
+            bail!("Got the wrong message?? msg_id={msg_id}, found={id}");
+        }
+        let user_strs: Vec<String> =
+            serde_json::from_value(body["response"]["messages"][0]["favorited_by"].clone())?;
+        let mut users = Vec::new();
+        for user in user_strs {
+            users.push(user.parse()?);
+        }
+        Ok(users)
+    }
+
+    #[tracing::instrument(skip(client))]
+    pub async fn like_message(client: &Client, conv_id: &str, msg_id: &MessageId) -> Result<()> {
+        let uri = format!("{BASE_API_URI}/messages/{conv_id}/{msg_id}/like");
+        let resp = client
+            .post(uri)
+            .query(&[("token", get_token()?)])
+            .send()
+            .await?
+            .error_for_status()?;
+        tracing::debug!(?resp);
+        Ok(())
+    }
+}
+
 /*
 TODO:
-- Use API to add a user to a group, with a name
-- Make basic lobby functions (in a more generic file than here)
+- API calls to make things happen
+- Make Game a server? So we can hot swap the controller and that server?
+
+
+Api abilities we need:
+- Send a message
+- add/remove users
+- like a message
+
+Notes:
+The groupme adapter needs to know certain thing to route requests:
+- Which game to route a DM to?
+- How to interpret a target command's number
+
+We will cache these things for the groupme server.
+When Start runs.
+- Grab the players who will play
+
+*/
+
+/* API create message response
+{
+    "meta":{"code":201},
+    "response":{
+        "message":{
+            "id":"173708255356428677",
+            "source_guid":"02585275-dc51-4339-bbcc-dd6f4fd93b12",
+            "created_at":1737082553,
+            "user_id":"43040067",
+            "group_id":"105362524",
+            "name":"MODERATOR",
+            "avatar_url":"https://i.groupme.com/1920x1080.jpeg.247b8c490afd429f88e239a4914a436d",
+            "text":"Testing From API!",
+            "system":false,
+            "attachments":[],
+            "favorited_by":[],
+            "sender_type":"user",
+            "sender_id":"43040067"
+        }
+    }
+}
+
 */
 
 /*
