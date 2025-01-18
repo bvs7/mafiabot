@@ -165,21 +165,24 @@ impl From<bool> for CountKey {
     }
 }
 
+// We probably need two generics for start roles and known roles here?
+// Maybe even a third for reveal on death...
+// Alternatively, have one Rules trait of some sort with associated types!
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Event {
     Start {
         id: u64,
         players: Vec<(u64, Role)>,
         rules: Rules,
-        counts: HashMap<CountKey, usize>,
+        counts: HashMap<Team, usize>, // TODO: make Team generic?
     },
     Day {
         day: u32,
-        counts: HashMap<CountKey, usize>, // Use to get thresholds
+        counts: HashMap<Team, usize>, // TODO: make Team generic
     },
     Night {
         day: u32,
-        counts: HashMap<CountKey, usize>,
+        counts: HashMap<Team, usize>, // TODO: make Team generic
     },
     Vote {
         voter: u64,

@@ -231,52 +231,6 @@ mod tests {
         state::{phase::Phase, players::Players, role::Role, rules::Rules, Choice},
     };
 
-    struct Game {
-        state: Arc<RwLock<State>>, // Arc for access via different places
-
-        action_tx: ActionTx,             // Allow cloning
-        action_rx: Arc<Mutex<ActionRx>>, // Option so we can take it
-        event_tx: EventTx,               // Allow subscribing
-    }
-
-    impl Game {
-        // How can state be created without roles? Should rolegen be rolled in?
-        pub fn new(users: Vec<u64>, rules: Rules) -> Self {
-            todo!()
-        }
-
-        pub fn new_with_roles(users: Vec<u64>, roles: Vec<u64>, rules: Rules) -> Self {
-            todo!()
-        }
-
-        pub fn load(state: State) -> Self {
-            todo!()
-        }
-
-        pub fn action_tx(&self) -> ActionTx {
-            self.action_tx.clone()
-        }
-        pub fn event_rx(&self) -> EventRx {
-            self.event_tx.subscribe()
-        }
-
-        pub fn start(&self) -> Result<JoinHandle<()>, TryLockError> {
-            let rx = self.action_rx.clone().try_lock_owned()?;
-            let state = self.state.clone();
-            let h = tokio::spawn(async move {
-                let mut rx = rx;
-                State::action_handler(state, &mut rx).await
-            });
-            Ok(h)
-        }
-
-        pub async fn run(&self) -> Result<(), TryLockError> {
-            let mut rx = self.action_rx.clone().try_lock_owned()?;
-            State::action_handler(self.state.clone(), &mut rx).await;
-            Ok(())
-        }
-    }
-
     struct State {
         id: u64,
         day: u32,

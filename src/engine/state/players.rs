@@ -2,9 +2,6 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::engine::interface::Election;
-
-use super::phase::PhaseKind;
 use super::role::Role;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -59,29 +56,25 @@ pub struct Context {
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct Players(HashMap<u64, PlayerLog>);
 
-impl<'a, T> From<T> for Players
-where
-    T: IntoIterator<Item = &'a (u64, Role)>,
-{
-    fn from(value: T) -> Self {
-        Self(
-            value
-                .into_iter()
-                .map(|(p, r)| (*p, PlayerLog::from_start_role(r)))
-                .collect(),
-        )
-    }
-}
-
 // What operations do we want to perform?
 // Act like this is a hashmap to a roles, but store updates in log.
 // Get
 
 impl Players {
-    pub fn alive(&self) -> impl Iterator<Item = (&u64, &Role)> {
+    pub fn from_registry<'a>(registry: impl IntoIterator<Item = &'a (u64, Role)>) -> Self {
+        Self(
+            registry
+                .into_iter()
+                .map(|(p, r)| (*p, PlayerLog::from_start_role(r)))
+                .collect(),
+        )
+    }
+
+    pub fn alive(&self) -> Vec<(u64, Role)> {
         self.0
             .iter()
-            .filter_map(|(pid, plog)| Some((pid, plog.as_role()?)))
+            .filter_map(|(pid, plog)| Some((*pid, *plog.as_role()?)))
+            .collect()
     }
     pub fn get(&self, pid: &u64) -> Option<&Role> {
         self.0.get(pid)?.as_role()
