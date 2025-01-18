@@ -234,11 +234,9 @@ mod tests {
     struct Game {
         state: Arc<RwLock<State>>,
 
-        action_tx: ActionTx,             // Allow cloning
-        action_rx: Arc<Mutex<ActionRx>>, // Option so we can take it
-        event_tx: EventTx,               // Allow subscribing
-
-                                         // Timers... could be in state?
+        action_tx: ActionTx,                     // Allow cloning
+        action_rx: Arc<Mutex<Option<ActionRx>>>, // Option so we can take it
+        event_tx: EventTx,                       // Allow subscribing
     }
 
     impl Game {
@@ -262,17 +260,35 @@ mod tests {
             self.event_tx.subscribe()
         }
 
-        // If this returns a result, make sure it returns self as well?
-        // Consumes self and returns an Arc<Self>, meaning no more &mut calls...
-        pub fn start(self) {
-            // Start action handler?
-            todo!()
+        pub fn start(&self) -> Result<JoinHandle<()>, ()> {
+            if let Some(mut action_rx) = self.try_take_rx() {
+                let rx_holder = self.action_rx.clone();
+                let state = self.state.clone();
+                Ok(tokio::spawn(async move {
+                    State::action_handler(state, &mut action_rx).await;
+                    rx_holder.lock().await.replace(action_rx);
+                }))
+            } else {
+                Err(())
+            }
         }
 
-        pub async fn run(self) -> Result<(), TryLockError> {
-            let action_rx = self.action_rx.try_lock_owned()?;
-            State::action_handler(self.state, action_rx).await;
-            Ok(())
+        pub async fn run(&self) -> Result<(), ()> {
+            if let Some(mut action_rx) = self.try_take_rx() {
+                State::action_handler(self.state.clone(), &mut action_rx).await;
+                self.action_rx.lock().await.replace(action_rx);
+                Ok(())
+            } else {
+                Err(())
+            }
+        }
+
+        fn try_take_rx(&self) -> Option<ActionRx> {
+            if let Ok(mut opt) = self.action_rx.try_lock() {
+                opt.take()
+            } else {
+                None
+            }
         }
     }
 
@@ -283,7 +299,7 @@ mod tests {
         players: Players,
         rules: Rules,
         tx: EventTx,
-        grace_period_timer: Option<JoinHandle<()>>,
+        undo_timer: Option<JoinHandle<()>>,
     }
 
     impl State {
@@ -296,10 +312,7 @@ mod tests {
             todo!()
         }
 
-        pub async fn action_handler(
-            this: Arc<RwLock<Self>>,
-            mut action_rx: OwnedMutexGuard<ActionRx>,
-        ) {
+        pub async fn action_handler(this: Arc<RwLock<Self>>, action_rx: &mut ActionRx) {
             while let Some((action, resp)) = action_rx.recv().await {
                 Self::handle_action(&this, action, resp);
             }
@@ -339,7 +352,6 @@ mod tests {
                         ActionResult::None
                     }
                 }
-
                 Action::Target { actor, choice } => {
                     // ...
                     let night_done = true;
@@ -365,13 +377,13 @@ mod tests {
             match result {
                 ActionResult::Election { choice, hammer } => {
                     let h = tokio::spawn(Self::election_timer(this.clone(), choice, hammer));
-                    if let Some(old_h) = wstate.grace_period_timer.replace(h) {
+                    if let Some(old_h) = wstate.undo_timer.replace(h) {
                         old_h.abort();
                     }
                 }
                 ActionResult::Dawn => {
                     let h = tokio::spawn(Self::dawn_timer(this.clone()));
-                    if let Some(old_h) = wstate.grace_period_timer.replace(h) {
+                    if let Some(old_h) = wstate.undo_timer.replace(h) {
                         old_h.abort();
                     }
                 }
@@ -402,14 +414,14 @@ mod tests {
             if let Some(users) = wstate.check_election(choice).unwrap() {
                 wstate.election(choice, hammer, users).unwrap();
             }
-            wstate.grace_period_timer = None;
+            wstate.undo_timer = None;
         }
         async fn dawn_timer(this: Arc<RwLock<Self>>) {
             tokio::time::sleep(Duration::from_secs(10)).await;
             let mut wstate = this.write().await;
             // TODO: Error tracing
             wstate.dawn().unwrap();
-            wstate.grace_period_timer = None;
+            wstate.undo_timer = None;
         }
 
         // Why does state need a mutex? Because status, action handler, and timers might contest
@@ -430,12 +442,15 @@ mod tests {
         let users = vec![];
         let rules = Rules {};
         // let roles = vec![];
-        let game: Game = Game::new(users, rules); // Roles are generated... at start
-                                                  // let game: Game = Game::new_with_roles(users, roles, rules);
+        let mut game: Game = Game::new(users, rules); // Roles are generated... at start
+                                                      // let game: Game = Game::new_with_roles(users, roles, rules);
 
         // let game: Game = Game::load(state); // require details of chats, etc to resume?
 
         // let game
         // Should there be some kind of "resume" functionality? Can we assume from_state can handle that?
+
+        // Start the game.
+        game.start().expect("Nobody has started this yet");
     }
 }
