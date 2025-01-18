@@ -232,11 +232,11 @@ mod tests {
     };
 
     struct Game {
-        state: Arc<RwLock<State>>,
+        state: Arc<RwLock<State>>, // Arc for access via different places
 
-        action_tx: ActionTx,                     // Allow cloning
-        action_rx: Arc<Mutex<Option<ActionRx>>>, // Option so we can take it
-        event_tx: EventTx,                       // Allow subscribing
+        action_tx: ActionTx,             // Allow cloning
+        action_rx: Arc<Mutex<ActionRx>>, // Option so we can take it
+        event_tx: EventTx,               // Allow subscribing
     }
 
     impl Game {
@@ -260,35 +260,20 @@ mod tests {
             self.event_tx.subscribe()
         }
 
-        pub fn start(&self) -> Result<JoinHandle<()>, ()> {
-            if let Some(mut action_rx) = self.try_take_rx() {
-                let rx_holder = self.action_rx.clone();
-                let state = self.state.clone();
-                Ok(tokio::spawn(async move {
-                    State::action_handler(state, &mut action_rx).await;
-                    rx_holder.lock().await.replace(action_rx);
-                }))
-            } else {
-                Err(())
-            }
+        pub fn start(&self) -> Result<JoinHandle<()>, TryLockError> {
+            let rx = self.action_rx.clone().try_lock_owned()?;
+            let state = self.state.clone();
+            let h = tokio::spawn(async move {
+                let mut rx = rx;
+                State::action_handler(state, &mut rx).await
+            });
+            Ok(h)
         }
 
-        pub async fn run(&self) -> Result<(), ()> {
-            if let Some(mut action_rx) = self.try_take_rx() {
-                State::action_handler(self.state.clone(), &mut action_rx).await;
-                self.action_rx.lock().await.replace(action_rx);
-                Ok(())
-            } else {
-                Err(())
-            }
-        }
-
-        fn try_take_rx(&self) -> Option<ActionRx> {
-            if let Ok(mut opt) = self.action_rx.try_lock() {
-                opt.take()
-            } else {
-                None
-            }
+        pub async fn run(&self) -> Result<(), TryLockError> {
+            let mut rx = self.action_rx.clone().try_lock_owned()?;
+            State::action_handler(self.state.clone(), &mut rx).await;
+            Ok(())
         }
     }
 
