@@ -59,7 +59,7 @@ impl Context {
     }
 }
 
-#[derive(Debug, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Players(HashMap<PlayerId, PlayerLog>);
 
 // What operations do we want to perform?

@@ -181,7 +181,8 @@ pub enum Event {
     Debug,
 }
 
-pub type ActionMsg = (Action, oneshot::Sender<Result<(), Error>>);
+pub type ActionResponder = oneshot::Sender<Result<(), Error>>;
+pub type ActionMsg = (Action, ActionResponder);
 pub type ActionRx = mpsc::Receiver<ActionMsg>;
 pub type ActionTx = mpsc::Sender<ActionMsg>;
 pub type EventRx = broadcast::Receiver<Event>;
