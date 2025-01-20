@@ -106,23 +106,12 @@ impl State {
         let mut wstate = this.write().await;
         let result = match action {
             Action::Start => wstate.start(),
-            Action::Vote { voter, ballot } => {
-                // If err, send to resp... otherwise wait?
-                wstate.vote(voter, ballot, this)
-            }
-            Action::Reveal { actor } => {
-                todo!()
-            }
-            Action::Target { actor, choice } => {
-                todo!()
-            }
-            Action::Scheme { killer, mark } => {
-                todo!()
-            }
+            Action::Vote { voter, ballot } => wstate.vote(voter, ballot, this),
+            Action::Reveal { actor } => wstate.reveal(actor),
+            Action::Target { actor, choice } => wstate.target(actor, choice, this),
+            Action::Scheme { killer, mark } => wstate.scheme(killer, mark, this),
         };
         let _ = resp.send(result);
-
-        todo!()
     }
 
     pub fn start(&mut self) -> Result<(), Error> {
@@ -136,7 +125,7 @@ impl State {
             id: self.id,
             players: self.players.alive(),
             rules: self.rules.clone(),
-            counts: self.counts(Team::from),
+            counts: self.counts(Team::from), // Use rules for this
         });
         if self.players.alive().len() % 2 == 1 {
             self.to_day(HashMap::new());
@@ -165,7 +154,7 @@ impl State {
             ballot: ballot.clone(),
             former: former.clone(),
         });
-        // Check for an election
+
         self.check_election(voter, this);
         Ok(())
     }
@@ -193,6 +182,7 @@ impl State {
     }
 
     fn target(
+        // TODO: Stripper must pick one of target/scheme
         &mut self,
         actor: u64,
         choice: RawChoice,
@@ -206,6 +196,7 @@ impl State {
     }
 
     fn scheme(
+        // TODO: Stripper must pick one of target/scheme
         &mut self,
         killer: u64,
         mark: RawChoice,
@@ -218,7 +209,6 @@ impl State {
         todo!()
     }
 
-    // Check if
     fn check_election(&mut self, hammer: PlayerId, this: &Arc<RwLock<Self>>) {
         let Ok(vote_list) = self.phase.vote_list() else {
             return;
@@ -283,7 +273,7 @@ impl State {
             voters: voters.clone(),
         });
         if let Some(pid) = choice {
-            // TODO: Check if IDIOT
+            // TODO: Check if IDIOT (And add eclipse phase?)
             self.eliminate(pid, hammer, Context::new(self.day, Cause::Election));
         }
     }

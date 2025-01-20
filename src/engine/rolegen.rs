@@ -60,6 +60,8 @@ fn get_v(n_: usize, rng: &mut ThreadRng) -> f64 {
     return v;
 }
 
+// TODO: implement rolegen
+
 /*
 First, get v, which is the floating point number of mafia.
 Get P value from n and v (0% to 100%). This is the "difficulty" for town of the game
@@ -237,7 +239,7 @@ mod test {
             for key in keys {
                 let m = *key;
                 let p = p(n, m);
-                let P = p_100(n, m);
+                let p_100 = p_100(n, m);
                 let e = map[key] as f64 / tot as f64;
                 println!(
                     "{}-{}: {:.2}%, p = {:.4},(P = {:.4})",
@@ -245,7 +247,7 @@ mod test {
                     key,
                     e * 100.0,
                     p,
-                    P
+                    p_100
                 );
                 expected_p += p * e
             }
@@ -260,8 +262,8 @@ mod test {
 
         for _ in 0..10 {
             let v = get_v(n, &mut rng);
-            let P = p100_from_v(n, v);
-            println!("{}-{:.3}, {:.3}", n, v, P);
+            let p = p100_from_v(n, v);
+            println!("{}-{:.3}, {:.3}", n, v, p);
         }
     }
 }

@@ -70,6 +70,7 @@ impl Phase {
         Ok(map)
     }
 
+    // TODO: Stripper must pick one of target/scheme
     pub fn target(&mut self, actor: PlayerId, choice: Choice) -> Result<Option<Choice>, Error> {
         let Self::Night { targets, .. } = self else {
             return self.expected(PhaseKind::Night);
@@ -77,6 +78,7 @@ impl Phase {
         Ok(targets.insert(actor, choice))
     }
 
+    // TODO: Stripper must pick one of target/scheme
     pub fn scheme(
         &mut self,
         killer: PlayerId,
