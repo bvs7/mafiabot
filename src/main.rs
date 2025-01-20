@@ -1,3 +1,8 @@
+#![allow(unused_imports)]
+#![allow(unused_variables)]
+#![allow(dead_code)]
+#![allow(unreachable_code)]
+
 #[macro_use]
 extern crate enum_kinds;
 

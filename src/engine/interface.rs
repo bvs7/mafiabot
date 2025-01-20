@@ -1,11 +1,14 @@
 use std::collections::HashMap;
 
-use super::state::{
-    phase::PhaseKind,
-    players::Context,
-    role::{Role, RoleKind, Team},
-    rules::Rules,
-    Choice,
+use super::{
+    state::{
+        phase::PhaseKind,
+        players::Context,
+        role::{Role, RoleKind, Team},
+        rules::Rules,
+        Choice,
+    },
+    GameId, PlayerId,
 };
 use serde::{Deserialize, Serialize};
 use tokio::sync::{broadcast, mpsc, oneshot};
@@ -16,10 +19,10 @@ pub enum Error {
         expected: PhaseKind,
         actual: PhaseKind,
     },
-    InvalidActor {
+    InvalidPlayer {
         pid: u64,
     },
-    InvalidOther {
+    DeadPlayer {
         pid: u64,
     },
     ExpectedTargetingRole {
@@ -40,8 +43,8 @@ impl std::fmt::Display for Error {
             Error::InvalidPhase { expected, actual } => {
                 write!(f, "Invalid Phase. Expected {expected} but got {actual}")
             }
-            Error::InvalidActor { pid } => write!(f, "Invalid actor player id: {pid}"),
-            Error::InvalidOther { pid } => write!(f, "Invalid other player id: {pid}"),
+            Error::InvalidPlayer { pid } => write!(f, "Invalid player id: {pid}"),
+            Error::DeadPlayer { pid } => write!(f, "Player is dead: {pid}"),
             Error::ExpectedTargetingRole { actual } => {
                 write!(f, "Expected targing role, got {actual}")
             }
@@ -109,70 +112,14 @@ impl Action {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Vote {
-    pub voter: u64,
-    pub ballot: Option<(Choice, usize)>,
-    pub former: Option<(Choice, usize)>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Election {
-    pub choice: Option<u64>,
-    pub hammer: u64,
-    pub voters: Vec<u64>,
-}
-
-#[derive(Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize, EnumKind)]
-#[enum_kind(CountKeyKind)]
-pub enum CountKey {
-    Role(RoleKind),
-    Team(Team),
-    IsMafia(bool),
-    Players,
-}
-
-impl std::fmt::Display for CountKey {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            CountKey::Role(rk) => write!(f, "{}", rk),
-            CountKey::Team(t) => write!(f, "{}", t),
-            CountKey::IsMafia(m) => {
-                if *m {
-                    write!(f, "Mafia Aligned")
-                } else {
-                    write!(f, "Not Mafia Aligned")
-                }
-            }
-            CountKey::Players => write!(f, "Players"),
-        }
-    }
-}
-
-impl From<RoleKind> for CountKey {
-    fn from(kind: RoleKind) -> Self {
-        CountKey::Role(kind)
-    }
-}
-impl From<Team> for CountKey {
-    fn from(team: Team) -> Self {
-        CountKey::Team(team)
-    }
-}
-impl From<bool> for CountKey {
-    fn from(is_mafia: bool) -> Self {
-        CountKey::IsMafia(is_mafia)
-    }
-}
-
 // We probably need two generics for start roles and known roles here?
 // Maybe even a third for reveal on death...
 // Alternatively, have one Rules trait of some sort with associated types!
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Event {
     Start {
-        id: u64,
-        players: Vec<(u64, Role)>,
+        id: GameId,
+        players: Vec<(PlayerId, Role)>,
         rules: Rules,
         counts: HashMap<Team, usize>, // TODO: make Team generic?
     },
@@ -185,35 +132,48 @@ pub enum Event {
         counts: HashMap<Team, usize>, // TODO: make Team generic
     },
     Vote {
-        voter: u64,
-        ballot: Option<(Option<u64>, usize)>,
-        former: Option<(Option<u64>, usize)>,
+        voter: PlayerId,
+        ballot: Option<(Choice, usize)>,
+        former: Option<(Choice, usize)>,
     },
     Reveal {
-        celeb: u64,
+        celeb: PlayerId,
     },
     Election {
-        choice: Option<u64>,
-        hammer: u64,
-        voters: Vec<u64>,
+        choice: Choice,
+        hammer: PlayerId,
+        voters: Vec<PlayerId>,
     },
     Dawn, // Potentially note those who failed to do night actions
     Eliminate {
-        player: u64,
+        player: PlayerId,
         role: RoleKind,
         context: Context,
     },
     Target {
-        actor: u64,
+        actor: PlayerId,
         choice: Choice,
     },
     Scheme {
-        killer: u64,
+        killer: PlayerId,
         mark: Choice,
     },
     Block {
-        blocked: u64,
-        blockers: Vec<u64>,
+        blocked: PlayerId,
+        blockers: Vec<PlayerId>,
+    },
+    Save {
+        saved: PlayerId,
+        saviors: Vec<PlayerId>,
+    },
+    Kill {
+        killer: PlayerId,
+        mark: PlayerId,
+    },
+    Investigate {
+        cop: PlayerId,
+        target: PlayerId,
+        appears_mafia: bool,
     },
     End {
         winner: Team,

@@ -1,15 +1,13 @@
-// Sigmoid fn to gen number of mafia
-
 use rand::{self, distributions::Open01, rngs::ThreadRng, thread_rng, Rng};
 use tracing::debug;
 
-const min_p: f64 = 0.2;
-const max_p: f64 = 0.5;
+const MIN_P: f64 = 0.2;
+const MAX_P: f64 = 0.5;
 
-const target_p: f64 = 0.35;
+const TARGET_P: f64 = 0.35;
 
 fn geo_p() -> f64 {
-    (min_p * max_p).sqrt()
+    (MIN_P * MAX_P).sqrt()
 }
 
 fn p_from_v(n_: usize, v: f64) -> f64 {
@@ -17,9 +15,9 @@ fn p_from_v(n_: usize, v: f64) -> f64 {
     return 2.0 * v / (n + 1.0);
 }
 
-fn P_from_v(n_: usize, v: f64) -> f64 {
+fn p100_from_v(n_: usize, v: f64) -> f64 {
     let p = p_from_v(n_, v);
-    return (p - min_p) / (max_p - min_p);
+    return (p - MIN_P) / (MAX_P - MIN_P);
 }
 
 fn p(n_: usize, m_: usize) -> f64 {
@@ -29,33 +27,33 @@ fn p(n_: usize, m_: usize) -> f64 {
 }
 
 // Assume valid p range is 0.2 to 0.5
-fn P(n_: usize, m_: usize) -> f64 {
+fn p_100(n_: usize, m_: usize) -> f64 {
     let p = p(n_, m_);
-    return (p - min_p) / (max_p - min_p);
+    return (p - MIN_P) / (MAX_P - MIN_P);
 }
 
-fn get_n_maf(n_: usize, mut rng: &mut ThreadRng) -> usize {
+fn get_n_maf(n_: usize, rng: &mut ThreadRng) -> usize {
     let v = get_v(n_, rng);
     let mut m = v.round() as usize;
     if m == 0 {
         m = 1;
     }
     for _ in 0..5 {
-        if p(n_, m) > max_p {
+        if p(n_, m) > MAX_P {
             m -= 1;
         }
     }
     for _ in 0..5 {
-        if p(n_, m) < min_p {
+        if p(n_, m) < MIN_P {
             m += 1;
         }
     }
     return m;
 }
 
-fn get_v(n_: usize, mut rng: &mut ThreadRng) -> f64 {
+fn get_v(n_: usize, rng: &mut ThreadRng) -> f64 {
     let n = n_ as f64;
-    let x_0 = target_p / 2.0 * (n + 1.0);
+    let x_0 = TARGET_P / 2.0 * (n + 1.0);
     let k = 10.0 / x_0;
     let x: f64 = rng.sample(Open01);
     let v = -f64::ln(1.0 / x - 1.0) / k + x_0;
@@ -239,7 +237,7 @@ mod test {
             for key in keys {
                 let m = *key;
                 let p = p(n, m);
-                let P = P(n, m);
+                let P = p_100(n, m);
                 let e = map[key] as f64 / tot as f64;
                 println!(
                     "{}-{}: {:.2}%, p = {:.4},(P = {:.4})",
@@ -262,7 +260,7 @@ mod test {
 
         for _ in 0..10 {
             let v = get_v(n, &mut rng);
-            let P = P_from_v(n, v);
+            let P = p100_from_v(n, v);
             println!("{}-{:.3}, {:.3}", n, v, P);
         }
     }

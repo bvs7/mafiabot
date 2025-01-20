@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use super::PlayerId;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, EnumKind, Serialize, Deserialize)]
 #[enum_kind(RoleKind, derive(Hash, Serialize, Deserialize))]
 pub enum Role {
@@ -44,6 +46,13 @@ impl Role {
     }
     pub fn kind(&self) -> RoleKind {
         RoleKind::from(self)
+    }
+    pub fn appears_mafia(&self) -> bool {
+        match self {
+            Role::GODFATHER => false,
+            Role::MILLER => true,
+            _ => self.team() == Team::Mafia,
+        }
     }
 }
 
@@ -165,6 +174,123 @@ impl Team {
                 "The Rogue Aligned players have no Team allegiances. Their goals vary and \
                 their win conditions are separate from the contest between Town and Mafia"
             }
+        }
+    }
+}
+
+pub mod night_action {
+    use std::collections::HashMap;
+
+    use crate::engine::{Event, State};
+
+    use super::*;
+    /// Night Acts and their priorities
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+    pub enum NightAct {
+        Block = 2,
+        Save = 1,
+        Kill = 0,
+        Investigate = -1,
+    }
+
+    #[derive(Debug, Clone, Copy, Eq)]
+    pub struct NightAction {
+        pub act: NightAct,
+        pub actor: PlayerId,
+        pub target: PlayerId,
+    }
+
+    impl PartialEq for NightAction {
+        fn eq(&self, other: &Self) -> bool {
+            self.act == other.act
+        }
+    }
+
+    impl PartialOrd for NightAction {
+        fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+            self.act.partial_cmp(&other.act)
+        }
+    }
+
+    impl Ord for NightAction {
+        fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+            self.act.cmp(&other.act)
+        }
+    }
+
+    impl NightAction {
+        // Assume role is a targeting role...
+        pub fn from_target(role: Role, actor: PlayerId, target: PlayerId) -> Self {
+            let act = match role {
+                Role::STRIPPER => NightAct::Block,
+                Role::DOCTOR => NightAct::Save,
+                Role::COP => NightAct::Investigate,
+                _ => panic!("Expected a targeting role"),
+            };
+            Self { act, actor, target }
+        }
+    }
+
+    #[derive(Debug, Clone, Default)]
+    pub struct DawnState {
+        pub blocks: HashMap<PlayerId, Vec<PlayerId>>, // blocked -> blockers
+        pub saves: HashMap<PlayerId, Vec<PlayerId>>,  // saved -> saviors
+        pub kills: HashMap<PlayerId, PlayerId>,       // killed -> killer
+    }
+
+    impl DawnState {
+        pub fn fold(mut self, n: NightAction, state: &State) -> Self {
+            match n.act {
+                NightAct::Block => {
+                    self.blocks.entry(n.target).or_default().push(n.actor);
+                }
+                NightAct::Save => {
+                    self.saves.entry(n.target).or_default().push(n.actor);
+                }
+                NightAct::Kill => {
+                    let mut unblocked_saviors = vec![];
+                    if let Some(saviors) = self.saves.get(&n.target) {
+                        // Check if every savior is blocked...
+                        // Only send block messages if outcome changes?
+                        for savior in saviors {
+                            if let Some(blockers) = self.blocks.get(savior) {
+                                state.tx(Event::Block {
+                                    blocked: *savior,
+                                    blockers: blockers.clone(),
+                                });
+                            } else {
+                                unblocked_saviors.insert(0, *savior);
+                            }
+                        }
+                    }
+                    if !unblocked_saviors.is_empty() {
+                        // Save!
+                        state.tx(Event::Save {
+                            saved: n.target,
+                            saviors: unblocked_saviors,
+                        });
+                    } else {
+                        self.kills.insert(n.target, n.actor);
+                    }
+                }
+                NightAct::Investigate => {
+                    if !self.kills.contains_key(&n.actor) && !self.kills.contains_key(&n.target) {
+                        if let Some(blockers) = self.blocks.get(&n.actor) {
+                            state.tx(Event::Block {
+                                blocked: n.actor,
+                                blockers: blockers.clone(),
+                            });
+                        } else {
+                            state.tx(Event::Investigate {
+                                cop: n.actor,
+                                target: n.target,
+                                appears_mafia: state.players.get(n.target).appears_mafia(),
+                            })
+                        }
+                    }
+                }
+            }
+            self
         }
     }
 }
