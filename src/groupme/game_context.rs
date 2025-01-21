@@ -1,28 +1,30 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
+use axum::Json;
 use reqwest::Client;
+use serde_json::Value as JsonValue;
 
 use crate::engine::{
-    interface::Event,
+    interface::{Action, Event},
     state::{
+        id::{Gid, Pid},
         role::{Role, Team},
         rules::Rules,
-        GameId, PlayerId,
     },
     Game,
 };
 
-use super::api;
+use super::{api, util::json_access};
 
 /// The wrapper that holds a game and the relevant context needed for it
 
 struct GameContext {
     game: Game,
-    game_id: GameId,
+    game_id: Gid,
     main_chat_id: String,
     mafia_chat_id: String,
-    names: HashMap<PlayerId, String>,
-    registry: Vec<(PlayerId, Role)>, // For sending options to users
+    names: HashMap<Pid, String>,
+    registry: Vec<(Pid, Role)>, // For sending options to users
 }
 
 impl GameContext {
@@ -39,23 +41,31 @@ impl GameContext {
         let roles: Vec<Role> = todo!();
         let registry = users.iter().copied().zip(roles).collect();
         let game = Game::new(registry, rules);
-        let game_id = game.game_id().await;
+        let game_id = todo!(); //game.game_id().await;
 
         // Add members to main chat
         let client = Client::new();
         // Get names
-        let mut names = HashMap::new();
-        // TODO: Update names!!
-        api::add_members(&client, &main_chat_id, users)
+        let mut members = Vec::new();
+        let group = api::get_group(&client, &super::LOBBY_CHAT_ID)
             .await
             .unwrap();
-        // Add members to mafia chat
-        let mafia: Vec<_> = registry
+        let seen_members: Vec<JsonValue> = json_access(&group, "response.members").unwrap();
+        for member in seen_members {
+            let user_id: u64 = json_access(&member, "user_id").unwrap();
+            let nickname: String = json_access(&member, "nickname").unwrap();
+            members.push((nickname, user_id));
+        }
+        api::add_members(&client, &main_chat_id, members.clone())
+            .await
+            .unwrap();
+        let mafia: HashSet<_> = registry
             .iter()
             .filter(|(_, role)| role.team() == Team::Mafia)
             .map(|(pid, _)| *pid)
             .collect();
-        api::add_members(&client, &mafia_chat_id, mafia)
+        members.retain(|(_, id)| mafia.contains(id));
+        api::add_members(&client, &mafia_chat_id, members)
             .await
             .unwrap();
         Self {
@@ -64,26 +74,37 @@ impl GameContext {
             main_chat_id,
             mafia_chat_id,
             names: HashMap::new(),
-            registry,
+            registry: registry.into_iter().map(|(p, r)| (p.into(), r)).collect(),
         };
     }
 
-    fn name_of(&self, pid: &PlayerId) -> String {
+    pub async fn start(self) {
+        self.game.start_action_handler().unwrap();
+        let (resp_tx, resp_rx) = tokio::sync::oneshot::channel();
+        self.game
+            .action_tx()
+            .send((Action::Start, resp_tx))
+            .await
+            .unwrap();
+        tokio::spawn(self.event_handler());
+    }
+
+    fn name_of(&self, pid: &Pid) -> String {
         let unknown = "_".to_string();
         self.names.get(pid).unwrap_or(&unknown).clone()
     }
 
-    async fn event_handler(&mut self) {
+    async fn event_handler(mut self) {
         let client = Client::new();
         let mut event_rx = self.game.event_rx().await;
         while let Ok(event) = event_rx.recv().await {
-            let ctx = &mut *self;
+            let ctx = &mut self;
             match event {
                 Event::Start {
-                    id,
+                    // id,
                     players,
                     rules,
-                    counts,
+                    // counts,
                 } => {
                     ctx.registry = players.clone();
                     // TODO: Update names
@@ -91,7 +112,7 @@ impl GameContext {
                     for (pid, role) in players.iter() {
                         let msg = format!(
                             "Game: {}\nRole: {}\n(Team: {})",
-                            u64::from(id),
+                            ctx.game_id,
                             role.kind(),
                             role.team()
                         );
@@ -99,22 +120,22 @@ impl GameContext {
                     }
                     // Send start message
                     let mut msg = String::new();
-                    msg.push_str(&format!("Game #{} starting!", u64::from(id)));
+                    msg.push_str(&format!("Game #{} starting!", ctx.game_id));
                     msg.push_str(&format!("\n{} Players:", players.len()));
                     for (pid, _) in &ctx.registry {
                         let name = ctx.name_of(pid);
                         msg.push_str(&format!("\n  {}", name));
                     }
-                    let mut counts_str = String::from("\nTeams:");
-                    if let Some(town) = counts.get(&Team::Town) {
-                        counts_str.push_str(&format!("\n  Town: {}", town));
-                    }
-                    if let Some(mafia) = counts.get(&Team::Mafia) {
-                        counts_str.push_str(&format!("\n  Mafia: {}", mafia));
-                    }
-                    if let Some(rogue) = counts.get(&Team::Rogue) {
-                        counts_str.push_str(&format!("\n  Rogue: {}", rogue));
-                    }
+                    // let mut counts_str = String::from("\nTeams:");
+                    // if let Some(town) = counts.get(&Team::Town) {
+                    //     counts_str.push_str(&format!("\n  Town: {}", town));
+                    // }
+                    // if let Some(mafia) = counts.get(&Team::Mafia) {
+                    //     counts_str.push_str(&format!("\n  Mafia: {}", mafia));
+                    // }
+                    // if let Some(rogue) = counts.get(&Team::Rogue) {
+                    //     counts_str.push_str(&format!("\n  Rogue: {}", rogue));
+                    // }
                     api::send_group_message(&client, &ctx.main_chat_id, &msg)
                         .await
                         .unwrap();

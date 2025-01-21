@@ -5,6 +5,8 @@ pub mod interface;
 pub mod rolegen;
 pub mod state;
 
+mod sync_state;
+
 use interface::*;
 use rolegen::*;
 use state::*;
@@ -38,10 +40,10 @@ impl Game {
         }
     }
 
-    pub async fn game_id(&self) -> GameId {
-        let rstate = self.state.read().await;
-        rstate.game_id()
-    }
+    // pub async fn game_id(&self) -> GameId {
+    //     let rstate = self.state.read().await;
+    //     rstate.game_id()
+    // }
 
     pub fn action_tx(&self) -> ActionTx {
         self.action_tx.clone()

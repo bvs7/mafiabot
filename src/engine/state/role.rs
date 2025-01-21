@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use super::PlayerId;
+use super::Pid;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, EnumKind, Serialize, Deserialize)]
 #[enum_kind(RoleKind, derive(Hash, Serialize, Deserialize))]
@@ -202,8 +202,8 @@ pub mod night_action {
     #[derive(Debug, Clone, Copy, Eq)]
     pub struct NightAction {
         pub act: NightAct,
-        pub actor: PlayerId,
-        pub target: PlayerId,
+        pub actor: Pid,
+        pub target: Pid,
     }
 
     impl PartialEq for NightAction {
@@ -226,7 +226,7 @@ pub mod night_action {
 
     impl NightAction {
         // Assume role is a targeting role...
-        pub fn from_target(role: Role, actor: PlayerId, target: PlayerId) -> Self {
+        pub fn from_target(role: Role, actor: Pid, target: Pid) -> Self {
             let act = match role {
                 Role::STRIPPER => NightAct::Block,
                 Role::DOCTOR => NightAct::Save,
@@ -239,9 +239,9 @@ pub mod night_action {
 
     #[derive(Debug, Clone, Default)]
     pub struct DawnState {
-        pub blocks: HashMap<PlayerId, Vec<PlayerId>>, // blocked -> blockers
-        pub saves: HashMap<PlayerId, Vec<PlayerId>>,  // saved -> saviors
-        pub kills: HashMap<PlayerId, PlayerId>,       // killed -> killer
+        pub blocks: HashMap<Pid, Vec<Pid>>, // blocked -> blockers
+        pub saves: HashMap<Pid, Vec<Pid>>,  // saved -> saviors
+        pub kills: HashMap<Pid, Pid>,       // killed -> killer
     }
 
     impl DawnState {

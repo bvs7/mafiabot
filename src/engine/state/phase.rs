@@ -1,16 +1,17 @@
 use super::{
     night_action::{NightAct, NightAction},
     role::Team,
-    Ballot, Choice, Error, PlayerId, Players,
+    Ballot, Choice, Error, Pid, Players,
 };
+use chrono::{DateTime, Local};
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, thread::JoinHandle};
 use tokio::task::AbortHandle;
 
-pub type Votes = HashMap<PlayerId, Option<PlayerId>>; // voter -> ballot
-pub type Blocks = HashMap<PlayerId, Vec<PlayerId>>; // blocked -> blockers
-pub type Targets = HashMap<PlayerId, Option<PlayerId>>; // actor -> target
-pub type Scheme = (PlayerId, Option<PlayerId>); // killer -> mark
+pub type Votes = HashMap<Pid, Option<Pid>>; // voter -> ballot
+pub type Blocks = HashMap<Pid, Vec<Pid>>; // blocked -> blockers
+pub type Targets = HashMap<Pid, Option<Pid>>; // actor -> target
+pub type Scheme = (Pid, Option<Pid>); // killer -> mark
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, EnumKind)]
 #[enum_kind(PhaseKind, derive(Serialize, Deserialize))]
@@ -20,14 +21,14 @@ pub enum Phase {
     Day {
         votes: Votes,
         blocks: Blocks,
-        #[serde(skip)]
-        pend_elect: Option<(Choice, AbortHandle)>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pend_elect: Option<(Choice, Pid, DateTime<Local>)>,
     },
     Night {
         targets: Targets, // actor -> target
         scheme: Option<Scheme>,
-        #[serde(skip)]
-        pend_dawn: Option<AbortHandle>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pend_dawn: Option<DateTime<Local>>,
     },
     End {
         winner: Team,
@@ -46,24 +47,25 @@ impl Phase {
         })
     }
 
-    pub fn vote(&mut self, voter: PlayerId, ballot: Ballot) -> Result<Ballot, Error> {
+    pub fn vote(&mut self, voter: Pid, ballot: Ballot) -> Result<Ballot, Error> {
         let Self::Day { votes, .. } = self else {
             return self.expected(PhaseKind::Day);
         };
-        let former = votes.get(&voter).copied();
-        if former == ballot {
+        if votes.get(&voter) == ballot.as_ref() {
             return Err(Error::IneffectiveVote);
         }
-        if let Some(choice) = ballot {
-            votes.insert(voter, choice);
-        }
+        let former = if let Some(choice) = ballot {
+            votes.insert(voter, choice)
+        } else {
+            votes.remove(&voter)
+        };
         Ok(former)
     }
-    pub fn vote_list(&self) -> Result<HashMap<Choice, Vec<PlayerId>>, Error> {
+    pub fn vote_list(&self) -> Result<HashMap<Choice, Vec<Pid>>, Error> {
         let Self::Day { votes, .. } = self else {
             return self.expected(PhaseKind::Day);
         };
-        let mut map: HashMap<_, Vec<PlayerId>> = HashMap::new();
+        let mut map: HashMap<_, Vec<Pid>> = HashMap::new();
         for (voter, choice) in votes {
             map.entry(*choice).or_default().push(*voter);
         }
@@ -71,7 +73,7 @@ impl Phase {
     }
 
     // TODO: Stripper must pick one of target/scheme
-    pub fn target(&mut self, actor: PlayerId, choice: Choice) -> Result<Option<Choice>, Error> {
+    pub fn target(&mut self, actor: Pid, choice: Choice) -> Result<Option<Choice>, Error> {
         let Self::Night { targets, .. } = self else {
             return self.expected(PhaseKind::Night);
         };
@@ -79,11 +81,7 @@ impl Phase {
     }
 
     // TODO: Stripper must pick one of target/scheme
-    pub fn scheme(
-        &mut self,
-        killer: PlayerId,
-        mark: Choice,
-    ) -> Result<Option<(PlayerId, Choice)>, Error> {
+    pub fn scheme(&mut self, killer: Pid, mark: Choice) -> Result<Option<(Pid, Choice)>, Error> {
         let Self::Night { scheme, .. } = self else {
             return self.expected(PhaseKind::Night);
         };
@@ -120,13 +118,13 @@ impl Drop for Phase {
     /// If the phase is dropped, ensure any leftover timers are aborted
     fn drop(&mut self) {
         match self {
-            Phase::Day {
-                pend_elect: Some((_, h)),
-                ..
-            }
-            | Phase::Night {
-                pend_dawn: Some(h), ..
-            } => h.abort(),
+            // Phase::Day {
+            //     pend_elect: Some((_, h)),
+            //     ..
+            // }
+            // | Phase::Night {
+            //     pend_dawn: Some(h), ..
+            // } => h.abort(),
             _ => {}
         }
     }

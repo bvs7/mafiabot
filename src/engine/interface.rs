@@ -1,14 +1,11 @@
 use std::collections::HashMap;
 
-use super::{
-    state::{
-        phase::PhaseKind,
-        players::Context,
-        role::{Role, RoleKind, Team},
-        rules::Rules,
-        Choice,
-    },
-    GameId, PlayerId,
+use super::state::{
+    id::{Choice, Gid, Pid},
+    phase::PhaseKind,
+    players::Context,
+    role::{Role, RoleKind, Team},
+    rules::Rules,
 };
 use serde::{Deserialize, Serialize};
 use tokio::sync::{broadcast, mpsc, oneshot};
@@ -118,10 +115,8 @@ impl Action {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Event {
     Start {
-        id: GameId,
-        players: Vec<(PlayerId, Role)>,
+        players: Vec<(Pid, Role)>,
         rules: Rules,
-        counts: HashMap<Team, usize>, // TODO: make Team generic?
     },
     Day {
         day: u32,
@@ -132,47 +127,47 @@ pub enum Event {
         counts: HashMap<Team, usize>, // TODO: make Team generic
     },
     Vote {
-        voter: PlayerId,
+        voter: Pid,
         ballot: Option<(Choice, usize)>,
         former: Option<(Choice, usize)>,
     },
     Reveal {
-        celeb: PlayerId,
+        celeb: Pid,
     },
     Election {
         choice: Choice,
-        hammer: PlayerId,
-        voters: Vec<PlayerId>,
+        hammer: Pid,
+        voters: Vec<Pid>,
     },
     Dawn, // Potentially note those who failed to do night actions
     Eliminate {
-        player: PlayerId,
+        player: Pid,
         role: RoleKind,
         context: Context,
     },
     Target {
-        actor: PlayerId,
+        actor: Pid,
         choice: Choice,
     },
     Scheme {
-        killer: PlayerId,
+        killer: Pid,
         mark: Choice,
     },
     Block {
-        blocked: PlayerId,
-        blockers: Vec<PlayerId>,
+        blocked: Pid,
+        blockers: Vec<Pid>,
     },
     Save {
-        saved: PlayerId,
-        saviors: Vec<PlayerId>,
+        saved: Pid,
+        saviors: Vec<Pid>,
     },
     Kill {
-        killer: PlayerId,
-        mark: PlayerId,
+        killer: Pid,
+        mark: Pid,
     },
     Investigate {
-        cop: PlayerId,
-        target: PlayerId,
+        cop: Pid,
+        target: Pid,
         appears_mafia: bool,
     },
     End {

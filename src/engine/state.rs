@@ -4,56 +4,18 @@ use std::{collections::HashMap, sync::Arc, time::Duration};
 use tokio::sync::{broadcast, oneshot, RwLock};
 use tracing::{debug, error, info, instrument, trace, warn};
 
+pub mod id;
 pub mod phase;
 pub mod players;
 pub mod role;
 pub mod rules;
 
 use super::interface::*;
+use id::*;
 use phase::*;
 use players::*;
 use role::*;
 use rules::*;
-
-#[derive(Debug, Clone, Copy, Hash, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(into = "u64", from = "u64")]
-pub struct PlayerId(u64);
-
-impl From<PlayerId> for u64 {
-    fn from(value: PlayerId) -> Self {
-        value.0
-    }
-}
-impl From<u64> for PlayerId {
-    fn from(value: u64) -> Self {
-        Self(value)
-    }
-}
-impl std::fmt::Display for PlayerId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-#[derive(Debug, Clone, Copy, Hash, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(into = "u64", from = "u64")]
-pub struct GameId(u64);
-
-impl From<GameId> for u64 {
-    fn from(value: GameId) -> Self {
-        value.0
-    }
-}
-impl From<u64> for GameId {
-    fn from(value: u64) -> Self {
-        Self(value)
-    }
-}
-
-pub type Choice = Option<PlayerId>;
-pub type RawChoice = Option<u64>;
-pub type Ballot = Option<Choice>;
-pub type RawBallot = Option<RawChoice>;
 
 fn new_event_tx() -> EventTx {
     broadcast::Sender::new(100)
@@ -66,7 +28,7 @@ fn new_event_tx() -> EventTx {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct State {
-    id: GameId,
+    id: Gid,
     day: u32,
     phase: Phase,
     players: Players,
@@ -78,7 +40,7 @@ pub struct State {
 }
 
 impl State {
-    pub fn new(id: GameId, registry: Vec<(u64, Role)>, rules: Rules) -> Self {
+    pub fn new(id: Gid, registry: Vec<(u64, Role)>, rules: Rules) -> Self {
         let event_tx = new_event_tx();
         Self {
             id,
@@ -90,7 +52,7 @@ impl State {
         }
     }
 
-    pub fn game_id(&self) -> GameId {
+    pub fn game_id(&self) -> Gid {
         self.id
     }
 
@@ -140,10 +102,10 @@ impl State {
             });
         };
         let _ = self.event_tx.send(Event::Start {
-            id: self.id,
+            // id: self.id,
             players: self.players.alive(),
             rules: self.rules.clone(),
-            counts: self.counts(Team::from), // Use rules for this
+            // counts: self.counts(Team::from), // Use rules for this
         });
         if self.players.alive().len() % 2 == 1 {
             self.to_day(HashMap::new());
@@ -226,7 +188,7 @@ impl State {
         self.check_dawn(this);
         Ok(())
     }
-    fn check_election(&mut self, hammer: PlayerId, this: &Arc<RwLock<Self>>) {
+    fn check_election(&mut self, hammer: Pid, this: &Arc<RwLock<Self>>) {
         debug!("Check election");
         let Ok(vote_list) = self.phase.vote_list() else {
             return;
@@ -248,45 +210,45 @@ impl State {
             return;
         };
         // Check if an election is cancelled
-        if let Some((old_choice, h)) = pend_elect {
-            if new_elect
-                .as_ref()
-                .is_none_or(|(new_choice, _)| new_choice != old_choice)
-            {
-                h.abort()
-            }
-        }
+        // if let Some((old_choice, h)) = pend_elect {
+        //     if new_elect
+        //         .as_ref()
+        //         .is_none_or(|(new_choice, _)| new_choice != old_choice)
+        //     {
+        //         h.abort()
+        //     }
+        // }
         // Check if a new election is started
         if pend_elect.is_none() {
             if let Some((choice, _)) = new_elect {
                 let h = tokio::spawn(Self::election_timer(this.clone(), choice, hammer));
-                *pend_elect = Some((choice, h.abort_handle()));
+                // *pend_elect = Some((choice, h.abort_handle()));
             }
         }
     }
 
-    async fn election_timer(this: Arc<RwLock<Self>>, choice: Choice, hammer: PlayerId) {
+    async fn election_timer(this: Arc<RwLock<Self>>, choice: Choice, hammer: Pid) {
         tokio::time::sleep(Duration::from_secs(10)).await;
-        let mut wstate = this.write().await;
+        let wstate = this.write().await;
         if let Phase::Day {
-            pend_elect: Some((pend_choice, _)),
+            // pend_elect: Some((pend_choice, _)),
             ..
         } = &wstate.phase
         {
-            if pend_choice == &choice {
-                let voters = wstate
-                    .phase
-                    .vote_list()
-                    .unwrap_or_default()
-                    .remove(pend_choice)
-                    .unwrap_or_default();
+            // if pend_choice == &choice {
+            //     let voters = wstate
+            //         .phase
+            //         .vote_list()
+            //         .unwrap_or_default()
+            //         .remove(pend_choice)
+            //         .unwrap_or_default();
 
-                wstate.election(choice, hammer, voters);
-            }
+            //     wstate.election(choice, hammer, voters);
+            // }
         }
     }
 
-    fn election(&mut self, choice: Choice, hammer: PlayerId, voters: Vec<PlayerId>) {
+    fn election(&mut self, choice: Choice, hammer: Pid, voters: Vec<Pid>) {
         self.tx(Event::Election {
             choice,
             hammer,
@@ -320,7 +282,7 @@ impl State {
             }
         }
         let h = tokio::spawn(Self::dawn_timer(this.clone()));
-        *pend_dawn = Some(h.abort_handle());
+        // *pend_dawn = Some(h.abort_handle());
     }
 
     async fn dawn_timer(this: Arc<RwLock<Self>>) {
@@ -342,7 +304,7 @@ impl State {
         self.to_day(ds.blocks);
     }
 
-    fn eliminate(&mut self, pid: PlayerId, _culpable: PlayerId, context: Context) {
+    fn eliminate(&mut self, pid: Pid, _culpable: Pid, context: Context) {
         debug!("Eliminate {}", pid);
         // TODO: Check if a charge
         let PlayerState::Alive(role) = self.players.eliminate(&pid, context) else {
@@ -440,7 +402,7 @@ mod tests {
             (4, Role::MAFIA),
         ];
         let rules = Rules::default();
-        State::new(GameId(1), registry, rules)
+        State::new(Gid::from(1), registry, rules)
     }
 
     #[tracing::instrument(skip_all)]

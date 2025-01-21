@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
-use super::{role::Role, Ballot, Choice, Error, PlayerId, RawBallot, RawChoice};
+use super::{role::Role, Ballot, Choice, Error, Pid, RawBallot, RawChoice};
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub enum PlayerState {
@@ -60,16 +60,14 @@ impl Context {
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct Players(HashMap<PlayerId, PlayerLog>);
+pub struct Players(HashMap<Pid, PlayerLog>);
 
 // What operations do we want to perform?
 // Act like this is a hashmap to a roles, but store updates in log.
 // Get
 
 impl Players {
-    pub fn from_registry<'a>(
-        registry: impl IntoIterator<Item = (impl Into<PlayerId>, Role)>,
-    ) -> Self {
+    pub fn from_registry<'a>(registry: impl IntoIterator<Item = (impl Into<Pid>, Role)>) -> Self {
         Self(
             registry
                 .into_iter()
@@ -78,7 +76,7 @@ impl Players {
         )
     }
 
-    pub fn validate(&self, pid: u64) -> Result<PlayerId, Error> {
+    pub fn validate(&self, pid: u64) -> Result<Pid, Error> {
         match self.0.get(&pid.into()) {
             Some(PlayerLog {
                 pstate: PlayerState::Alive(_),
@@ -101,13 +99,16 @@ impl Players {
             .transpose()
     }
 
-    pub fn alive(&self) -> Vec<(PlayerId, Role)> {
+    pub fn alive(&self) -> Vec<(Pid, Role)> {
         self.0
             .iter()
             .filter_map(|(pid, plog)| Some((*pid, plog.as_role()?)))
             .collect()
     }
-    pub fn get(&self, pid: PlayerId) -> Role {
+    pub fn n(&self) -> usize {
+        self.alive().len()
+    }
+    pub fn get(&self, pid: Pid) -> Role {
         let Some(plog) = self.0.get(&pid) else {
             panic!("PlayerId should be valid");
         };
@@ -116,18 +117,29 @@ impl Players {
         };
         role
     }
-    pub fn refocus(&mut self, pid: &PlayerId, role: Role, context: Context) -> PlayerState {
+    pub fn refocus(&mut self, pid: &Pid, role: Role, context: Context) -> PlayerState {
         self.0
             .get_mut(pid)
             .filter(|p| p.is_alive())
             .expect("refocus pid should be valid and alive")
             .update(PlayerState::Alive(role), context)
     }
-    pub fn eliminate(&mut self, pid: &PlayerId, context: Context) -> PlayerState {
+    pub fn eliminate(&mut self, pid: &Pid, context: Context) -> PlayerState {
         self.0
             .get_mut(pid)
             .filter(|p| p.is_alive())
             .expect("eliminate pid should be valid and alive")
             .update(PlayerState::Dead, context)
+    }
+    pub fn counts<C, F>(&self, f: F) -> HashMap<C, usize>
+    where
+        C: std::hash::Hash + Eq,
+        F: Fn(Role) -> C,
+    {
+        let mut counts = HashMap::new();
+        for (_, role) in self.alive() {
+            *counts.entry(f(role)).or_insert(0) += 1;
+        }
+        counts
     }
 }
