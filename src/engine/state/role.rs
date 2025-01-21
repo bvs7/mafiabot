@@ -78,11 +78,17 @@ pub enum Team {
 
 impl From<Role> for Team {
     fn from(role: Role) -> Self {
-        use Role::*;
+        Team::from(role.kind())
+    }
+}
+
+impl From<RoleKind> for Team {
+    fn from(role: RoleKind) -> Self {
+        use RoleKind::*;
         match role {
             TOWN | COP | DOCTOR | CELEB | MILKY | MILLER => Self::Town,
             MAFIA | STRIPPER | GODFATHER | GOON => Self::Mafia,
-            IDIOT | SURVIVOR | GUARD(_) | AGENT(_) => Self::Rogue,
+            IDIOT | SURVIVOR | GUARD | AGENT => Self::Rogue,
         }
     }
 }

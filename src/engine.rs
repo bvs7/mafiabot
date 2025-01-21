@@ -11,7 +11,7 @@ use state::*;
 use state::{role::*, rules::*};
 use tokio::task::JoinHandle;
 
-struct Game {
+pub struct Game {
     state: Arc<RwLock<State>>, // Arc for access via different places
 
     action_tx: ActionTx, // Allow cloning
@@ -36,6 +36,11 @@ impl Game {
             action_tx,
             action_rx,
         }
+    }
+
+    pub async fn game_id(&self) -> GameId {
+        let rstate = self.state.read().await;
+        rstate.game_id()
     }
 
     pub fn action_tx(&self) -> ActionTx {

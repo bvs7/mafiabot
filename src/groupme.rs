@@ -1,14 +1,21 @@
 mod api;
+mod game_context;
 mod subscriber;
 mod util;
 
-const MODERATOR_UID: &str = "43040067";
-const BRIAN_UID: &str = "21642197";
+pub const MODERATOR_UID: &str = "43040067";
+pub const BRIAN_UID: &str = "21642197";
 
-const LOBBY_CHAT_ID: &str = "25833774";
-// const MAIN_CHAT_ID: &str = "105362524";
-// const MAFIA_CHAT_ID: &str = "105362533";
-const TEST_LOBBY_CHAT_ID: &str = "105412553";
+pub const LOBBY_CHAT_ID: &str = "25833774";
+pub const MAIN_CHAT_ID: &str = "105362524";
+pub const MAFIA_CHAT_ID: &str = "105362533";
+pub const TEST_LOBBY_CHAT_ID: &str = "105412553";
+
+// Commands.
+// We have....
+
+// The command context
+// The command itself, along with arguments
 
 #[cfg(test)]
 mod tests {
@@ -36,9 +43,7 @@ mod tests {
 
         let test_text = "Testing 123";
         // Try sending a message to Test Lobby
-        let msg_id =
-            api::send_group_message(&client, TEST_LOBBY_CHAT_ID.parse().unwrap(), test_text)
-                .await?;
+        let msg_id = api::send_group_message(&client, TEST_LOBBY_CHAT_ID, test_text).await?;
 
         tracing::debug!("Sent message with id {msg_id:?}");
 

@@ -90,6 +90,10 @@ impl State {
         }
     }
 
+    pub fn game_id(&self) -> GameId {
+        self.id
+    }
+
     #[instrument(skip_all)]
     pub async fn action_handler(this: Arc<RwLock<Self>>, action_rx: &mut ActionRx) {
         while let Some((action, resp)) = action_rx.recv().await {
@@ -327,6 +331,7 @@ impl State {
 
     fn dawn(&mut self) {
         debug!("Dawn");
+        self.tx(Event::Dawn);
         let night_actions = self.phase.to_night_actions(&self.players);
         let ds = night_actions.fold(DawnState::default(), |acc, na| acc.fold(na, &self));
         for (mark, killer) in ds.kills {
@@ -487,14 +492,21 @@ mod tests {
         assert!(matches!(&wstate.phase, Phase::End { winner: Team::Town }));
     }
 
-    // async basic_test_errs() {
-    //     let mut state = basic_game();
-    //     let event_rx = state.subscribe();
-    //     tokio::spawn(listen_events(event_rx));
-    //     let this = Arc::new(RwLock::new(state));
-    //     let mut wstate = this.write().await;
-    //     assert!(wstate.vote(2, Some(Some(4)), &this).is_err());
-    //     assert!(wstate.reveal(2).is_err());
-    //     a
-    // }
+    #[tokio::test]
+    async fn basic_test_errs() {
+        let mut state = basic_game();
+        let event_rx = state.subscribe();
+        tokio::spawn(listen_events(event_rx));
+        let this = Arc::new(RwLock::new(state));
+        let mut wstate = this.write().await;
+        assert!(wstate.vote(2, Some(Some(4)), &this).is_err());
+        assert!(wstate.reveal(2).is_err());
+        assert!(wstate.target(2, Some(3), &this).is_err());
+        assert!(wstate.scheme(4, Some(3), &this).is_err());
+        // Actually start
+        wstate.start().expect("State starts in Init");
+        assert!(wstate.start().is_err());
+        assert!(wstate.vote(2, Some(Some(4)), &this).is_err());
+        assert!(wstate.reveal(2).is_err());
+    }
 }

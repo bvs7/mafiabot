@@ -3,11 +3,13 @@ How to structure commands?
 
 */
 
+use std::collections::HashMap;
+
 use tokio::sync::{
     broadcast::{self, error::RecvError}, watch, Mutex
 };
 
-use crate::engine::{interface::{ActionTx, Event, EventRx}, state::role::Role};
+use crate::engine::{interface::{ActionTx, Event, EventRx}, state::{role::Role, PlayerId}, Game};
 
 use super::api::{self, GroupId, UserId};
 
@@ -80,8 +82,8 @@ struct GameContext {
     game: Game,
     main_chat: GroupId,
     mafia_chat: GroupId,
-    names: watch::Receiver<HashMap<u64, String>>,
-    living: Vec<u64>,
+    names: watch::Receiver<HashMap<PlayerId, String>>,
+    living: Vec<PlayerId>, 
 }
 
 #[derive(Debug)]

@@ -25,7 +25,7 @@ pub struct Member {
 #[tracing::instrument(skip(client))]
 pub async fn add_members(
     client: &Client,
-    group_id: u64,
+    group_id: &str,
     members: Vec<(String, UserId)>,
 ) -> Result<()> {
     let uri = format!("{BASE_API_URI}/groups/{group_id}/members/add");
@@ -106,11 +106,7 @@ pub async fn delete_group(client: &Client, group_id: GroupId) -> Result<()> {
 }
 
 #[tracing::instrument(skip(client))]
-pub async fn send_group_message(
-    client: &Client,
-    group_id: GroupId,
-    text: &str,
-) -> Result<MessageId> {
+pub async fn send_group_message(client: &Client, group_id: &str, text: &str) -> Result<MessageId> {
     let uri = format!("{BASE_API_URI}/groups/{group_id}/messages");
     let uuid = Uuid::new_v4();
     let body = json!({
@@ -136,6 +132,21 @@ pub async fn send_group_message(
     let id: MessageId = json_access(&value, "response.message.id")?;
 
     Ok(id)
+}
+
+#[tracing::instrument(skip(client))]
+pub async fn get_group(client: &Client, group_id: &str) -> Result<JsonValue> {
+    let uri = format!("{BASE_API_URI}/groups/{group_id}");
+    let resp = client
+        .get(uri)
+        .query(&[("token", get_token()?)])
+        .send()
+        .await?
+        .error_for_status()?
+        .text()
+        .await?;
+    tracing::debug!(?resp);
+    Ok(serde_json::from_str(&resp)?)
 }
 
 #[tracing::instrument(skip(client))]
