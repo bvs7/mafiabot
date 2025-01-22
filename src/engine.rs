@@ -5,7 +5,7 @@ pub mod interface;
 pub mod rolegen;
 pub mod state;
 
-mod sync_state;
+pub mod sync_state;
 
 use interface::*;
 use rolegen::*;

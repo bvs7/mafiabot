@@ -326,3 +326,39 @@ impl GameContext {
         }
     }
 }
+
+mod sync {
+    use crate::engine::{
+        interface::Event,
+        state::{id::Pid, role::Role, rules::Rules},
+        sync_state::State_,
+    };
+    use std::{
+        io::Cursor,
+        sync::{Arc, Mutex},
+    };
+
+    struct Game_ {
+        state: Arc<Mutex<State_>>,
+        event_idx: usize,
+    }
+
+    impl Game_ {
+        fn new() -> Self {
+            let registry = vec![(1, Role::TOWN), (2, Role::TOWN), (3, Role::MAFIA)];
+            let state = State_::new(registry, Rules::default());
+
+            Self {
+                state: Arc::new(Mutex::new(state)),
+                event_idx: 0,
+            }
+        }
+
+        fn get_events(&mut self) -> Vec<Event> {
+            let state = self.state.lock().unwrap();
+            let events = state.events_from(self.event_idx);
+            self.event_idx += events.len();
+            events
+        }
+    }
+}

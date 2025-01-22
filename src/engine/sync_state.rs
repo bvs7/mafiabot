@@ -1,6 +1,7 @@
 use core::time;
 use std::{
     collections::HashMap,
+    io::Cursor,
     sync::{Arc, Condvar, Mutex, MutexGuard, TryLockError},
     thread::{park_timeout, JoinHandle, Thread},
     time::Duration,
@@ -67,7 +68,7 @@ enum UpdateResult {
 // How else could we implement update_flag?
 //
 
-pub struct State {
+pub struct State_ {
     day: u32,
     phase: Phase,
     players: Players,
@@ -76,16 +77,16 @@ pub struct State {
     update_thread: Option<JoinHandle<()>>,
 }
 
-impl State {
-    pub fn new(registry: impl IntoIterator<Item = (u64, Role)>, rules: Rules) -> Mutex<State> {
-        Mutex::new(State {
+impl State_ {
+    pub fn new(registry: impl IntoIterator<Item = (u64, Role)>, rules: Rules) -> Self {
+        Self {
             day: 0,
             phase: Phase::Init,
             players: Players::from_registry(registry),
             rules,
             event_log: Vec::new(),
             update_thread: None,
-        })
+        }
     }
 
     pub fn wake(&self) {
@@ -96,6 +97,10 @@ impl State {
 
     fn log_event(&mut self, event: Event) {
         self.event_log.push(event);
+    }
+
+    pub fn events_from(&self, from: usize) -> Vec<Event> {
+        self.event_log[from..].to_vec()
     }
 
     pub fn start(&mut self) {
@@ -329,7 +334,7 @@ impl State {
     }
 
     #[tracing::instrument(skip_all)]
-    fn run(state: Mutex<Self>) {
+    fn run(state: Arc<Mutex<Self>>) {
         loop {
             park_timeout(TICK_DELAY);
             let mut lock = match state.lock() {
@@ -358,7 +363,7 @@ mod tests {
         let one = Pid::from(1);
         let two = Pid::from(2);
         let three = Pid::from(3);
-        let mut state = State {
+        let mut state = State_ {
             day: 1,
             phase: Phase::Day {
                 votes: HashMap::new(),
@@ -421,7 +426,7 @@ mod tests {
         let one = Pid::from(1);
         let two = Pid::from(2);
         let three = Pid::from(3);
-        let mut state = State {
+        let mut state = State_ {
             day: 1,
             phase: Phase::Init,
             players: Players::from_registry(vec![
@@ -487,7 +492,4 @@ mod tests {
 
         assert!(matches!(err, Error::IneffectiveVote));
     }
-
-    
-
 }
