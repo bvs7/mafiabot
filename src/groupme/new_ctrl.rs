@@ -106,9 +106,12 @@ mod parse {
     use serde::Deserialize;
     use serde_json::Value as JsonValue;
 
-    use crate::{engine::state::id::{Gid, RawBallot}, groupme::api::GroupId};
+    use crate::{
+        engine::state::id::{Choice, Gid, RawBallot, RawChoice},
+        groupme::api::GroupId,
+    };
 
-    use super::{Lobby, MessageId, UserId};
+    use super::{GameHolder, Lobby, MessageId, UserId};
 
     #[derive(Debug, Clone, Deserialize)]
     #[serde(from = "String")]
@@ -132,6 +135,8 @@ mod parse {
     enum Attachment {
         #[serde(rename = "mentions")]
         Mentions { user_ids: Vec<UserId> },
+        #[serde(other)]
+        Unknown,
     }
 
     #[derive(Debug, Clone, Deserialize)]
@@ -184,11 +189,12 @@ mod parse {
 
     impl Lobby {
         fn parse_cmd(&self, response: JsonValue) -> Option<Command> {
-            let i: Interaction = serde_json::from_value(response).ok()?;
+            let inter: Interaction = serde_json::from_value(response).ok()?;
             use InteractionType::*;
 
             // Parse the command
-            let mut chars = i.subject.text.chars();
+            let user_id = inter.subject.user_id;
+            let mut chars = inter.subject.text.chars();
             let c1 = chars.next()?;
             if c1 != '/' {
                 return None;
@@ -196,44 +202,45 @@ mod parse {
             let text: String = chars.collect();
             let mut words = text.split_whitespace();
             let mut cmd = None;
-            if matches!(i.type_, GroupMsg) {
-                let group_id = &i.subject.group_id;
+            if matches!(inter.type_, GroupMsg) {
+                let group_id = &inter.subject.group_id;
                 if group_id == &self.lobby_chat_id {
                     cmd = self
-                        .parse_lobby_cmd(i, &mut words)
-                        .map(|cmd| Cmd::Lobby(cmd));
+                        .parse_lobby_cmd(&inter, &mut words)
+                        .map(|cmd| Cmd::Lobby(user_id, cmd));
                 } else {
                     for (gid, game) in self.games.iter() {
                         if group_id == &game.main_chat_id {
-                            cmd = self
-                                .parse_main_chat_cmd(i, &mut words)
-                                .map(|cmd| Cmd::Game(*gid, cmd));
+                            cmd = game
+                                .parse_main_chat_cmd(&inter, &mut words)
+                                .map(|cmd| Cmd::Game(*gid, user_id, cmd));
                             break;
                         } else if group_id == &game.mafia_chat_id {
-                            cmd = self
-                                .parse_mafia_chat_cmd(i, &mut words)
-                                .map(|cmd| Cmd::Game(*gid, cmd));
+                            cmd = game
+                                .parse_mafia_chat_cmd(&inter, &mut words)
+                                .map(|cmd| Cmd::Game(*gid, user_id, cmd));
                             break;
                         }
                     }
                 }
             }
 
-            if cmd.is_none() && matches!(i.type_, DirectMsg) {
-                let gid = self.player_focus.get(&i.subject.sender_id);
+            if cmd.is_none() && matches!(inter.type_, DirectMsg) {
+                let gid = self.player_focus.get(&inter.subject.sender_id);
                 if let Some(gid) = gid {
-                    cmd = self
-                        .parse_main_chat_cmd(i, &mut words)
-                        .map(|cmd| Cmd::Game(*gid, cmd));
+                    if let Some(game) = self.games.get(gid) {
+                        cmd = game
+                            .parse_dm_game_cmd(&inter, *gid, &mut words)
+                            .map(|cmd| Cmd::Game(*gid, user_id, cmd));
+                    }
                 }
             }
-            let response = match i.type_ {
-                GroupMsg => Response::Group(i.subject.id, i.subject.group_id),
-                DirectMsg => Response::DM(i.subject.id, i.subject.sender_id),
+            let response = match inter.type_ {
+                GroupMsg => Response::Group(inter.subject.id, inter.subject.group_id),
+                DirectMsg => Response::DM(inter.subject.id, inter.subject.sender_id),
                 Unknown(_) => return None,
             };
-
-            None
+            cmd.map(|cmd| Command { cmd, response })
         }
 
         fn parse_lobby_cmd(
@@ -255,10 +262,25 @@ mod parse {
                 _ => None,
             }
         }
+    }
 
+    impl GameHolder {
+        fn parse_target(&self, target_idx: &str) -> Option<RawChoice> {
+            let idx = target_idx.chars().next()?.to_ascii_uppercase();
+            if !idx.is_ascii_alphabetic() {
+                return None;
+            }
+            let ascii_idx = (idx as u8) - b'A';
+            if ascii_idx == self.player_list.len() as u8 {
+                return Some(None);
+            }
+            let pid = self.player_list.get(ascii_idx as usize)?;
+
+            Some(Some(*pid))
+        }
         fn parse_main_chat_cmd(
             &self,
-            i: &Interaction,
+            inter: &Interaction,
             words: &mut dyn Iterator<Item = &str>,
         ) -> Option<GameCmd> {
             let first = words.next()?;
@@ -266,13 +288,20 @@ mod parse {
                 "vote" => {
                     let next = words.next();
                     if let Some("nokill") = next {
-                        Some(GameCmd::Vote(Some(None)))
+                        return Some(GameCmd::Vote(Some(None)));
                     } else {
-
-                    let vote = words.next()?.parse().ok();
-                    // TODO: get ballot
-                    Some(GameCmd::Vote(vote))
+                        for attachment in inter.subject.attachments.iter() {
+                            if let Attachment::Mentions { user_ids } = attachment {
+                                if user_ids.len() >= 1 {
+                                    let pid = user_ids[0];
+                                    return Some(GameCmd::Vote(Some(Some(pid))));
+                                }
+                            }
+                        }
+                    }
+                    None
                 }
+                "unvote" => Some(GameCmd::Vote(None)),
                 "status" => Some(GameCmd::Status),
                 _ => None,
             }
@@ -280,14 +309,33 @@ mod parse {
 
         fn parse_mafia_chat_cmd(
             &self,
-            i: &Interaction,
+            inter: &Interaction,
             words: &mut dyn Iterator<Item = &str>,
         ) -> Option<GameCmd> {
             let first = words.next()?;
             match first {
                 "target" => {
-                    let scheme = words.next()?.parse().ok();
-                    Some(GameCmd::Scheme(scheme))
+                    let target_idx = words.next()?;
+                    let choice = self.parse_target(target_idx)?;
+                    Some(GameCmd::Scheme(choice))
+                }
+                _ => None,
+            }
+        }
+
+        fn parse_dm_game_cmd(
+            &self,
+            i: &Interaction,
+            gid: Gid,
+            words: &mut dyn Iterator<Item = &str>,
+        ) -> Option<GameCmd> {
+            let first = words.next()?;
+            match first {
+                "reveal" => Some(GameCmd::Reveal),
+                "target" => {
+                    let target_idx = words.next()?;
+                    let choice = self.parse_target(target_idx)?;
+                    Some(GameCmd::Target(choice))
                 }
                 _ => None,
             }
