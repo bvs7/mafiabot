@@ -47,7 +47,7 @@ impl GameContext {
         let client = Client::new();
         // Get names
         let mut members = Vec::new();
-        let group = api::get_group(&client, &super::LOBBY_CHAT_ID)
+        let group = api::get_group(&client, &super::LOBBY_CHAT_ID.to_string())
             .await
             .unwrap();
         let seen_members: Vec<JsonValue> = json_access(&group, "response.members").unwrap();

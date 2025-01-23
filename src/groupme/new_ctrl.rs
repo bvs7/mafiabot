@@ -18,90 +18,6 @@ use super::{
 type MessageId = String;
 type UserId = u64;
 
-// What commands do we have?
-// Lobby commands
-// Game commands
-// DM commands
-
-/*
-When we parse a command, what do we want?
-We will have a response item. From a reference to that,
-we will parse a command.
-
-What is in a command:
-A destination? Like the lobby controller, or a game controller?
-For example:
-- Start in lobby goes to lobby ctrl
-- Status in lobby goes to lobby ctrl
-- Status in a game goes to a game ctrl
-- Vote in game goes to a game ctrl
-- Reveal in DM goes to a game ctrl
-- target in DM goes to a game ctrl
-- Help can go to lobby, game, or full app
-
-So we could say we have:
-- Command
-- and Response context
-
-Although commands to different destinations have different forms, right?
-Except maybe help... But help can be a special case.
-So let's fold Destination into Command.
-
-We also need a response context.
-- Messge Id
-- Group or Chat Id it came from
-
-
-What would be some examples of what we want?
-- Start in lobby: create the start message
-- admin_start in lobby: start a game
-- Status in lobby: show statuses of any games
-- Help in lobby: show help message based on following text
-
-- Vote in game: call vote on game. Based on the result, respond to the message...
-- Reveal in DM: call reveal on game
-
-The response holds...
-- What kind of message it is
-- The sender
-- The group or chat
-- The text of the message
-
-
-Example of an input...
-"data": Object {
-    "alert": String("Brian \"Testing\" Scaramella: Test"),
-    "received_at": Number(1737048635000),
-    "subject": Object {
-        "attachments": Array [],
-        "avatar_url": String("https://i.groupme.com/200x205.jpeg.3475af00b96f4d1d8a21a9822ddd5e3a"),
-        "created_at": Number(1737048634),
-        "deleted_at": Null,
-        "deletion_actor": Null,
-        "group_id": String("105362524"),
-        "id": String("173704863488783901"),
-        "location": Object {
-            "lat": String(""),
-            "lng": String(""),
-            "name": Null,
-        },
-        "name": String("Brian \"Testing\" Scaramella"),
-        "parent_id": Null,
-        "picture_url": Null,
-        "pinned_at": Null,
-        "pinned_by": Null,
-        "sender_id": String("21642197"),
-        "sender_type": String("user"),
-        "source_guid": String("android-bbfe3445-d65e-4352-a613-19df30dede79"),
-        "system": Bool(false),
-        "text": String("Test"),
-        "updated_at": Null,
-        "user_id": String("21642197"),
-    },
-    "type": String("line.create"),
-},
-
-*/
 mod parse {
     use serde::Deserialize;
     use serde_json::Value as JsonValue;
@@ -139,6 +55,8 @@ mod parse {
         Unknown,
     }
 
+    // TODO: make UserId a newtypes
+
     #[derive(Debug, Clone, Deserialize)]
     struct Subject {
         attachments: Vec<Attachment>,
@@ -147,9 +65,9 @@ mod parse {
         created_at: u64,
         id: String,
         name: String,
-        sender_id: UserId,
+        sender_id: String,
         text: String,
-        user_id: UserId,
+        user_id: String,
     }
 
     #[derive(Debug, Clone, Deserialize)]
@@ -159,16 +77,19 @@ mod parse {
         subject: Subject,
     }
 
+    #[derive(Debug, Clone)]
     enum Cmd {
         Lobby(UserId, LobbyCmd),
         Game(Gid, UserId, GameCmd),
     }
 
+    #[derive(Debug, Clone)]
     enum LobbyCmd {
         Start(usize, usize),
         Status(Option<Gid>),
     }
 
+    #[derive(Debug, Clone)]
     enum GameCmd {
         Vote(RawBallot),
         Reveal,
@@ -177,11 +98,13 @@ mod parse {
         Status,
     }
 
+    #[derive(Debug, Clone)]
     struct Command {
         cmd: Cmd,
         response: Response,
     }
 
+    #[derive(Debug, Clone)]
     enum Response {
         Group(MessageId, GroupId),
         DM(MessageId, UserId),
@@ -193,7 +116,7 @@ mod parse {
             use InteractionType::*;
 
             // Parse the command
-            let user_id = inter.subject.user_id;
+            let user_id: u64 = inter.subject.user_id.parse().ok()?;
             let mut chars = inter.subject.text.chars();
             let c1 = chars.next()?;
             if c1 != '/' {
@@ -212,7 +135,7 @@ mod parse {
                     for (gid, game) in self.games.iter() {
                         if group_id == &game.main_chat_id {
                             cmd = game
-                                .parse_main_chat_cmd(&inter, &mut words)
+                                .parse_main_chat_cmd(&inter, user_id, &mut words)
                                 .map(|cmd| Cmd::Game(*gid, user_id, cmd));
                             break;
                         } else if group_id == &game.mafia_chat_id {
@@ -226,7 +149,7 @@ mod parse {
             }
 
             if cmd.is_none() && matches!(inter.type_, DirectMsg) {
-                let gid = self.player_focus.get(&inter.subject.sender_id);
+                let gid = self.player_focus.get(&user_id);
                 if let Some(gid) = gid {
                     if let Some(game) = self.games.get(gid) {
                         cmd = game
@@ -237,7 +160,7 @@ mod parse {
             }
             let response = match inter.type_ {
                 GroupMsg => Response::Group(inter.subject.id, inter.subject.group_id),
-                DirectMsg => Response::DM(inter.subject.id, inter.subject.sender_id),
+                DirectMsg => Response::DM(inter.subject.id, user_id),
                 Unknown(_) => return None,
             };
             cmd.map(|cmd| Command { cmd, response })
@@ -256,7 +179,12 @@ mod parse {
                     Some(LobbyCmd::Start(minutes, min_players))
                 }
                 "status" => {
-                    let gid = words.next()?.parse::<u64>().ok().map(Gid::from);
+                    let gid = words
+                        .next()
+                        .map(|gid_str| gid_str.parse::<u64>().ok().map(Gid::from))
+                        .flatten()
+                        .map(|gid| self.games.contains_key(&gid).then_some(gid))
+                        .flatten();
                     Some(LobbyCmd::Status(gid))
                 }
                 _ => None,
@@ -281,6 +209,7 @@ mod parse {
         fn parse_main_chat_cmd(
             &self,
             inter: &Interaction,
+            user_id: UserId,
             words: &mut dyn Iterator<Item = &str>,
         ) -> Option<GameCmd> {
             let first = words.next()?;
@@ -289,6 +218,8 @@ mod parse {
                     let next = words.next();
                     if let Some("nokill") = next {
                         return Some(GameCmd::Vote(Some(None)));
+                    } else if let Some("me") = next {
+                        return Some(GameCmd::Vote(Some(Some(user_id))));
                     } else {
                         for attachment in inter.subject.attachments.iter() {
                             if let Attachment::Mentions { user_ids } = attachment {
@@ -339,6 +270,178 @@ mod parse {
                 }
                 _ => None,
             }
+        }
+    }
+    #[cfg(test)]
+    mod tests {
+        use std::collections::HashMap;
+
+        use serde_json::json;
+        use tracing_subscriber::registry;
+        use tracing_test::traced_test;
+
+        use crate::{
+            engine::{
+                state::{role::Role, rules::Rules},
+                sync_state::State,
+            },
+            groupme::{BRIAN_UID, LOBBY_CHAT_ID, TEST_LOBBY_CHAT_ID},
+        };
+
+        use super::*;
+
+        fn state_3() -> State {
+            let registry = vec![(1, Role::TOWN), (2, Role::TOWN), (3, Role::MAFIA)];
+            State::new(registry, Rules::default())
+        }
+
+        #[test]
+        #[traced_test]
+        fn parsing_cmds() {
+            let mut lobby = Lobby::new(TEST_LOBBY_CHAT_ID.to_string());
+            let game = GameHolder {
+                game_id: Gid::from(1),
+                game: state_3(),
+                main_chat_id: "main".to_string(),
+                mafia_chat_id: "mafia".to_string(),
+                player_list: vec![1, 2, 3],
+                names: HashMap::new(),
+            };
+
+            lobby.games.insert(Gid::from(1), game);
+            lobby.player_focus.insert(BRIAN_UID, Gid::from(1));
+
+            let msg1 = json!({
+                "subject":  {
+                    "attachments": [],
+                    "created_at": 1737048634,
+                    "group_id": TEST_LOBBY_CHAT_ID,
+                    "id": "173704863488783901",
+                    "name": "Brian \"Testing\" Scaramella",
+                    "sender_id": "21642197",
+                    "text": "/start 5 3",
+                    "user_id": "21642197",
+                },
+                "type": "line.create",
+            });
+            let cmd = lobby.parse_cmd(msg1);
+            assert!(matches!(
+                cmd,
+                Some(Command {
+                    cmd: Cmd::Lobby(_, LobbyCmd::Start(5, 3)),
+                    ..
+                })
+            ));
+
+            let msg2 = json!({
+                "subject":  {
+                    "attachments": [],
+                    "created_at": 1737048634,
+                    "group_id": TEST_LOBBY_CHAT_ID,
+                    "id": "173704863488783901",
+                    "name": "Brian \"Testing\" Scaramella",
+                    "sender_id": "21642197",
+                    "text": "/status",
+                    "user_id": "21642197",
+                },
+                "type": "line.create",
+            });
+            let cmd = lobby.parse_cmd(msg2);
+            assert!(matches!(
+                cmd,
+                Some(Command {
+                    cmd: Cmd::Lobby(_, LobbyCmd::Status(None)),
+                    ..
+                })
+            ));
+
+            let msg3 = json!({
+                "subject":  {
+                    "attachments": [],
+                    "created_at": 1737048634,
+                    "group_id": "main",
+                    "id": "173704863488783901",
+                    "name": "Brian \"Testing\" Scaramella",
+                    "sender_id": "21642197",
+                    "text": "/status",
+                    "user_id": "21642197",
+                },
+                "type": "line.create",
+            });
+            let cmd = lobby.parse_cmd(msg3);
+            assert!(matches!(
+                cmd,
+                Some(Command {
+                    cmd: Cmd::Game(_, _, GameCmd::Status),
+                    ..
+                })
+            ));
+
+            let msg4 = json!({
+                "subject":  {
+                    "attachments": [],
+                    "created_at": 1737048634,
+                    "group_id": "main",
+                    "id": "173704863488783901",
+                    "name": "Brian \"Testing\" Scaramella",
+                    "sender_id": "21642197",
+                    "text": "/vote me",
+                    "user_id": "21642197",
+                },
+                "type": "line.create",
+            });
+            let cmd = lobby.parse_cmd(msg4);
+            assert!(matches!(
+                cmd,
+                Some(Command {
+                    cmd: Cmd::Game(_, _, GameCmd::Vote(_)),
+                    ..
+                })
+            ));
+
+            let msg5 = json!({
+                "subject":  {
+                    "attachments": [],
+                    "created_at": 1737048634,
+                    "group_id": "mafia",
+                    "id": "173704863488783901",
+                    "name": "Brian \"Testing\" Scaramella",
+                    "sender_id": "21642197",
+                    "text": "/target B",
+                    "user_id": "21642197",
+                },
+                "type": "line.create",
+            });
+            let cmd = lobby.parse_cmd(msg5);
+            assert!(matches!(
+                cmd,
+                Some(Command {
+                    cmd: Cmd::Game(_, _, GameCmd::Scheme(_)),
+                    ..
+                })
+            ));
+
+            let msg6 = json!({
+                "subject":  {
+                    "attachments": [],
+                    "created_at": 1737048634,
+                    "group_id": "mafia",
+                    "id": "173704863488783901",
+                    "name": "Brian \"Testing\" Scaramella",
+                    "sender_id": "21642197",
+                    "text": "/target B",
+                    "user_id": "21642197",
+                },
+                "type": "direct_message.create",
+            });
+            let cmd = lobby.parse_cmd(msg6);
+            assert!(matches!(
+                cmd,
+                Some(Command {
+                    cmd: Cmd::Game(_, _, GameCmd::Target(_)),
+                    ..
+                })
+            ));
         }
     }
 }
