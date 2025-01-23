@@ -140,6 +140,12 @@ impl Drop for Phase {
 
 impl std::fmt::Display for PhaseKind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", self)
+        match self {
+            PhaseKind::Init => write!(f, "Init"),
+            PhaseKind::Day => write!(f, "Day"),
+            PhaseKind::Night => write!(f, "Night"),
+            PhaseKind::Eclipse => write!(f, "Eclipse"),
+            PhaseKind::End => write!(f, "End"),
+        }
     }
 }

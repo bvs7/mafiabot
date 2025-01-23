@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, ops::Index};
 
 use serde::{Deserialize, Serialize};
 
@@ -61,7 +61,10 @@ impl Context {
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct Players(HashMap<Pid, PlayerLog>);
+pub struct Players {
+    map: HashMap<Pid, PlayerLog>,
+    list: Vec<Pid>,
+}
 
 // What operations do we want to perform?
 // Act like this is a hashmap to a roles, but store updates in log.
@@ -69,16 +72,16 @@ pub struct Players(HashMap<Pid, PlayerLog>);
 
 impl Players {
     pub fn from_registry<'a>(registry: impl IntoIterator<Item = (impl Into<Pid>, Role)>) -> Self {
-        Self(
-            registry
-                .into_iter()
-                .map(|(p, r)| (p.into(), PlayerLog::from_start_role(&r)))
-                .collect(),
-        )
+        let map: HashMap<Pid, PlayerLog> = registry
+            .into_iter()
+            .map(|(p, r)| (p.into(), PlayerLog::from_start_role(&r)))
+            .collect();
+        let list: Vec<Pid> = map.keys().copied().collect();
+        Self { map, list }
     }
 
     pub fn validate(&self, pid: u64) -> Result<Pid, Error> {
-        match self.0.get(&pid.into()) {
+        match self.map.get(&pid.into()) {
             Some(PlayerLog {
                 pstate: PlayerState::Alive(_),
                 ..
@@ -101,7 +104,7 @@ impl Players {
     }
 
     pub fn alive(&self) -> Vec<(Pid, Role)> {
-        self.0
+        self.map
             .iter()
             .filter_map(|(pid, plog)| Some((*pid, plog.as_role()?)))
             .collect()
@@ -109,11 +112,8 @@ impl Players {
     pub fn n(&self) -> usize {
         self.alive().len()
     }
-    pub fn get_checked(&self, pid: Pid) -> Option<Role> {
-        self.0.get(&pid).and_then(|plog| plog.as_role())
-    }
     pub fn get(&self, pid: Pid) -> Role {
-        let Some(plog) = self.0.get(&pid) else {
+        let Some(plog) = self.map.get(&pid) else {
             panic!("PlayerId should be valid");
         };
         let Some(role) = plog.as_role() else {
@@ -121,15 +121,36 @@ impl Players {
         };
         role
     }
+    pub fn is_alive(&self, pid: Pid) -> bool {
+        self.map.get(&pid).map_or(false, |plog| plog.is_alive())
+    }
+
+    pub fn list(&self) -> Vec<Pid> {
+        self.list.clone()
+    }
+
+    pub fn get_target(&self, idx: usize) -> Result<Option<Pid>, Error> {
+        if idx > self.list.len() {
+            return Err(Error::InvalidTarget { idx: idx });
+        }
+        Ok(self.list.get(idx).copied())
+    }
     pub fn refocus(&mut self, pid: &Pid, role: Role, context: Context) -> PlayerState {
-        self.0
+        self.map
             .get_mut(pid)
             .filter(|p| p.is_alive())
             .expect("refocus pid should be valid and alive")
             .update(PlayerState::Alive(role), context)
     }
+
     pub fn eliminate(&mut self, pid: &Pid, context: Context) -> PlayerState {
-        self.0
+        let idx = self
+            .list
+            .iter()
+            .position(|p| p == pid)
+            .expect("eliminate pid should be valid");
+        self.list.remove(idx);
+        self.map
             .get_mut(pid)
             .filter(|p| p.is_alive())
             .expect("eliminate pid should be valid and alive")

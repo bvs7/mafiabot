@@ -1,3 +1,5 @@
+use std::sync::OnceLock;
+
 /// Handle GroupMe API calls
 use anyhow::{bail, Result};
 use http::header::CONTENT_TYPE;
@@ -6,9 +8,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, to_string, Map as JsonMap, Value as JsonValue};
 use uuid::Uuid;
 
-use super::util::{get_token, json_access, UnexpectedJsonError};
-
-pub type UserId = u64;
+use super::{
+    new_ctrl::UserId,
+    util::{get_token, json_access, UnexpectedJsonError},
+};
 
 pub type GroupId = String;
 
@@ -16,22 +19,24 @@ pub type MessageId = String;
 
 const BASE_API_URI: &str = "https://api.groupme.com/v3";
 
+static CLIENT: OnceLock<Client> = OnceLock::new();
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Member {
     nickname: String,
     user_id: UserId,
 }
 
-#[tracing::instrument(skip(client))]
-pub async fn add_members(
-    client: &Client,
-    group_id: &GroupId,
-    members: Vec<(String, UserId)>,
-) -> Result<()> {
+pub fn client() -> &'static Client {
+    &CLIENT.get_or_init(|| Client::new())
+}
+
+#[tracing::instrument]
+pub async fn add_members(group_id: &GroupId, members: Vec<(String, UserId)>) -> Result<()> {
     let uri = format!("{BASE_API_URI}/groups/{group_id}/members/add");
     let mut members_vec = Vec::new();
     for (nickname, user_id) in members {
-        let user_id_str = user_id.to_string();
+        let user_id_str: String = user_id.into();
         members_vec.push(json!(
             {
                 "nickname":nickname,
@@ -44,7 +49,7 @@ pub async fn add_members(
     });
     let body = serde_json::to_string(&members)?;
     tracing::debug!(%body);
-    let resp = client
+    let resp = client()
         .post(uri)
         .header(CONTENT_TYPE, "application/json")
         .query(&[("token", get_token()?)])
@@ -58,7 +63,7 @@ pub async fn add_members(
     let value: JsonValue = serde_json::from_str(&resp)?;
     let result_id: String = json_access(&value, "response.results_id")?;
     let uri = format!("{BASE_API_URI}/groups/{group_id}/members/results/{result_id}");
-    let resp = client
+    let resp = client()
         .get(uri)
         .query(&[("token", get_token()?)])
         .send()
@@ -70,12 +75,12 @@ pub async fn add_members(
     Ok(())
 }
 
-#[tracing::instrument(skip(client))]
-pub async fn create_group(client: &Client, name: &str) -> Result<GroupId> {
+#[tracing::instrument]
+pub async fn create_group(name: &str) -> Result<GroupId> {
     let uri = format!("{BASE_API_URI}/groups");
     let body = json!({"name": name});
     let body = serde_json::to_string(&body)?;
-    let resp = client
+    let resp = client()
         .post(uri)
         .header(CONTENT_TYPE, "application/json")
         .query(&[("token", get_token()?)])
@@ -92,10 +97,10 @@ pub async fn create_group(client: &Client, name: &str) -> Result<GroupId> {
     Ok(id)
 }
 
-#[tracing::instrument(skip(client))]
-pub async fn delete_group(client: &Client, group_id: &GroupId) -> Result<()> {
+#[tracing::instrument]
+pub async fn delete_group(group_id: &GroupId) -> Result<()> {
     let uri = format!("{BASE_API_URI}/groups/{group_id}/destroy");
-    let resp = client
+    let resp = client()
         .post(uri)
         .query(&[("token", get_token()?)])
         .send()
@@ -105,12 +110,8 @@ pub async fn delete_group(client: &Client, group_id: &GroupId) -> Result<()> {
     Ok(())
 }
 
-#[tracing::instrument(skip(client))]
-pub async fn send_group_message(
-    client: &Client,
-    group_id: &GroupId,
-    text: &str,
-) -> Result<MessageId> {
+#[tracing::instrument]
+pub async fn send_group_message(group_id: &GroupId, text: &str) -> Result<MessageId> {
     let uri = format!("{BASE_API_URI}/groups/{group_id}/messages");
     let uuid = Uuid::new_v4();
     let body = json!({
@@ -120,7 +121,7 @@ pub async fn send_group_message(
         }
     });
     let body = serde_json::to_string(&body)?;
-    let resp = client
+    let resp = client()
         .post(uri)
         .header(CONTENT_TYPE, "application/json")
         .query(&[("token", get_token()?)])
@@ -138,10 +139,10 @@ pub async fn send_group_message(
     Ok(id)
 }
 
-#[tracing::instrument(skip(client))]
-pub async fn get_group(client: &Client, group_id: &GroupId) -> Result<JsonValue> {
+#[tracing::instrument]
+pub async fn get_group(group_id: &GroupId) -> Result<JsonValue> {
     let uri = format!("{BASE_API_URI}/groups/{group_id}");
-    let resp = client
+    let resp = client()
         .get(uri)
         .query(&[("token", get_token()?)])
         .send()
@@ -153,8 +154,8 @@ pub async fn get_group(client: &Client, group_id: &GroupId) -> Result<JsonValue>
     Ok(serde_json::from_str(&resp)?)
 }
 
-#[tracing::instrument(skip(client))]
-pub async fn send_dm(client: &Client, user_id: UserId, text: &str) -> Result<MessageId> {
+#[tracing::instrument]
+pub async fn send_dm(user_id: UserId, text: &str) -> Result<MessageId> {
     let uri = format!("{BASE_API_URI}/direct_messages");
     let uuid = Uuid::new_v4();
     let body = json!({
@@ -165,7 +166,7 @@ pub async fn send_dm(client: &Client, user_id: UserId, text: &str) -> Result<Mes
         }
     });
     let body = serde_json::to_string(&body)?;
-    let resp = client
+    let resp = client()
         .post(uri)
         .header(CONTENT_TYPE, "application/json")
         .query(&[("token", get_token()?)])
@@ -183,15 +184,14 @@ pub async fn send_dm(client: &Client, user_id: UserId, text: &str) -> Result<Mes
     Ok(id)
 }
 
-#[tracing::instrument(skip(client))]
+#[tracing::instrument]
 pub async fn get_group_message_likes(
-    client: &Client,
     group_id: &GroupId,
     msg_id: &MessageId,
 ) -> Result<Vec<UserId>> {
     let uri = format!("{BASE_API_URI}/groups/{group_id}/messages");
     let prev_msg_id = (msg_id.parse::<u64>()? - 1).to_string();
-    let resp = client
+    let resp = client()
         .get(uri)
         .query(&[
             ("token", get_token()?),
@@ -211,14 +211,14 @@ pub async fn get_group_message_likes(
         bail!("Got the wrong message?? msg_id={msg_id}, found={id}");
     }
     let user_strs: Vec<String> = json_access(&value, "response.messages.0.favorited_by")?;
-    let users: Vec<u64> = user_strs.into_iter().map(|u| u.parse().unwrap()).collect();
+    let users: Vec<UserId> = user_strs.into_iter().map(UserId::from).collect();
     Ok(users)
 }
 
-#[tracing::instrument(skip(client))]
-pub async fn like_message(client: &Client, conv_id: &str, msg_id: &MessageId) -> Result<()> {
+#[tracing::instrument]
+pub async fn like_message(conv_id: &str, msg_id: &MessageId) -> Result<()> {
     let uri = format!("{BASE_API_URI}/messages/{conv_id}/{msg_id}/like");
-    let resp = client
+    let resp = client()
         .post(uri)
         .query(&[("token", get_token()?)])
         .send()
@@ -228,9 +228,9 @@ pub async fn like_message(client: &Client, conv_id: &str, msg_id: &MessageId) ->
     Ok(())
 }
 
-pub async fn get_user_id(client: &Client) -> Result<UserId> {
+pub async fn get_user_id() -> Result<UserId> {
     let uri = format!("{BASE_API_URI}/users/me");
-    let resp = client
+    let resp = client()
         .get(uri)
         .query(&[("token", get_token()?)])
         .send()
@@ -241,7 +241,7 @@ pub async fn get_user_id(client: &Client) -> Result<UserId> {
 
     let value: JsonValue = serde_json::from_str(&resp)?;
     let user_id_str: String = json_access(&value, "response.id")?;
-    let user_id = user_id_str.parse().unwrap();
-    tracing::info!("Got User Id: {user_id}");
+    let user_id: UserId = user_id_str.into();
+    tracing::info!("Got User Id: {user_id:?}");
     Ok(user_id)
 }

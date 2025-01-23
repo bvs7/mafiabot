@@ -44,8 +44,7 @@ mod tests {
 
         let test_text = "Testing 123";
         // Try sending a message to Test Lobby
-        let msg_id =
-            api::send_group_message(&client, &TEST_LOBBY_CHAT_ID.to_string(), test_text).await?;
+        let msg_id = api::send_group_message(&TEST_LOBBY_CHAT_ID.to_string(), test_text).await?;
 
         tracing::debug!("Sent message with id {msg_id:?}");
 

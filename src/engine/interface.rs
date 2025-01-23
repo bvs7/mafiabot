@@ -32,6 +32,9 @@ pub enum Error {
         actual: RoleKind,
     },
     IneffectiveVote,
+    InvalidTarget {
+        idx: usize,
+    },
 }
 
 impl std::fmt::Display for Error {
@@ -53,6 +56,9 @@ impl std::fmt::Display for Error {
             }
             Error::IneffectiveVote => {
                 write!(f, "This vote would not have any effect")
+            }
+            Error::InvalidTarget { idx } => {
+                write!(f, "Invalid target index: {idx}")
             }
         }
     }

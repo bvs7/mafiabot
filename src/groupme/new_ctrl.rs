@@ -2,13 +2,24 @@
 
 use std::{
     collections::{HashMap, HashSet},
+    sync::{Arc, Mutex},
     time::Duration,
 };
 
-use chrono::Local;
+use chrono::{format, DateTime, Local};
+use parse::{Cmd, Command, GameCmd, LobbyCmd, Response};
 use reqwest::Client;
+use serde::{Deserialize, Serialize};
+use tokio::sync::mpsc;
 
-use crate::engine::{state::id::Gid, sync_state::State};
+use crate::engine::{
+    state::{
+        id::{Gid, Pid},
+        role::Role,
+        rules::Rules,
+    },
+    sync_state::{State, State_},
+};
 
 use super::{
     api::{self, GroupId},
@@ -16,7 +27,36 @@ use super::{
 };
 
 type MessageId = String;
-type UserId = u64;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(from = "String", into = "String")]
+pub struct UserId(u64);
+
+impl From<String> for UserId {
+    fn from(s: String) -> Self {
+        Self(s.parse().unwrap())
+    }
+}
+impl From<UserId> for String {
+    fn from(u: UserId) -> Self {
+        u.0.to_string()
+    }
+}
+impl From<u64> for UserId {
+    fn from(u: u64) -> Self {
+        Self(u)
+    }
+}
+impl From<UserId> for u64 {
+    fn from(u: UserId) -> Self {
+        u.0
+    }
+}
+impl From<UserId> for Pid {
+    fn from(value: UserId) -> Self {
+        Pid::from(value.0)
+    }
+}
 
 mod parse {
     use serde::Deserialize;
@@ -24,10 +64,13 @@ mod parse {
 
     use crate::{
         engine::state::id::{Choice, Gid, RawBallot, RawChoice},
-        groupme::api::GroupId,
+        groupme::{
+            api::{self, GroupId},
+            subscriber::PushMessage,
+        },
     };
 
-    use super::{GameHolder, Lobby, MessageId, UserId};
+    use super::{Controller, Game, Lobby, MessageId, UserId};
 
     #[derive(Debug, Clone, Deserialize)]
     #[serde(from = "String")]
@@ -65,9 +108,8 @@ mod parse {
         created_at: u64,
         id: String,
         name: String,
-        sender_id: String,
         text: String,
-        user_id: String,
+        user_id: UserId,
     }
 
     #[derive(Debug, Clone, Deserialize)]
@@ -78,19 +120,20 @@ mod parse {
     }
 
     #[derive(Debug, Clone)]
-    enum Cmd {
-        Lobby(UserId, LobbyCmd),
+    pub enum Cmd {
+        Lobby(GroupId, UserId, LobbyCmd),
         Game(Gid, UserId, GameCmd),
     }
 
     #[derive(Debug, Clone)]
-    enum LobbyCmd {
+    pub enum LobbyCmd {
         Start(usize, usize),
         Status(Option<Gid>),
     }
 
+    // TODO: don't let this be raw
     #[derive(Debug, Clone)]
-    enum GameCmd {
+    pub enum GameCmd {
         Vote(RawBallot),
         Reveal,
         Target(RawChoice),
@@ -99,79 +142,150 @@ mod parse {
     }
 
     #[derive(Debug, Clone)]
-    struct Command {
-        cmd: Cmd,
-        response: Response,
+    pub struct Command {
+        pub cmd: Cmd,
+        pub response: Response,
     }
 
     #[derive(Debug, Clone)]
-    enum Response {
+    pub enum Response {
         Group(MessageId, GroupId),
         DM(MessageId, UserId),
     }
 
-    impl Lobby {
-        fn parse_cmd(&self, response: JsonValue) -> Option<Command> {
-            let inter: Interaction = serde_json::from_value(response).ok()?;
-            use InteractionType::*;
+    impl Response {
+        pub fn msg_id(&self) -> &MessageId {
+            match self {
+                Response::Group(msg_id, _) => msg_id,
+                Response::DM(msg_id, _) => msg_id,
+            }
+        }
+        pub async fn like(&self) {
+            match self {
+                Response::Group(msg_id, group_id) => {
+                    let _ = api::like_message(group_id, msg_id).await.unwrap();
+                }
+                Response::DM(_, user_id) => {
+                    // Skip for now
+                }
+            }
+        }
+        pub async fn respond(&self, text: &str) -> anyhow::Result<MessageId> {
+            match self {
+                Response::Group(_, group_id) => api::send_group_message(group_id, text).await,
+                Response::DM(_, user_id) => api::send_dm(*user_id, text).await,
+            }
+        }
+    }
 
+    impl Controller {
+        fn handle_input(&mut self, msg: PushMessage) {
+            let Some(data) = msg.data() else {
+                return;
+            };
+            let Some(command) = self.parse_input(data.clone()) else {
+                return;
+            };
+
+            self.handle_command(command);
+        }
+
+        fn parse_input(&self, data: JsonValue) -> Option<Command> {
+            let interaction: Interaction = match serde_json::from_value(data) {
+                Ok(interaction) => interaction,
+                Err(err) => {
+                    tracing::warn!("Error parsing interaction: {err}");
+                    return None;
+                }
+            };
+            match interaction.type_ {
+                InteractionType::GroupMsg => {
+                    let cmd = self.parse_group_cmd(&interaction.subject)?;
+                    Some(Command {
+                        cmd,
+                        response: Response::Group(
+                            interaction.subject.id,
+                            interaction.subject.group_id,
+                        ),
+                    })
+                }
+                InteractionType::DirectMsg => {
+                    let cmd = self.parse_dm_cmd(&interaction.subject)?;
+                    Some(Command {
+                        cmd,
+                        response: Response::DM(interaction.subject.id, interaction.subject.user_id),
+                    })
+                }
+                InteractionType::Unknown(s) => {
+                    tracing::warn!("Unknown interaction type: {s}");
+                    None
+                }
+            }
+        }
+
+        fn parse_group_cmd(&self, s: &Subject) -> Option<Cmd> {
             // Parse the command
-            let user_id: u64 = inter.subject.user_id.parse().ok()?;
-            let mut chars = inter.subject.text.chars();
-            let c1 = chars.next()?;
+            let user_id = s.user_id;
+            let group_id = &s.group_id;
+            let text = &s.text;
+            let c1 = text.chars().next()?;
             if c1 != '/' {
                 return None;
             }
-            let text: String = chars.collect();
-            let mut words = text.split_whitespace();
+            let words: Vec<_> = text.split_whitespace().collect();
             let mut cmd = None;
-            if matches!(inter.type_, GroupMsg) {
-                let group_id = &inter.subject.group_id;
-                if group_id == &self.lobby_chat_id {
-                    cmd = self
-                        .parse_lobby_cmd(&inter, &mut words)
-                        .map(|cmd| Cmd::Lobby(user_id, cmd));
-                } else {
-                    for (gid, game) in self.games.iter() {
-                        if group_id == &game.main_chat_id {
-                            cmd = game
-                                .parse_main_chat_cmd(&inter, user_id, &mut words)
-                                .map(|cmd| Cmd::Game(*gid, user_id, cmd));
-                            break;
-                        } else if group_id == &game.mafia_chat_id {
-                            cmd = game
-                                .parse_mafia_chat_cmd(&inter, &mut words)
-                                .map(|cmd| Cmd::Game(*gid, user_id, cmd));
-                            break;
-                        }
+
+            if let Some(lobby) = self.lobbies.get(group_id) {
+                let c = lobby.parse_lobby_cmd(&mut words.clone());
+                if let Some(c) = c {
+                    cmd = Some(Cmd::Lobby(group_id.to_string(), user_id, c));
+                }
+            }
+
+            for (gid, game) in self.games.iter() {
+                if &game.main_chat.group_id == group_id {
+                    if let Some(c) = game.parse_main_chat_cmd(&s, user_id, &words) {
+                        cmd = Some(Cmd::Game(*gid, user_id, c));
+                        break;
+                    }
+                } else if &game.mafia_chat.group_id == group_id {
+                    if let Some(c) = game.parse_mafia_chat_cmd(&words) {
+                        cmd = Some(Cmd::Game(*gid, user_id, c));
+                        break;
                     }
                 }
             }
 
-            if cmd.is_none() && matches!(inter.type_, DirectMsg) {
-                let gid = self.player_focus.get(&user_id);
-                if let Some(gid) = gid {
-                    if let Some(game) = self.games.get(gid) {
-                        cmd = game
-                            .parse_dm_game_cmd(&inter, *gid, &mut words)
-                            .map(|cmd| Cmd::Game(*gid, user_id, cmd));
-                    }
-                }
-            }
-            let response = match inter.type_ {
-                GroupMsg => Response::Group(inter.subject.id, inter.subject.group_id),
-                DirectMsg => Response::DM(inter.subject.id, user_id),
-                Unknown(_) => return None,
-            };
-            cmd.map(|cmd| Command { cmd, response })
+            // TODO: parse app command?
+
+            cmd
         }
 
-        fn parse_lobby_cmd(
-            &self,
-            i: &Interaction,
-            words: &mut dyn Iterator<Item = &str>,
-        ) -> Option<LobbyCmd> {
-            let first = words.next()?;
+        fn parse_dm_cmd(&self, s: &Subject) -> Option<Cmd> {
+            let user_id = s.user_id;
+            let group_id = &s.group_id;
+            let text = &s.text;
+            let c1 = text.chars().next()?;
+            if c1 != '/' {
+                return None;
+            }
+            let words: Vec<_> = text.split_whitespace().collect();
+            let mut cmd = None;
+
+            if let Some(gid) = self.player_focus.get(&user_id) {
+                let game = self.games.get(gid)?;
+                if let Some(c) = game.parse_dm_game_cmd(&words) {
+                    cmd = Some(Cmd::Game(*gid, user_id, c));
+                }
+            }
+            // TODO: parse app command
+            cmd
+        }
+    }
+    impl Lobby {
+        fn parse_lobby_cmd(&self, words: &Vec<&str>) -> Option<LobbyCmd> {
+            let mut words = words.iter();
+            let first = *words.next()?;
             match first {
                 "start" => {
                     let minutes = words.next()?.parse().ok()?;
@@ -183,7 +297,7 @@ mod parse {
                         .next()
                         .map(|gid_str| gid_str.parse::<u64>().ok().map(Gid::from))
                         .flatten()
-                        .map(|gid| self.games.contains_key(&gid).then_some(gid))
+                        .map(|gid| self.games.contains(&gid).then_some(gid))
                         .flatten();
                     Some(LobbyCmd::Status(gid))
                 }
@@ -192,40 +306,40 @@ mod parse {
         }
     }
 
-    impl GameHolder {
+    impl Game {
         fn parse_target(&self, target_idx: &str) -> Option<RawChoice> {
             let idx = target_idx.chars().next()?.to_ascii_uppercase();
             if !idx.is_ascii_alphabetic() {
                 return None;
             }
             let ascii_idx = (idx as u8) - b'A';
-            if ascii_idx == self.player_list.len() as u8 {
-                return Some(None);
-            }
-            let pid = self.player_list.get(ascii_idx as usize)?;
+            let rstate = self.state.lock().unwrap();
+            let choice = rstate.get_target(ascii_idx as usize).ok()?.map(u64::from);
+            drop(rstate);
 
-            Some(Some(*pid))
+            Some(choice)
         }
         fn parse_main_chat_cmd(
             &self,
-            inter: &Interaction,
-            user_id: UserId,
-            words: &mut dyn Iterator<Item = &str>,
+            s: &Subject,
+            uid: UserId,
+            words: &Vec<&str>,
         ) -> Option<GameCmd> {
-            let first = words.next()?;
+            let mut words = words.iter();
+            let first = *words.next()?;
             match first {
                 "vote" => {
                     let next = words.next();
-                    if let Some("nokill") = next {
+                    if let Some(&"nokill") = next {
                         return Some(GameCmd::Vote(Some(None)));
-                    } else if let Some("me") = next {
-                        return Some(GameCmd::Vote(Some(Some(user_id))));
+                    } else if let Some(&"me") = next {
+                        return Some(GameCmd::Vote(Some(Some(uid.0))));
                     } else {
-                        for attachment in inter.subject.attachments.iter() {
+                        for attachment in s.attachments.iter() {
                             if let Attachment::Mentions { user_ids } = attachment {
                                 if user_ids.len() >= 1 {
-                                    let pid = user_ids[0];
-                                    return Some(GameCmd::Vote(Some(Some(pid))));
+                                    let uid = user_ids[0];
+                                    return Some(GameCmd::Vote(Some(Some(uid.0))));
                                 }
                             }
                         }
@@ -238,15 +352,12 @@ mod parse {
             }
         }
 
-        fn parse_mafia_chat_cmd(
-            &self,
-            inter: &Interaction,
-            words: &mut dyn Iterator<Item = &str>,
-        ) -> Option<GameCmd> {
-            let first = words.next()?;
+        fn parse_mafia_chat_cmd(&self, words: &Vec<&str>) -> Option<GameCmd> {
+            let mut words = words.iter();
+            let first = *words.next()?;
             match first {
                 "target" => {
-                    let target_idx = words.next()?;
+                    let target_idx = *words.next()?;
                     let choice = self.parse_target(target_idx)?;
                     Some(GameCmd::Scheme(choice))
                 }
@@ -254,17 +365,13 @@ mod parse {
             }
         }
 
-        fn parse_dm_game_cmd(
-            &self,
-            i: &Interaction,
-            gid: Gid,
-            words: &mut dyn Iterator<Item = &str>,
-        ) -> Option<GameCmd> {
-            let first = words.next()?;
+        fn parse_dm_game_cmd(&self, words: &Vec<&str>) -> Option<GameCmd> {
+            let mut words = words.iter();
+            let first = *words.next()?;
             match first {
                 "reveal" => Some(GameCmd::Reveal),
                 "target" => {
-                    let target_idx = words.next()?;
+                    let target_idx = *words.next()?;
                     let choice = self.parse_target(target_idx)?;
                     Some(GameCmd::Target(choice))
                 }
@@ -283,241 +390,439 @@ mod parse {
         use crate::{
             engine::{
                 state::{role::Role, rules::Rules},
-                sync_state::State,
+                sync_state::State_,
             },
             groupme::{BRIAN_UID, LOBBY_CHAT_ID, TEST_LOBBY_CHAT_ID},
         };
 
         use super::*;
 
-        fn state_3() -> State {
-            let registry = vec![(1, Role::TOWN), (2, Role::TOWN), (3, Role::MAFIA)];
-            State::new(registry, Rules::default())
-        }
+        // fn state_3() -> State_ {
+        //     let registry = vec![(1, Role::TOWN), (2, Role::TOWN), (3, Role::MAFIA)];
+        //     State_::new(registry, Rules::default())
+        // }
 
-        #[test]
-        #[traced_test]
-        fn parsing_cmds() {
-            let mut lobby = Lobby::new(TEST_LOBBY_CHAT_ID.to_string());
-            let game = GameHolder {
-                game_id: Gid::from(1),
-                game: state_3(),
-                main_chat_id: "main".to_string(),
-                mafia_chat_id: "mafia".to_string(),
-                player_list: vec![1, 2, 3],
-                names: HashMap::new(),
-            };
+        // #[test]
+        // #[traced_test]
+        // fn parsing_cmds() {
+        //     let mut lobby = Lobby::new(TEST_LOBBY_CHAT_ID.to_string());
+        //     let game = GameHolder {
+        //         game_id: Gid::from(1),
+        //         game: state_3(),
+        //         main_chat_id: "main".to_string(),
+        //         mafia_chat_id: "mafia".to_string(),
+        //         player_list: vec![1, 2, 3],
+        //         names: HashMap::new(),
+        //     };
 
-            lobby.games.insert(Gid::from(1), game);
-            lobby.player_focus.insert(BRIAN_UID, Gid::from(1));
+        //     lobby.games.insert(Gid::from(1), game);
+        //     lobby.player_focus.insert(BRIAN_UID, Gid::from(1));
 
-            let msg1 = json!({
-                "subject":  {
-                    "attachments": [],
-                    "created_at": 1737048634,
-                    "group_id": TEST_LOBBY_CHAT_ID,
-                    "id": "173704863488783901",
-                    "name": "Brian \"Testing\" Scaramella",
-                    "sender_id": "21642197",
-                    "text": "/start 5 3",
-                    "user_id": "21642197",
-                },
-                "type": "line.create",
-            });
-            let cmd = lobby.parse_cmd(msg1);
-            assert!(matches!(
-                cmd,
-                Some(Command {
-                    cmd: Cmd::Lobby(_, LobbyCmd::Start(5, 3)),
-                    ..
-                })
-            ));
+        //     let msg1 = json!({
+        //         "subject":  {
+        //             "attachments": [],
+        //             "created_at": 1737048634,
+        //             "group_id": TEST_LOBBY_CHAT_ID,
+        //             "id": "173704863488783901",
+        //             "name": "Brian \"Testing\" Scaramella",
+        //             "sender_id": "21642197",
+        //             "text": "/start 5 3",
+        //             "user_id": "21642197",
+        //         },
+        //         "type": "line.create",
+        //     });
+        //     let cmd = lobby.parse_cmd(msg1);
+        //     assert!(matches!(
+        //         cmd,
+        //         Some(Command {
+        //             cmd: Cmd::Lobby(_, LobbyCmd::Start(5, 3)),
+        //             ..
+        //         })
+        //     ));
 
-            let msg2 = json!({
-                "subject":  {
-                    "attachments": [],
-                    "created_at": 1737048634,
-                    "group_id": TEST_LOBBY_CHAT_ID,
-                    "id": "173704863488783901",
-                    "name": "Brian \"Testing\" Scaramella",
-                    "sender_id": "21642197",
-                    "text": "/status",
-                    "user_id": "21642197",
-                },
-                "type": "line.create",
-            });
-            let cmd = lobby.parse_cmd(msg2);
-            assert!(matches!(
-                cmd,
-                Some(Command {
-                    cmd: Cmd::Lobby(_, LobbyCmd::Status(None)),
-                    ..
-                })
-            ));
+        //     let msg2 = json!({
+        //         "subject":  {
+        //             "attachments": [],
+        //             "created_at": 1737048634,
+        //             "group_id": TEST_LOBBY_CHAT_ID,
+        //             "id": "173704863488783901",
+        //             "name": "Brian \"Testing\" Scaramella",
+        //             "sender_id": "21642197",
+        //             "text": "/status",
+        //             "user_id": "21642197",
+        //         },
+        //         "type": "line.create",
+        //     });
+        //     let cmd = lobby.parse_cmd(msg2);
+        //     assert!(matches!(
+        //         cmd,
+        //         Some(Command {
+        //             cmd: Cmd::Lobby(_, LobbyCmd::Status(None)),
+        //             ..
+        //         })
+        //     ));
 
-            let msg3 = json!({
-                "subject":  {
-                    "attachments": [],
-                    "created_at": 1737048634,
-                    "group_id": "main",
-                    "id": "173704863488783901",
-                    "name": "Brian \"Testing\" Scaramella",
-                    "sender_id": "21642197",
-                    "text": "/status",
-                    "user_id": "21642197",
-                },
-                "type": "line.create",
-            });
-            let cmd = lobby.parse_cmd(msg3);
-            assert!(matches!(
-                cmd,
-                Some(Command {
-                    cmd: Cmd::Game(_, _, GameCmd::Status),
-                    ..
-                })
-            ));
+        //     let msg3 = json!({
+        //         "subject":  {
+        //             "attachments": [],
+        //             "created_at": 1737048634,
+        //             "group_id": "main",
+        //             "id": "173704863488783901",
+        //             "name": "Brian \"Testing\" Scaramella",
+        //             "sender_id": "21642197",
+        //             "text": "/status",
+        //             "user_id": "21642197",
+        //         },
+        //         "type": "line.create",
+        //     });
+        //     let cmd = lobby.parse_cmd(msg3);
+        //     assert!(matches!(
+        //         cmd,
+        //         Some(Command {
+        //             cmd: Cmd::Game(_, _, GameCmd::Status),
+        //             ..
+        //         })
+        //     ));
 
-            let msg4 = json!({
-                "subject":  {
-                    "attachments": [],
-                    "created_at": 1737048634,
-                    "group_id": "main",
-                    "id": "173704863488783901",
-                    "name": "Brian \"Testing\" Scaramella",
-                    "sender_id": "21642197",
-                    "text": "/vote me",
-                    "user_id": "21642197",
-                },
-                "type": "line.create",
-            });
-            let cmd = lobby.parse_cmd(msg4);
-            assert!(matches!(
-                cmd,
-                Some(Command {
-                    cmd: Cmd::Game(_, _, GameCmd::Vote(_)),
-                    ..
-                })
-            ));
+        //     let msg4 = json!({
+        //         "subject":  {
+        //             "attachments": [],
+        //             "created_at": 1737048634,
+        //             "group_id": "main",
+        //             "id": "173704863488783901",
+        //             "name": "Brian \"Testing\" Scaramella",
+        //             "sender_id": "21642197",
+        //             "text": "/vote me",
+        //             "user_id": "21642197",
+        //         },
+        //         "type": "line.create",
+        //     });
+        //     let cmd = lobby.parse_cmd(msg4);
+        //     assert!(matches!(
+        //         cmd,
+        //         Some(Command {
+        //             cmd: Cmd::Game(_, _, GameCmd::Vote(_)),
+        //             ..
+        //         })
+        //     ));
 
-            let msg5 = json!({
-                "subject":  {
-                    "attachments": [],
-                    "created_at": 1737048634,
-                    "group_id": "mafia",
-                    "id": "173704863488783901",
-                    "name": "Brian \"Testing\" Scaramella",
-                    "sender_id": "21642197",
-                    "text": "/target B",
-                    "user_id": "21642197",
-                },
-                "type": "line.create",
-            });
-            let cmd = lobby.parse_cmd(msg5);
-            assert!(matches!(
-                cmd,
-                Some(Command {
-                    cmd: Cmd::Game(_, _, GameCmd::Scheme(_)),
-                    ..
-                })
-            ));
+        //     let msg5 = json!({
+        //         "subject":  {
+        //             "attachments": [],
+        //             "created_at": 1737048634,
+        //             "group_id": "mafia",
+        //             "id": "173704863488783901",
+        //             "name": "Brian \"Testing\" Scaramella",
+        //             "sender_id": "21642197",
+        //             "text": "/target B",
+        //             "user_id": "21642197",
+        //         },
+        //         "type": "line.create",
+        //     });
+        //     let cmd = lobby.parse_cmd(msg5);
+        //     assert!(matches!(
+        //         cmd,
+        //         Some(Command {
+        //             cmd: Cmd::Game(_, _, GameCmd::Scheme(_)),
+        //             ..
+        //         })
+        //     ));
 
-            let msg6 = json!({
-                "subject":  {
-                    "attachments": [],
-                    "created_at": 1737048634,
-                    "group_id": "mafia",
-                    "id": "173704863488783901",
-                    "name": "Brian \"Testing\" Scaramella",
-                    "sender_id": "21642197",
-                    "text": "/target B",
-                    "user_id": "21642197",
-                },
-                "type": "direct_message.create",
-            });
-            let cmd = lobby.parse_cmd(msg6);
-            assert!(matches!(
-                cmd,
-                Some(Command {
-                    cmd: Cmd::Game(_, _, GameCmd::Target(_)),
-                    ..
-                })
-            ));
+        //     let msg6 = json!({
+        //         "subject":  {
+        //             "attachments": [],
+        //             "created_at": 1737048634,
+        //             "group_id": "mafia",
+        //             "id": "173704863488783901",
+        //             "name": "Brian \"Testing\" Scaramella",
+        //             "sender_id": "21642197",
+        //             "text": "/target B",
+        //             "user_id": "21642197",
+        //         },
+        //         "type": "direct_message.create",
+        //     });
+        //     let cmd = lobby.parse_cmd(msg6);
+        //     assert!(matches!(
+        //         cmd,
+        //         Some(Command {
+        //             cmd: Cmd::Game(_, _, GameCmd::Target(_)),
+        //             ..
+        //         })
+        //     ));
+        // }
+    }
+}
+
+/*
+Should the lobby be separated from its games?
+A lobby should know about its games, as in, know how to reference its games...
+... but maybe not necessarily.
+Say we had an app that has both lobbies and games. The lobby starting a game
+would register that game with the app. In fact the app should tell the lobby
+what the gid is.
+How would that relationship work?
+
+The app is split into...
+- Input server. A handler that listens for messages and serves them accoringly
+- A controller, which is a single task that calls updates, creates unique gids, etc.
+- Event handlers, which are tasks for each game that listen for events and respond.
+
+
+Controller. When we create one of these...
+- It starts its input server, which is the push server.
+- The push server gets messages, and routes them to the correct lobbies and games
+    - Using the group id or chat id, it can route to the correct lobby or game
+- Then, the controller also has update tasks.
+    - The controller itself has a task that gets start requests from lobbies
+        - And also monitors games for completion, and deletes them after some amount of time
+    - Each lobby has a task which listens for a start timer to finish
+    - Each game has a task that calls the update fn when necessary
+- Additionally, we have event listeners for the games.
+
+
+The update functions for each system should be called each time a mutating command was passed in.
+They should return a time for when they need to be called again.
+*/
+// TODO: put this in api? maybe
+struct GroupMeGroup {
+    group_id: GroupId,
+    names: HashMap<UserId, String>,
+}
+
+impl GroupMeGroup {
+    async fn new(name: &str) -> Self {
+        let group_id = api::create_group(name).await.unwrap();
+        Self {
+            group_id,
+            names: HashMap::new(),
         }
     }
 }
 
-enum LobbyCmd {
-    StartGame(usize, usize),
-    Status(Option<Gid>),
-    Help(String),
+struct Controller {
+    lobbies: HashMap<GroupId, Lobby>,
+    games: HashMap<Gid, Game>,
+    player_focus: HashMap<UserId, Gid>,
 }
 
-enum GameCmd {
-    Vote(Option<u64>),
-    Reveal,
-    Target(Option<u64>),
-    Scheme(Option<u64>),
-    Status,
-    Help(String),
+impl Controller {
+    async fn handle_command(&mut self, cmd: Command) {
+        match cmd {
+            Command {
+                cmd: Cmd::Game(gid, uid, game_cmd),
+                response,
+            } => {
+                if let Some(game) = self.games.get_mut(&gid) {
+                    game.handle_command(uid, game_cmd, response);
+                }
+            }
+            Command {
+                cmd: Cmd::Lobby(lobby_id, uid, lobby_cmd),
+                response,
+            } => {
+                if let Some(lobby) = self.lobbies.get_mut(&lobby_id) {
+                    lobby.handle_command(uid, lobby_cmd, response, &self.games);
+                }
+            }
+        }
+    }
+
+    async fn handle_try_start(&mut self, players: Vec<UserId>, group_id: GroupId) {
+        let lobby = self.lobbies.get_mut(&group_id).unwrap();
+        let gid = Gid::new();
+        let roles: Vec<Role> = todo!("Rolegen");
+        let registry: Vec<(UserId, Role)> = players.into_iter().zip(roles).collect();
+        let state = State::new(registry, Rules::default());
+        let game = Game::new(gid, state).await;
+        // TODO: create event listener?
+        self.games.insert(gid, game);
+        lobby.games.insert(gid);
+        // TODO: Add players to games
+        // TODO: Update names of main chat
+    }
+}
+
+// Note: for now, Mutex is std::sync::Mutex, which means the Guard can't be held
+// over await boundaries... so we need to be careful about that.
+// Let's have a
+
+struct Game {
+    game_id: Gid,
+    main_chat: GroupMeGroup,
+    mafia_chat: GroupMeGroup,
+    state: Arc<Mutex<State>>,
+}
+
+impl Game {
+    async fn new(game_id: Gid, state: State) -> Self {
+        let main_chat = GroupMeGroup::new(&format!("Main Chat #{game_id}")).await;
+        let mafia_chat = GroupMeGroup::new(&format!("Mafia Chat #{game_id}")).await;
+        Self {
+            game_id,
+            main_chat,
+            mafia_chat,
+            state: Arc::new(Mutex::new(state)),
+        }
+    }
+
+    fn handle_command(&mut self, uid: UserId, cmd: GameCmd, response: Response) {
+        let raw_uid = u64::from(uid);
+        let mut rstate = self.state.lock().unwrap();
+        let result = match cmd {
+            GameCmd::Vote(vote) => rstate.vote(raw_uid, vote),
+            GameCmd::Reveal => rstate.reveal(raw_uid),
+            GameCmd::Target(target) => rstate.target(raw_uid, target),
+            GameCmd::Scheme(scheme) => rstate.scheme(raw_uid, scheme),
+            GameCmd::Status => {
+                let status = rstate.status(self.main_chat.names.clone());
+                let gid = self.game_id;
+                let msg = format!("Game {gid} {status}");
+                let r = response.clone();
+                tokio::spawn(async move { r.respond(&msg).await.unwrap() });
+                Ok(())
+            }
+        };
+        drop(rstate);
+        match result {
+            Ok(()) => {
+                let _ = tokio::spawn(async move { response.like().await });
+            }
+            Err(err) => {
+                let _ =
+                    tokio::spawn(async move { response.respond(&format!("Error: {err}")).await });
+            }
+        };
+    }
 }
 
 struct Lobby {
-    lobby_chat_id: String,
-    games: HashMap<Gid, GameHolder>,
-    player_focus: HashMap<UserId, Gid>,
-    names: HashMap<UserId, String>,
+    lobby_chat: GroupMeGroup,
+    start_msg: Arc<Mutex<Option<(MessageId, DateTime<Local>, usize)>>>,
+    games: HashSet<Gid>,
+    try_start: Arc<mpsc::Sender<(Vec<UserId>, GroupId)>>,
     admins: HashSet<UserId>,
 }
 
-struct GameHolder {
-    game_id: Gid,
-    game: State,
-    main_chat_id: String,
-    mafia_chat_id: String,
-    player_list: Vec<UserId>,
-    names: HashMap<UserId, String>,
-}
-
 impl Lobby {
-    fn new(lobby_chat_id: String) -> Self {
+    fn new(lobby_chat: GroupMeGroup, try_start: mpsc::Sender<(Vec<UserId>, GroupId)>) -> Self {
         Self {
-            lobby_chat_id,
-            games: HashMap::new(),
-            player_focus: HashMap::new(),
-            names: HashMap::new(),
-            admins: [BRIAN_UID].into_iter().collect(),
-            // start_msg: None,
+            lobby_chat,
+            start_msg: Arc::new(Mutex::new(None)),
+            games: HashSet::new(),
+            try_start: Arc::new(try_start),
+            admins: [BRIAN_UID.into()].into_iter().collect(),
         }
     }
 
-    async fn start_msg(self, minutes: usize, min_players: usize) {
-        let msg = format!(
-            "Starting a new game in {} minutes, if {} or more players join.",
-            minutes, min_players
-        );
-        let client = Client::new();
-        let msg_id = api::send_group_message(&client, &self.lobby_chat_id, &msg)
-            .await
-            .unwrap();
-        let time = Local::now() + Duration::from_secs(60 * minutes as u64);
-        tokio::spawn(async move {
-            tokio::time::sleep(Duration::from_secs(60 * minutes as u64));
-            // self.try_start_game(msg_id, min_players).await;
-        });
-        // self.start_msg = Some((msg_id, time));
-        // TODO: start a timer to recognize when this finishes
+    fn handle_command(
+        &mut self,
+        uid: UserId,
+        cmd: LobbyCmd,
+        response: Response,
+        games: &HashMap<Gid, Game>,
+    ) {
+        match cmd {
+            LobbyCmd::Start(minutes, min_players) => {
+                tokio::spawn(Self::send_start_message(
+                    self.start_msg.clone(),
+                    response,
+                    minutes,
+                    min_players,
+                ));
+            }
+            LobbyCmd::Status(Some(gid)) => {
+                if !self.games.contains(&gid) {
+                    let _ = tokio::spawn(async move {
+                        response
+                            .respond(&format!("Game {} not found for this lobby.", gid))
+                            .await
+                            .unwrap()
+                    });
+                    return;
+                }
+                match games.get(&gid) {
+                    Some(game) => {
+                        let state = game.state.lock().unwrap();
+                        let status = state.status(self.lobby_chat.names.clone());
+                        let msg = format!("Game {gid} {status}");
+                        let _ = tokio::spawn(async move { response.respond(&msg).await.unwrap() });
+                    }
+                    None => {
+                        let _ = tokio::spawn(async move {
+                            response
+                                .respond(&format!("Game {} not found.", gid))
+                                .await
+                                .unwrap()
+                        });
+                    }
+                }
+            }
+            LobbyCmd::Status(None) => {
+                // Send summary of games
+                let mut msg = "".to_string();
+                for gid in self.games.iter() {
+                    let Some(game) = games.get(gid) else {
+                        msg.push_str(&format!("Game {gid} not found.\n"));
+                        continue;
+                    };
+                    let state = game.state.lock().unwrap();
+                    let status = state.status(self.lobby_chat.names.clone());
+                    msg.push_str(&status.brief());
+                }
+            }
+        }
     }
 
-    async fn try_start_game(&mut self, msg_id: MessageId, min_players: usize) {
-        let client = Client::new();
-        let users = api::get_group_message_likes(&client, &self.lobby_chat_id, &msg_id)
+    fn update(&mut self) -> Option<DateTime<Local>> {
+        // Check status of start message
+        let mut start_msg = self.start_msg.lock().unwrap();
+        if let Some((msg_id, time, min_players)) = start_msg.take() {
+            if time < Local::now() {
+                let _ = tokio::spawn(Self::try_start_game(
+                    msg_id,
+                    min_players,
+                    self.lobby_chat.group_id.clone(),
+                    self.try_start.clone(),
+                ));
+            } else {
+                *start_msg = Some((msg_id, time, min_players));
+                return Some(time);
+            }
+        }
+        None
+    }
+
+    async fn send_start_message(
+        start_msg: Arc<Mutex<Option<(MessageId, DateTime<Local>, usize)>>>,
+        response: Response,
+        minutes: usize,
+        min_players: usize,
+    ) {
+        let msg_id = response
+            .respond(&format!(
+                "Game starting in {minutes} minutes if there are at \
+                least {min_players} players. Like this message to join."
+            ))
+            .await
+            .unwrap();
+        let time = Local::now() + Duration::from_secs(minutes as u64 * 60);
+        let mut start_msg = start_msg.lock().unwrap();
+        *start_msg = Some((msg_id, time, min_players));
+    }
+
+    async fn try_start_game(
+        msg_id: MessageId,
+        min_players: usize,
+        lobby_id: GroupId,
+        try_start: Arc<mpsc::Sender<(Vec<UserId>, GroupId)>>,
+    ) {
+        let users = api::get_group_message_likes(&lobby_id, &msg_id)
             .await
             .unwrap();
         if users.len() >= min_players {
-            // self.start_game(users).await;
+            let _ = try_start.send((users, lobby_id)).await;
         } else {
-            let msg = "Not enough players to start a game";
-            api::send_group_message(&client, &self.lobby_chat_id, msg)
+            api::send_group_message(&lobby_id, "Not enough players to start game.")
                 .await
                 .unwrap();
         }
