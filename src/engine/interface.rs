@@ -112,7 +112,7 @@ impl Action {
 // We probably need two generics for start roles and known roles here?
 // Maybe even a third for reveal on death...
 // Alternatively, have one Rules trait of some sort with associated types!
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum Event {
     Start {
         players: Vec<(Pid, Role)>,
@@ -125,6 +125,15 @@ pub enum Event {
     Night {
         day: u32,
         counts: HashMap<Team, usize>, // TODO: make Team generic
+    },
+    Eclipse {
+        avenger: Pid,
+        hammer: Pid,
+        guilty: Vec<Pid>,
+    },
+    Vengeance {
+        avenger: Pid,
+        victim: Pid,
     },
     Vote {
         voter: Pid,
@@ -161,6 +170,7 @@ pub enum Event {
         saved: Pid,
         saviors: Vec<Pid>,
     },
+    NoKill,
     Kill {
         killer: Pid,
         mark: Pid,
@@ -169,6 +179,10 @@ pub enum Event {
         cop: Pid,
         target: Pid,
         appears_mafia: bool,
+    },
+    Milk {
+        milky: Pid,
+        target: Pid,
     },
     End {
         winner: Team,

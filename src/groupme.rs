@@ -1,10 +1,11 @@
 mod api;
 mod game_context;
+mod new_ctrl;
 mod subscriber;
 mod util;
 
 pub const MODERATOR_UID: &str = "43040067";
-pub const BRIAN_UID: &str = "21642197";
+pub const BRIAN_UID: u64 = 21642197;
 
 pub const LOBBY_CHAT_ID: &str = "25833774";
 pub const MAIN_CHAT_ID: &str = "105362524";

@@ -3,7 +3,7 @@ use std::{collections::HashMap, sync::Arc, time::Duration};
 use tokio::sync::{broadcast, oneshot, RwLock};
 use tracing::{debug, error, info, instrument, trace, warn};
 
-#[derive(Debug, Clone, Copy, Hash, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Hash, Eq, PartialEq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(into = "u64", from = "u64")]
 pub struct Pid(u64);
 

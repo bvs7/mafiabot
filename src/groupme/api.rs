@@ -10,7 +10,7 @@ use super::util::{get_token, json_access, UnexpectedJsonError};
 
 pub type UserId = u64;
 
-pub type GroupId = u64;
+pub type GroupId = String;
 
 pub type MessageId = String;
 
@@ -25,7 +25,7 @@ pub struct Member {
 #[tracing::instrument(skip(client))]
 pub async fn add_members(
     client: &Client,
-    group_id: &str,
+    group_id: &GroupId,
     members: Vec<(String, UserId)>,
 ) -> Result<()> {
     let uri = format!("{BASE_API_URI}/groups/{group_id}/members/add");
@@ -93,7 +93,7 @@ pub async fn create_group(client: &Client, name: &str) -> Result<GroupId> {
 }
 
 #[tracing::instrument(skip(client))]
-pub async fn delete_group(client: &Client, group_id: GroupId) -> Result<()> {
+pub async fn delete_group(client: &Client, group_id: &GroupId) -> Result<()> {
     let uri = format!("{BASE_API_URI}/groups/{group_id}/destroy");
     let resp = client
         .post(uri)
@@ -106,7 +106,11 @@ pub async fn delete_group(client: &Client, group_id: GroupId) -> Result<()> {
 }
 
 #[tracing::instrument(skip(client))]
-pub async fn send_group_message(client: &Client, group_id: &str, text: &str) -> Result<MessageId> {
+pub async fn send_group_message(
+    client: &Client,
+    group_id: &GroupId,
+    text: &str,
+) -> Result<MessageId> {
     let uri = format!("{BASE_API_URI}/groups/{group_id}/messages");
     let uuid = Uuid::new_v4();
     let body = json!({
@@ -135,7 +139,7 @@ pub async fn send_group_message(client: &Client, group_id: &str, text: &str) -> 
 }
 
 #[tracing::instrument(skip(client))]
-pub async fn get_group(client: &Client, group_id: &str) -> Result<JsonValue> {
+pub async fn get_group(client: &Client, group_id: &GroupId) -> Result<JsonValue> {
     let uri = format!("{BASE_API_URI}/groups/{group_id}");
     let resp = client
         .get(uri)
@@ -182,7 +186,7 @@ pub async fn send_dm(client: &Client, user_id: UserId, text: &str) -> Result<Mes
 #[tracing::instrument(skip(client))]
 pub async fn get_group_message_likes(
     client: &Client,
-    group_id: GroupId,
+    group_id: &GroupId,
     msg_id: &MessageId,
 ) -> Result<Vec<UserId>> {
     let uri = format!("{BASE_API_URI}/groups/{group_id}/messages");

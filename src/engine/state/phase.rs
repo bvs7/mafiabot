@@ -1,8 +1,6 @@
-use super::{
-    night_action::{NightAct, NightAction},
-    role::Team,
-    Ballot, Choice, Error, Pid, Players,
-};
+use crate::engine::sync_state::night_action::NightAct;
+
+use super::{role::Team, Ballot, Choice, Error, Pid, Players};
 use chrono::{DateTime, Local};
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, thread::JoinHandle};
@@ -30,6 +28,12 @@ pub enum Phase {
         #[serde(skip_serializing_if = "Option::is_none")]
         pend_dawn: Option<DateTime<Local>>,
     },
+    Eclipse {
+        avenger: Pid,
+        hammer: Pid,
+        guilty: Vec<Pid>,
+        vote: Option<Pid>,
+    },
     End {
         winner: Team,
     },
@@ -45,6 +49,35 @@ impl Phase {
             expected,
             actual: self.kind(),
         })
+    }
+
+    pub fn eclipse_vote(&mut self, voter: Pid, ballot: Ballot) -> Result<(), Error> {
+        let Self::Eclipse {
+            avenger,
+            hammer,
+            guilty,
+            vote,
+        } = self
+        else {
+            return self.expected(PhaseKind::Eclipse);
+        };
+        if voter != *avenger {
+            return Err(Error::IneffectiveVote);
+        }
+        let Some(choice) = ballot else {
+            return Err(Error::IneffectiveVote);
+        };
+        let Some(victim) = choice else {
+            return Err(Error::IneffectiveVote);
+        };
+        if victim == *avenger {
+            return Err(Error::IneffectiveVote);
+        }
+        if !guilty.contains(&victim) {
+            return Err(Error::IneffectiveVote);
+        }
+        *vote = Some(victim);
+        Ok(())
     }
 
     pub fn vote(&mut self, voter: Pid, ballot: Ballot) -> Result<Ballot, Error> {
@@ -86,31 +119,6 @@ impl Phase {
             return self.expected(PhaseKind::Night);
         };
         Ok(scheme.replace((killer, mark)))
-    }
-
-    pub fn to_night_actions(&self, players: &Players) -> impl Iterator<Item = NightAction> {
-        let Phase::Night {
-            targets, scheme, ..
-        } = self
-        else {
-            panic!("To night actions during not night");
-        };
-        let mut night_actions: Vec<NightAction> = targets
-            .into_iter()
-            .flat_map(|(a, t)| t.map(|t| NightAction::from_target(players.get(*a), *a, t)))
-            .collect();
-        let s = scheme
-            .map(|(actor, m)| {
-                m.map(|target| NightAction {
-                    act: NightAct::Kill,
-                    actor,
-                    target,
-                })
-            })
-            .flatten();
-        night_actions.extend(s);
-        night_actions.sort();
-        night_actions.into_iter().rev()
     }
 }
 

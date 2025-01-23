@@ -1,4 +1,3 @@
-use night_action::DawnState;
 use serde::{de, Deserialize, Serialize};
 use std::{collections::HashMap, sync::Arc, time::Duration};
 use tokio::sync::{broadcast, oneshot, RwLock};
@@ -293,15 +292,15 @@ impl State {
 
     fn dawn(&mut self) {
         debug!("Dawn");
-        self.tx(Event::Dawn);
-        let night_actions = self.phase.to_night_actions(&self.players);
-        let ds = night_actions.fold(DawnState::default(), |acc, na| acc.fold(na, &self));
-        for (mark, killer) in ds.kills {
-            self.tx(Event::Kill { killer, mark });
-            self.eliminate(mark, killer, Context::new(self.day, Cause::Kill));
-        }
+        // self.tx(Event::Dawn);
+        // let night_actions = self.phase.to_night_actions(&self.players);
+        // let ds = night_actions.fold(DawnState::default(), |acc, na| acc.apply(na, &self));
+        // for (mark, killer) in ds.kills {
+        //     self.tx(Event::Kill { killer, mark });
+        //     self.eliminate(mark, killer, Context::new(self.day, Cause::Kill));
+        // }
 
-        self.to_day(ds.blocks);
+        // self.to_day(ds.blocks);
     }
 
     fn eliminate(&mut self, pid: Pid, _culpable: Pid, context: Context) {
@@ -415,7 +414,7 @@ mod tests {
     #[tokio::test]
     #[tracing_test::traced_test]
     async fn basic_test() {
-        let mut state = basic_game();
+        let state = basic_game();
         let event_rx = state.subscribe();
         tokio::spawn(listen_events(event_rx));
         let this = Arc::new(RwLock::new(state));
@@ -456,7 +455,7 @@ mod tests {
 
     #[tokio::test]
     async fn basic_test_errs() {
-        let mut state = basic_game();
+        let state = basic_game();
         let event_rx = state.subscribe();
         tokio::spawn(listen_events(event_rx));
         let this = Arc::new(RwLock::new(state));

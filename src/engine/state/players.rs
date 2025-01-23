@@ -41,13 +41,14 @@ impl PlayerLog {
     }
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub enum Cause {
     Election,
     Kill,
+    Vengeance,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Context {
     pub day: u32,
     pub cause: Cause,
@@ -107,6 +108,9 @@ impl Players {
     }
     pub fn n(&self) -> usize {
         self.alive().len()
+    }
+    pub fn get_checked(&self, pid: Pid) -> Option<Role> {
+        self.0.get(&pid).and_then(|plog| plog.as_role())
     }
     pub fn get(&self, pid: Pid) -> Role {
         let Some(plog) = self.0.get(&pid) else {
