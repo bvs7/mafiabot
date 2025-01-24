@@ -8,9 +8,6 @@ extern crate enum_kinds;
 
 mod engine;
 mod groupme;
-mod server;
-
-mod refactor;
 
 use anyhow;
 

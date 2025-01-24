@@ -9,7 +9,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::{broadcast, mpsc};
 use tokio::task::JoinHandle;
 
-use super::{util::get_token, MODERATOR_UID};
+use super::util::{get_token, GroupId, MessageId, UserId, MODERATOR_UID};
 
 const WEBSOCKET_URI: &str = "https://push.groupme.com/faye";
 
@@ -95,10 +95,7 @@ impl Ext {
     fn now() -> Result<Self> {
         Ok(Self {
             access_token: get_token()?,
-            timestamp: SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_secs(),
+            timestamp: SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs(),
         })
     }
 }
@@ -124,20 +121,16 @@ pub struct PushMessage {
     ext: Option<Ext>,
     #[serde(skip_serializing_if = "Option::is_none")]
     connection_type: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    data: Option<JsonValue>,
+    #[serde(skip_serializing)]
+    data: Option<Data>,
 }
 
 impl PushMessage {
     fn new(id: &mut PushId, channel: Channel) -> Self {
-        Self {
-            id: id.inc_and_clone(),
-            channel,
-            ..Self::default()
-        }
+        Self { id: id.inc_and_clone(), channel, ..Self::default() }
     }
 
-    pub fn data(&self) -> &Option<JsonValue> {
+    pub fn data(&self) -> &Option<Data> {
         &self.data
     }
 
@@ -187,6 +180,40 @@ impl std::error::Error for Error {
     }
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(tag = "type")]
+enum Attachment {
+    #[serde(rename = "mentions")]
+    Mentions { user_ids: Vec<UserId> },
+    #[serde(other)]
+    Unknown,
+}
+
+// TODO: make UserId a newtypes
+
+#[derive(Debug, Clone, Deserialize)]
+struct Subject {
+    attachments: Vec<Attachment>,
+    #[serde(alias = "chat_id")]
+    group_id: GroupId,
+    created_at: u64,
+    id: MessageId,
+    name: String,
+    text: String,
+    user_id: UserId,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(tag = "type", content = "subject")]
+enum Data {
+    #[serde(rename = "line.create")]
+    GroupMsg { subject: Subject, received_at: u128 },
+    #[serde(rename = "direct_message.create")]
+    DirectMsg { subject: Subject, received_at: u128 },
+    #[serde(other)]
+    Unknown,
+}
+
 type FromWebSocketTx = broadcast::Sender<PushMessage>;
 pub type FromWebSocket = broadcast::Receiver<PushMessage>;
 pub type ToWebSocket = mpsc::Sender<PushMessage>;
@@ -205,12 +232,7 @@ impl PushWebSocketServer {
         let from_tx = broadcast::Sender::new(100);
         let to_rx = Some(to_rx);
 
-        return Self {
-            to_tx,
-            to_rx,
-            from_tx,
-            id: PushId(0),
-        };
+        return Self { to_tx, to_rx, from_tx, id: PushId(0) };
     }
 
     /// Initialize then spawn a run task
@@ -230,13 +252,7 @@ impl PushWebSocketServer {
         let h1 = tokio::spawn(Self::handshaker_and_subscriber(to_tx, from_tx.subscribe()));
 
         let client = Client::new();
-        let ws = &mut client
-            .get(WEBSOCKET_URI)
-            .upgrade()
-            .send()
-            .await?
-            .into_websocket()
-            .await?;
+        let ws = &mut client.get(WEBSOCKET_URI).upgrade().send().await?.into_websocket().await?;
 
         Self::run(&mut to_rx, &from_tx, ws).await?;
         h1.abort();
@@ -370,49 +386,171 @@ impl PushWebSocketServer {
         }
     }
 }
-
 #[cfg(test)]
-mod tests {
+mod test {
+
     use super::*;
+    use serde_json::{json, Value as JsonValue};
 
-    #[tokio::test]
-    #[tracing_test::traced_test]
-    #[ignore = "Multiple Hour Test"]
-    pub async fn test_long_subscribe() -> Result<()> {
-        let mut server = PushWebSocketServer::new();
-        server.start().unwrap();
-        // Wait a super long time, then see if we are still open?
-        tokio::time::sleep(Duration::from_secs(60 * 60 * 2)).await;
-        // After 2 hours, try getting a message back
-        use super::super::{api, util, TEST_LOBBY_CHAT_ID};
+    fn test1() -> JsonValue {
+        json!([
+            {
+                "channel": "/user/43040067",
+                "clientId": "fayeF34IPC2IHND7HULV5WAZW2EZNKBMKVO",
+                "data": {
+                    "alert": "Brian \"Testing\" Scaramella: Test",
+                    "received_at": 1737048635000,
+                    "subject": {
+                        "attachments": [],
+                        "avatar_url": "https://i.groupme.com/200x205.jpeg.3475af00b96f4d1d8a21a9822ddd5e3a",
+                        "created_at": 1737048634,
+                        "deleted_at": null,
+                        "deletion_actor": null,
+                        "group_id": "105362524",
+                        "id": "173704863488783901",
+                        "location": {
+                            "lat": "",
+                            "lng": "",
+                            "name": null,
+                        },
+                        "name": "Brian \"Testing\" Scaramella",
+                        "parent_id": null,
+                        "picture_url": null,
+                        "pinned_at": null,
+                        "pinned_by": null,
+                        "sender_id": "21642197",
+                        "sender_type": "user",
+                        "source_guid": "android-bbfe3445-d65e-4352-a613-19df30dede79",
+                        "system": false,
+                        "text": "Test",
+                        "updated_at": null,
+                        "user_id": "21642197",
+                    },
+                    "type": "line.create",
+                },
+                "id": "16122cff",
+            },
+        ])
+    }
 
-        let mut rx = server.get_rx();
-        let test_text = "Testing 123";
-        // Try sending a message to Test Lobby
-        let msg_id = api::send_group_message(&TEST_LOBBY_CHAT_ID.to_string(), test_text).await?;
+    fn test2() -> JsonValue {
+        json!([{
+            "data":  {
+                "received_at": 1737048690000,
+                "subject":  {
+                    "attachments":  [{
+                        "loci":  [ [
+                                6,
+                                27,
+                            ],],
+                        "type": "mentions",
+                        "user_ids":  [
+                            21642197,
+                        ],
+                    },],
+                    "created_at": 1737048690,
+                    "group_id": "105362524",
+                    "id": "173704869054202031",
+                    "name": "MODERATOR",
+                    "text": "/vote @Brian \"Testing\" Scaramella ",
+                    "user_id": "43040067",
+                },
+                "type": "line.create",
+            },
+        },])
+    }
 
-        tracing::debug!("Sent message with id {msg_id:?}");
-        // Wait for the testing 123 message
-        for n in 0..4 {
-            if let Ok(msg) = rx.recv().await {
-                tracing::debug!("Message {n}: {msg:#?}");
-                if let Some(data) = msg.data() {
-                    let type_: String = util::json_access(data, "type")?;
-                    if &type_ == "line.create" {
-                        let id: api::MessageId = util::json_access(&data, "subject.id")?;
-                        if id == msg_id {
-                            let text: String = util::json_access(data, "subject.text")?;
-                            assert_eq!(&text, test_text);
-                            return Ok(());
-                        } else {
-                            tracing::warn!("Got wrong id message: {id}");
-                        }
-                    } else {
-                        tracing::warn!("Got wrong type message: {type_}");
+    fn test3() -> JsonValue {
+        json!([{
+            "channel": "/user/43040067",
+            "clientId": "fayeLJBD7D2WAWVUDKBKUQEWQ3N4POYHRWH",
+            "data":  {
+                "alert": "Brian Scaramella: Test DM",
+                "received_at": 1737048767000,
+                "subject":  {
+                    "attachments":  [],
+                    "avatar_url": "https://i.groupme.com/200x205.jpeg.3475af00b96f4d1d8a21a9822ddd5e3a",
+                    "chat_id": "21642197+43040067",
+                    "created_at": 1737048766,
+                    "favorited_by":  [],
+                    "id": "173704876681069898",
+                    "location":  {
+                        "lat": "",
+                        "lng": "",
+                        "name": null,
+                    },
+                    "name": "Brian Scaramella",
+                    "picture_url": null,
+                    "recipient_id": "43040067",
+                    "sender_id": "21642197",
+                    "sender_type": "user",
+                    "source_guid": "android-c6edbdaa-a2c0-4ac9-a37b-975de0b73a8b",
+                    "text": "Test DM",
+                    "user_id": "21642197",
+                },
+                "type": "direct_message.create",
+            },
+            "id": "16124d04",
+        },])
+    }
+
+    #[test]
+    fn parse_group_msg1() {
+        let value = test1();
+        let msgs = serde_json::from_value::<Vec<PushMessage>>(value).unwrap();
+        let data: Data = msgs.get(0).expect("Single msg").data().clone().unwrap();
+        match data {
+            Data::GroupMsg { subject, received_at } => {
+                assert_eq!(subject.group_id, GroupId(105362524));
+                assert_eq!(subject.user_id, UserId(21642197));
+                assert_eq!(subject.id, MessageId(173704863488783901));
+                assert_eq!(subject.text, "Test");
+                assert_eq!(subject.name, "Brian \"Testing\" Scaramella");
+                assert_eq!(subject.attachments.len(), 0);
+            }
+            _ => panic!("Wrong data type"),
+        }
+    }
+
+    #[test]
+    fn parse_group_msg2() {
+        let value = test2();
+        let msgs = serde_json::from_value::<Vec<PushMessage>>(value).unwrap();
+        let data: Data = msgs.get(0).expect("Single msg").data().clone().unwrap();
+        match data {
+            Data::GroupMsg { subject, received_at } => {
+                assert_eq!(subject.group_id, GroupId(105362524));
+                assert_eq!(subject.user_id, UserId(43040067));
+                assert_eq!(subject.id, MessageId(173704869054202031));
+                assert_eq!(subject.text, "/vote @Brian \"Testing\" Scaramella ");
+                assert_eq!(subject.name, "MODERATOR");
+                assert_eq!(subject.attachments.len(), 1);
+                match subject.attachments.get(0).expect("Single attachment") {
+                    Attachment::Mentions { user_ids } => {
+                        assert_eq!(user_ids.len(), 1);
+                        assert_eq!(user_ids.get(0).expect("Single user_id"), &UserId(21642197));
                     }
+                    _ => panic!("Wrong attachment type"),
                 }
             }
+            _ => panic!("Wrong data type"),
         }
-        Err(anyhow::anyhow!("Missed test message"))
+    }
+
+    #[test]
+    fn parse_direct_msg() {
+        let value = test3();
+        let msgs = serde_json::from_value::<Vec<PushMessage>>(value).unwrap();
+        let data: Data = msgs.get(0).expect("Single msg").data().clone().unwrap();
+        match data {
+            Data::DirectMsg { subject, received_at } => {
+                assert_eq!(subject.user_id, UserId(21642197));
+                assert_eq!(subject.id, MessageId(173704876681069898));
+                assert_eq!(subject.text, "Test DM");
+                assert_eq!(subject.name, "Brian Scaramella");
+                assert_eq!(subject.attachments.len(), 0);
+            }
+            _ => panic!("Wrong data type"),
+        }
     }
 }

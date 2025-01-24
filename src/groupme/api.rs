@@ -1,30 +1,65 @@
-use std::sync::OnceLock;
-
-/// Handle GroupMe API calls
-use anyhow::{bail, Result};
 use http::header::CONTENT_TYPE;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, to_string, Map as JsonMap, Value as JsonValue};
+use std::sync::OnceLock;
 use uuid::Uuid;
 
-use super::{
-    new_ctrl::UserId,
-    util::{get_token, json_access, UnexpectedJsonError},
-};
-
-pub type GroupId = String;
-
-pub type MessageId = String;
+use super::util::{get_token, json_access, GroupId, MessageId, UnexpectedJsonError, UserId};
 
 const BASE_API_URI: &str = "https://api.groupme.com/v3";
 
 static CLIENT: OnceLock<Client> = OnceLock::new();
 
+mod error {
+    use serde::de::Unexpected;
+
+    use crate::groupme::util::UnexpectedJsonError;
+
+    pub enum Error {
+        UnexpectedJsonError(UnexpectedJsonError),
+        SerdeJsonError(serde_json::Error),
+        ReqwestError(reqwest::Error),
+        TokenError(std::env::VarError),
+        OtherError(String),
+    }
+    impl From<UnexpectedJsonError> for Error {
+        fn from(e: UnexpectedJsonError) -> Self {
+            Self::UnexpectedJsonError(e)
+        }
+    }
+    impl From<serde_json::Error> for Error {
+        fn from(e: serde_json::Error) -> Self {
+            Self::SerdeJsonError(e)
+        }
+    }
+    impl From<reqwest::Error> for Error {
+        fn from(e: reqwest::Error) -> Self {
+            Self::ReqwestError(e)
+        }
+    }
+    impl From<std::env::VarError> for Error {
+        fn from(e: std::env::VarError) -> Self {
+            Self::TokenError(e)
+        }
+    }
+}
+
+use error::Error;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Member {
     nickname: String,
     user_id: UserId,
+    /// Membership id, used to kick
+    #[serde(skip_serializing, rename = "id")]
+    membership_id: Option<String>,
+}
+
+impl From<(String, UserId)> for Member {
+    fn from((nickname, user_id): (String, UserId)) -> Self {
+        Self { nickname, user_id, membership_id: None }
+    }
 }
 
 pub fn client() -> &'static Client {
@@ -32,20 +67,14 @@ pub fn client() -> &'static Client {
 }
 
 #[tracing::instrument]
-pub async fn add_members(group_id: &GroupId, members: Vec<(String, UserId)>) -> Result<()> {
+pub async fn add_members(
+    group_id: &GroupId,
+    members: Vec<impl Into<Member> + std::fmt::Debug>,
+) -> Result<Vec<Member>, Error> {
     let uri = format!("{BASE_API_URI}/groups/{group_id}/members/add");
-    let mut members_vec = Vec::new();
-    for (nickname, user_id) in members {
-        let user_id_str: String = user_id.into();
-        members_vec.push(json!(
-            {
-                "nickname":nickname,
-                "user_id": user_id_str
-            }
-        ));
-    }
+    let members: Vec<Member> = members.into_iter().map(Into::into).collect();
     let members = json!({
-        "members": members_vec
+        "members": members
     });
     let body = serde_json::to_string(&members)?;
     tracing::debug!(%body);
@@ -71,14 +100,16 @@ pub async fn add_members(group_id: &GroupId, members: Vec<(String, UserId)>) -> 
         .error_for_status()?
         .text()
         .await?;
-    tracing::debug!(?resp);
-    Ok(())
+    let value: JsonValue = serde_json::from_str(&resp)?;
+    let members: Vec<Member> = json_access(&value, "response.members")?;
+    tracing::debug!(?members);
+    Ok(members)
 }
 
 #[tracing::instrument]
-pub async fn create_group(name: &str) -> Result<GroupId> {
+pub async fn create_group(name: &str, share: bool) -> Result<GroupId, Error> {
     let uri = format!("{BASE_API_URI}/groups");
-    let body = json!({"name": name});
+    let body = json!({"name": name, "share": share});
     let body = serde_json::to_string(&body)?;
     let resp = client()
         .post(uri)
@@ -92,34 +123,47 @@ pub async fn create_group(name: &str) -> Result<GroupId> {
         .await?;
     tracing::debug!(?resp);
     let value: JsonValue = serde_json::from_str(&resp)?;
-    let id: String = json_access(&value, "response.id")?;
-    let id: GroupId = id.parse()?;
+    let id: GroupId = json_access::<String>(&value, "response.id")?.into();
     Ok(id)
 }
 
 #[tracing::instrument]
-pub async fn delete_group(group_id: &GroupId) -> Result<()> {
+pub async fn delete_group(group_id: &GroupId) -> Result<(), Error> {
     let uri = format!("{BASE_API_URI}/groups/{group_id}/destroy");
-    let resp = client()
-        .post(uri)
-        .query(&[("token", get_token()?)])
-        .send()
-        .await?
-        .error_for_status()?;
+    let resp =
+        client().post(uri).query(&[("token", get_token()?)]).send().await?.error_for_status()?;
     tracing::debug!(?resp);
     Ok(())
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type")]
+enum Attachment {
+    #[serde(rename = "mentions")]
+    Mentions { user_ids: Vec<UserId> },
+    #[serde(other)]
+    Unknown,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename = "message")]
+struct MessageReq {
+    text: String,
+    source_guid: String,
+    attachments: Vec<Attachment>,
+}
+
+impl MessageReq {
+    fn new(text: String) -> Self {
+        Self { text, attachments: Vec::new(), source_guid: Uuid::new_v4().to_string() }
+    }
+}
+
 #[tracing::instrument]
-pub async fn send_group_message(group_id: &GroupId, text: &str) -> Result<MessageId> {
+pub async fn send_group_message(group_id: &GroupId, text: &str) -> Result<MessageId, Error> {
     let uri = format!("{BASE_API_URI}/groups/{group_id}/messages");
     let uuid = Uuid::new_v4();
-    let body = json!({
-        "message": {
-            "source_guid": uuid.to_string(),
-            "text" : text,
-        }
-    });
+    let body = MessageReq::new(text.to_owned());
     let body = serde_json::to_string(&body)?;
     let resp = client()
         .post(uri)
@@ -134,13 +178,19 @@ pub async fn send_group_message(group_id: &GroupId, text: &str) -> Result<Messag
 
     tracing::debug!(?resp);
     let value: JsonValue = serde_json::from_str(&resp)?;
-    let id: MessageId = json_access(&value, "response.message.id")?;
+    Ok(json_access(&value, "response.message.id")?)
+}
 
-    Ok(id)
+#[derive(Debug, Clone, Deserialize)]
+struct GroupResp {
+    name: String,
+    id: Option<GroupId>,
+    members: Vec<Member>,
+    share_url: Option<String>,
 }
 
 #[tracing::instrument]
-pub async fn get_group(group_id: &GroupId) -> Result<JsonValue> {
+pub async fn get_group(group_id: &GroupId) -> Result<GroupResp, Error> {
     let uri = format!("{BASE_API_URI}/groups/{group_id}");
     let resp = client()
         .get(uri)
@@ -154,17 +204,24 @@ pub async fn get_group(group_id: &GroupId) -> Result<JsonValue> {
     Ok(serde_json::from_str(&resp)?)
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename = "direct_message")]
+struct DirectMsg {
+    recipient_id: UserId,
+    text: String,
+    source_guid: String,
+}
+
+impl DirectMsg {
+    fn new(recipient_id: UserId, text: String) -> Self {
+        Self { recipient_id, text, source_guid: Uuid::new_v4().to_string() }
+    }
+}
+
 #[tracing::instrument]
-pub async fn send_dm(user_id: UserId, text: &str) -> Result<MessageId> {
+pub async fn send_dm(user_id: UserId, text: &str) -> Result<MessageId, Error> {
     let uri = format!("{BASE_API_URI}/direct_messages");
-    let uuid = Uuid::new_v4();
-    let body = json!({
-        "direct_message": {
-            "source_guid": uuid.to_string(),
-            "recipient_id" : user_id,
-            "text" : text,
-        }
-    });
+    let body = DirectMsg::new(user_id, text.to_owned());
     let body = serde_json::to_string(&body)?;
     let resp = client()
         .post(uri)
@@ -179,23 +236,33 @@ pub async fn send_dm(user_id: UserId, text: &str) -> Result<MessageId> {
 
     tracing::debug!(?resp);
     let value: JsonValue = serde_json::from_str(&resp)?;
-    let id: MessageId = json_access(&value, "response.direct_message.id")?;
+    Ok(json_access(&value, "response.message.id")?)
+}
 
-    Ok(id)
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename = "message")]
+pub struct MessageResp {
+    text: String,
+    attachments: Vec<Attachment>,
+    source_guid: String,
+    id: MessageId,
+    user_id: UserId,
+    group_id: GroupId,
+    favorited_by: Vec<UserId>,
 }
 
 #[tracing::instrument]
-pub async fn get_group_message_likes(
+pub async fn get_group_message(
     group_id: &GroupId,
     msg_id: &MessageId,
-) -> Result<Vec<UserId>> {
+) -> Result<MessageResp, Error> {
     let uri = format!("{BASE_API_URI}/groups/{group_id}/messages");
-    let prev_msg_id = (msg_id.parse::<u64>()? - 1).to_string();
     let resp = client()
         .get(uri)
         .query(&[
             ("token", get_token()?),
-            ("after_id", prev_msg_id),
+            ("after_id", msg_id.prev()),
+            ("before_id", msg_id.next()),
             ("limit", "1".to_owned()),
         ])
         .send()
@@ -206,29 +273,26 @@ pub async fn get_group_message_likes(
 
     tracing::debug!(?resp);
     let value: JsonValue = serde_json::from_str(&resp)?;
-    let id: String = json_access(&value, "response.messages.0.id")?;
-    if msg_id != &id {
-        bail!("Got the wrong message?? msg_id={msg_id}, found={id}");
+    let message: MessageResp = json_access(&value, "response.messages.0")?;
+    if msg_id != &message.id {
+        return Err(Error::OtherError(format!(
+            "Expected message id {}, got {}",
+            msg_id, message.id
+        )));
     }
-    let user_strs: Vec<String> = json_access(&value, "response.messages.0.favorited_by")?;
-    let users: Vec<UserId> = user_strs.into_iter().map(UserId::from).collect();
-    Ok(users)
+    Ok(message)
 }
 
 #[tracing::instrument]
-pub async fn like_message(conv_id: &str, msg_id: &MessageId) -> Result<()> {
+pub async fn like_message(conv_id: &str, msg_id: &MessageId) -> Result<(), Error> {
     let uri = format!("{BASE_API_URI}/messages/{conv_id}/{msg_id}/like");
-    let resp = client()
-        .post(uri)
-        .query(&[("token", get_token()?)])
-        .send()
-        .await?
-        .error_for_status()?;
+    let resp =
+        client().post(uri).query(&[("token", get_token()?)]).send().await?.error_for_status()?;
     tracing::debug!(?resp);
     Ok(())
 }
 
-pub async fn get_user_id() -> Result<UserId> {
+pub async fn get_user_id() -> Result<UserId, Error> {
     let uri = format!("{BASE_API_URI}/users/me");
     let resp = client()
         .get(uri)
@@ -240,8 +304,7 @@ pub async fn get_user_id() -> Result<UserId> {
         .await?;
 
     let value: JsonValue = serde_json::from_str(&resp)?;
-    let user_id_str: String = json_access(&value, "response.id")?;
-    let user_id: UserId = user_id_str.into();
+    let user_id: UserId = json_access(&value, "response.id")?;
     tracing::info!("Got User Id: {user_id:?}");
     Ok(user_id)
 }

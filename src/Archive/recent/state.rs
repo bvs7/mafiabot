@@ -3,19 +3,6 @@ use std::{collections::HashMap, sync::Arc, time::Duration};
 use tokio::sync::{broadcast, oneshot, RwLock};
 use tracing::{debug, error, info, instrument, trace, warn};
 
-pub mod id;
-pub mod phase;
-pub mod players;
-pub mod role;
-pub mod rules;
-
-use super::interface::*;
-use id::*;
-use phase::*;
-use players::*;
-use role::*;
-use rules::*;
-
 fn new_event_tx() -> EventTx {
     broadcast::Sender::new(100)
 }
@@ -128,11 +115,7 @@ impl State {
         let ballot = ballot.map(|c| (c, vote_list.get(&c).unwrap().len()));
         let former = former.map(|c| (c, vote_list.get(&c).unwrap().len()));
 
-        self.tx(Event::Vote {
-            voter,
-            ballot: ballot.clone(),
-            former: former.clone(),
-        });
+        self.tx(Event::Vote { voter, ballot: ballot.clone(), former: former.clone() });
 
         self.check_election(voter, this);
         Ok(())
@@ -142,18 +125,13 @@ impl State {
         let actor = self.players.validate(actor)?;
         let role = self.players.get(actor);
         if role != Role::CELEB {
-            return Err(Error::ExpectedCeleb {
-                actual: role.kind(),
-            });
+            return Err(Error::ExpectedCeleb { actual: role.kind() });
         }
         let Phase::Day { blocks, .. } = &self.phase else {
             return self.phase.expected(PhaseKind::Day);
         };
         if let Some(blockers) = blocks.get(&actor) {
-            self.tx(Event::Block {
-                blocked: actor,
-                blockers: blockers.clone(),
-            });
+            self.tx(Event::Block { blocked: actor, blockers: blockers.clone() });
         } else {
             self.tx(Event::Reveal { celeb: actor });
         }
@@ -248,11 +226,7 @@ impl State {
     }
 
     fn election(&mut self, choice: Choice, hammer: Pid, voters: Vec<Pid>) {
-        self.tx(Event::Election {
-            choice,
-            hammer,
-            voters: voters.clone(),
-        });
+        self.tx(Event::Election { choice, hammer, voters: voters.clone() });
         if let Some(pid) = choice {
             // TODO: Check if IDIOT (And add eclipse phase?)
             self.eliminate(pid, hammer, Context::new(self.day, Cause::Election));
@@ -261,12 +235,7 @@ impl State {
     }
 
     fn check_dawn(&mut self, this: &Arc<RwLock<Self>>) {
-        let Phase::Night {
-            targets,
-            scheme,
-            dawn: pend_dawn,
-        } = &mut self.phase
-        else {
+        let Phase::Night { targets, scheme, dawn: pend_dawn } = &mut self.phase else {
             return;
         };
         if pend_dawn.is_some() {
@@ -309,11 +278,7 @@ impl State {
         let PlayerState::Alive(role) = self.players.eliminate(&pid, context) else {
             panic!("Eliminating a dead player?");
         };
-        self.tx(Event::Eliminate {
-            player: pid,
-            role: role.kind(),
-            context,
-        });
+        self.tx(Event::Eliminate { player: pid, role: role.kind(), context });
     }
 
     fn to_day(&mut self, blocks: Blocks) {
@@ -322,11 +287,7 @@ impl State {
             return;
         }
         self.day += 1;
-        self.phase = Phase::Day {
-            votes: HashMap::new(),
-            blocks,
-            elect: None,
-        };
+        self.phase = Phase::Day { votes: HashMap::new(), blocks, elect: None };
         self.tx(Event::Day {
             day: self.day,
             counts: self.counts(Team::from), // TODO: use rules
@@ -338,11 +299,7 @@ impl State {
         if self.check_win() {
             return;
         }
-        self.phase = Phase::Night {
-            targets: HashMap::new(),
-            scheme: None,
-            dawn: None,
-        };
+        self.phase = Phase::Night { targets: HashMap::new(), scheme: None, dawn: None };
         self.tx(Event::Night {
             day: self.day,
             counts: self.counts(Team::from), // TODO: use rules
@@ -352,12 +309,7 @@ impl State {
     fn check_win(&mut self) -> bool {
         debug!("Check win");
         let n = self.players.alive().len();
-        let n_maf = self
-            .players
-            .alive()
-            .iter()
-            .filter(|(_, r)| r.is_mafia())
-            .count();
+        let n_maf = self.players.alive().iter().filter(|(_, r)| r.is_mafia()).count();
         let mut winner = None;
         if n_maf == 0 {
             debug!("Town wins");
@@ -394,12 +346,7 @@ mod tests {
     // We want to test State specific functionality here, not necessarily full games, right?
 
     fn basic_game() -> State {
-        let registry = vec![
-            (1, Role::TOWN),
-            (2, Role::COP),
-            (3, Role::DOCTOR),
-            (4, Role::MAFIA),
-        ];
+        let registry = vec![(1, Role::TOWN), (2, Role::COP), (3, Role::DOCTOR), (4, Role::MAFIA)];
         let rules = Rules::default();
         State::new(Gid::from(1), registry, rules)
     }
@@ -421,15 +368,9 @@ mod tests {
         let mut wstate = this.write().await;
         wstate.start().expect("State starts in Init");
         assert!(matches!(wstate.phase, Phase::Night { .. }));
-        wstate
-            .target(2, Some(3), &this)
-            .expect("Cop can target at night");
-        wstate
-            .target(3, Some(3), &this)
-            .expect("Doctor can target at night");
-        wstate
-            .scheme(4, Some(1), &this)
-            .expect("Mafia can scheme at night");
+        wstate.target(2, Some(3), &this).expect("Cop can target at night");
+        wstate.target(3, Some(3), &this).expect("Doctor can target at night");
+        wstate.scheme(4, Some(1), &this).expect("Mafia can scheme at night");
         assert!(matches!(wstate.phase, Phase::Night { .. }));
         drop(wstate);
         tokio::time::sleep(Duration::from_millis(200)).await;
@@ -439,12 +380,8 @@ mod tests {
         assert_eq!(wstate.day, 1);
         assert_eq!(wstate.players.alive().len(), 3);
 
-        wstate
-            .vote(2, Some(Some(4)), &this)
-            .expect("Can vote during Day");
-        wstate
-            .vote(3, Some(Some(4)), &this)
-            .expect("Can vote during Day");
+        wstate.vote(2, Some(Some(4)), &this).expect("Can vote during Day");
+        wstate.vote(3, Some(Some(4)), &this).expect("Can vote during Day");
         assert!(matches!(wstate.phase, Phase::Day { .. }));
         drop(wstate);
         tokio::time::sleep(Duration::from_millis(200)).await;

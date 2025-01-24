@@ -11,10 +11,14 @@
             "id": "c39e65324f7f9df9",
             "type": "leaf",
             "state": {
-              "type": "empty",
-              "state": {},
+              "type": "markdown",
+              "state": {
+                "file": "Untitled.md",
+                "mode": "source",
+                "source": false
+              },
               "icon": "lucide-file",
-              "title": "New tab"
+              "title": "Untitled"
             }
           }
         ]
@@ -156,16 +160,17 @@
   },
   "active": "c39e65324f7f9df9",
   "lastOpenFiles": [
-    "target/debug/incremental/mafiabot-2jghgmey8kvs9/s-h3rphpvpks-1c8fy46-working/work-products.bin",
-    "target/debug/incremental/mafiabot-2jghgmey8kvs9/s-h3rphpvpks-1c8fy46-working/query-cache.bin",
-    "target/debug/incremental/mafiabot-2jghgmey8kvs9/s-h3rphpvpks-1c8fy46-working/dep-graph.part.bin",
-    "target/debug/incremental/mafiabot-2jghgmey8kvs9/s-h3rphpvpks-1c8fy46-working/dep-graph.bin",
-    "target/debug/incremental/mafiabot-2jghgmey8kvs9/s-h3rphpvpks-1c8fy46-working",
-    "target/debug/incremental/mafiabot-2jghgmey8kvs9/s-h3rphpvpks-1c8fy46.lock",
-    "target/debug/incremental/mafiabot-2afs12b245imv/s-h3rphpvodb-076y6fg-working/query-cache.bin",
-    "target/debug/incremental/mafiabot-2afs12b245imv/s-h3rphpvodb-076y6fg-working/work-products.bin",
-    "target/debug/incremental/mafiabot-2afs12b245imv/s-h3rphpvodb-076y6fg-working/dep-graph.bin",
-    "target/debug/incremental/mafiabot-2afs12b245imv/s-h3rphpvodb-076y6fg-working/dep-graph.part.bin",
-    "target/debug/incremental/mafiabot-2afs12b245imv/s-h3rphpvodb-076y6fg-working"
+    "target/debug/incremental/mafiabot-2jghgmey8kvs9/s-h3zcmk4g1o-188qzb7-5lq6bmh5c1x309gylbdlz43h8/work-products.bin",
+    "target/debug/incremental/mafiabot-2jghgmey8kvs9/s-h3zcmk4g1o-188qzb7-5lq6bmh5c1x309gylbdlz43h8/query-cache.bin",
+    "target/debug/incremental/mafiabot-2jghgmey8kvs9/s-h3zcmk4g1o-188qzb7-5lq6bmh5c1x309gylbdlz43h8/dep-graph.bin",
+    "target/debug/incremental/mafiabot-2jghgmey8kvs9/s-h3zcmk4g1o-188qzb7-5lq6bmh5c1x309gylbdlz43h8",
+    "target/debug/incremental/mafiabot-2afs12b245imv/s-h3zcmk4g1y-1ba2upb-working/query-cache.bin",
+    "target/debug/incremental/mafiabot-2afs12b245imv/s-h3zcmk4g1y-1ba2upb-working/work-products.bin",
+    "target/debug/incremental/mafiabot-2afs12b245imv/s-h3zcmk4g1y-1ba2upb-working/dep-graph.part.bin",
+    "target/debug/incremental/mafiabot-2afs12b245imv/s-h3zcmk4g1y-1ba2upb-working/dep-graph.bin",
+    "target/debug/incremental/mafiabot-2afs12b245imv/s-h3zcmk4g1y-1ba2upb-working",
+    "target/debug/incremental/mafiabot-2jghgmey8kvs9/s-h3zcmk4g1o-188qzb7-working/work-products.bin",
+    "target/debug/incremental/mafiabot-2jghgmey8kvs9/s-h3zcmk4g1o-188qzb7-working/query-cache.bin",
+    "Untitled.md"
   ]
 }

@@ -1,8 +1,7 @@
+use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, ops::Index};
 
-use serde::{Deserialize, Serialize};
-
-use super::{role::Role, Ballot, Choice, Error, Pid, RawBallot, RawChoice};
+use crate::engine::game::*;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub enum PlayerState {
@@ -21,10 +20,7 @@ pub struct PlayerLog {
 
 impl PlayerLog {
     fn from_start_role(role: &Role) -> Self {
-        Self {
-            pstate: PlayerState::Alive(*role),
-            log: Vec::new(),
-        }
+        Self { pstate: PlayerState::Alive(*role), log: Vec::new() }
     }
     fn update(&mut self, pstate: PlayerState, context: impl Into<Context>) -> PlayerState {
         self.log.push((self.pstate, context.into()));
@@ -41,25 +37,6 @@ impl PlayerLog {
     }
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
-pub enum Cause {
-    Election,
-    Kill,
-    Vengeance,
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
-pub struct Context {
-    pub day: u32,
-    pub cause: Cause,
-}
-
-impl Context {
-    pub fn new(day: u32, cause: Cause) -> Self {
-        Self { day, cause }
-    }
-}
-
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Players {
     map: HashMap<Pid, PlayerLog>,
@@ -72,24 +49,16 @@ pub struct Players {
 
 impl Players {
     pub fn from_registry<'a>(registry: impl IntoIterator<Item = (impl Into<Pid>, Role)>) -> Self {
-        let map: HashMap<Pid, PlayerLog> = registry
-            .into_iter()
-            .map(|(p, r)| (p.into(), PlayerLog::from_start_role(&r)))
-            .collect();
+        let map: HashMap<Pid, PlayerLog> =
+            registry.into_iter().map(|(p, r)| (p.into(), PlayerLog::from_start_role(&r))).collect();
         let list: Vec<Pid> = map.keys().copied().collect();
         Self { map, list }
     }
 
     pub fn validate(&self, pid: u64) -> Result<Pid, Error> {
         match self.map.get(&pid.into()) {
-            Some(PlayerLog {
-                pstate: PlayerState::Alive(_),
-                ..
-            }) => Ok(pid.into()),
-            Some(PlayerLog {
-                pstate: PlayerState::Dead,
-                ..
-            }) => Err(Error::DeadPlayer { pid }),
+            Some(PlayerLog { pstate: PlayerState::Alive(_), .. }) => Ok(pid.into()),
+            Some(PlayerLog { pstate: PlayerState::Dead, .. }) => Err(Error::DeadPlayer { pid }),
             None => Err(Error::InvalidPlayer { pid }),
         }
     }
@@ -98,16 +67,11 @@ impl Players {
         choice.map(|pid| self.validate(pid)).transpose()
     }
     pub fn validate_ballot(&self, ballot: RawBallot) -> Result<Ballot, Error> {
-        ballot
-            .map(|choice| self.validate_choice(choice))
-            .transpose()
+        ballot.map(|choice| self.validate_choice(choice)).transpose()
     }
 
     pub fn alive(&self) -> Vec<(Pid, Role)> {
-        self.map
-            .iter()
-            .filter_map(|(pid, plog)| Some((*pid, plog.as_role()?)))
-            .collect()
+        self.map.iter().filter_map(|(pid, plog)| Some((*pid, plog.as_role()?))).collect()
     }
     pub fn n(&self) -> usize {
         self.alive().len()
@@ -116,9 +80,7 @@ impl Players {
         let Some(plog) = self.map.get(&pid) else {
             panic!("PlayerId should be valid");
         };
-        let Some(role) = plog.as_role() else {
-            panic!("Player should be alive...")
-        };
+        let Some(role) = plog.as_role() else { panic!("Player should be alive...") };
         role
     }
     pub fn is_alive(&self, pid: Pid) -> bool {
@@ -144,11 +106,7 @@ impl Players {
     }
 
     pub fn eliminate(&mut self, pid: &Pid, context: Context) -> PlayerState {
-        let idx = self
-            .list
-            .iter()
-            .position(|p| p == pid)
-            .expect("eliminate pid should be valid");
+        let idx = self.list.iter().position(|p| p == pid).expect("eliminate pid should be valid");
         self.list.remove(idx);
         self.map
             .get_mut(pid)
