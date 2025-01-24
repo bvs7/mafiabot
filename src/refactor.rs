@@ -1,6 +1,15 @@
+use std::{collections::HashMap, sync::Arc, time::Duration};
+
+use chrono::{DateTime, Local, OutOfRangeError};
+use tokio::{
+    sync::{MutexGuard, TryLockError},
+    time::timeout,
+};
+use toml::value::Date;
+
 enum Error {}
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct Pid(u64);
 
 type Choice = Option<Pid>;
@@ -26,118 +35,100 @@ enum Action {
     Target(Target),
 }
 
-#[derive(Debug, Clone)]
-struct Init {}
-
-#[derive(Debug, Clone)]
-struct Day {}
-
-#[derive(Debug, Clone)]
-struct Night {}
-
-#[derive(Debug, Clone)]
-struct Eclipse {}
-
-#[derive(Debug, Clone)]
-struct End {}
-
-#[derive(Debug, Clone)]
-enum Phase {
-    Init,
-    Day(Day),
-    Night(Night),
-    Eclipse(Eclipse),
-    End(End),
-}
-
 struct Status {}
-
-enum Input {
-    Status(tokio::sync::oneshot::Sender<Status>),
-    Action((Action, tokio::sync::oneshot::Sender<Result<(), Error>>)),
-}
 
 #[derive(Debug, Clone)]
 enum Event {}
 
-struct Game<P> {
-    state: tokio::sync::RwLock<StateHolder>,
-    input_rx: tokio::sync::mpsc::Receiver<Input>,
-    input_tx: tokio::sync::mpsc::Sender<Input>,
+struct Timeout {}
+
+impl From<OutOfRangeError> for Timeout {
+    fn from(_: OutOfRangeError) -> Self {
+        Timeout {}
+    }
+}
+impl From<tokio::time::error::Elapsed> for Timeout {
+    fn from(_: tokio::time::error::Elapsed) -> Self {
+        Timeout {}
+    }
+}
+
+struct Game {
+    state: tokio::sync::RwLock<State>,
+    action_rx: tokio::sync::Mutex<tokio::sync::mpsc::Receiver<Action>>,
+    action_tx: tokio::sync::mpsc::Sender<Action>,
     event_tx: tokio::sync::broadcast::Sender<Event>,
     alarm_time: Option<chrono::DateTime<chrono::Local>>,
 }
 
-// Is this even what we want? Or do we want a RwLock<State>?
-// We could still do this with state...
-// Status could be a method on Arc<RwLock<State>>
-// And actions could still be submitted?
-
-// We could have two tasks. One for reading and one for writing?
-// Aka one for actions and one for status requests.
-// Or we just have the Arc<RwLock<State>> passed into and returned from game?
-// Then have the status function call on Arc<RwLock<State>>.read()
-
-// So yes, have a wrapper for all these things...
-
-// Do we need a wrapper anyway for the groupme implementation?
-
-// Oh well. I like the idea of having a task running under the state, which listens
-// for actions and updates the state accordingly.
-
-// The inner state, again, how does it send out events?.....
-// The function pointer? An option for a function pointer?
-// Or we have some kind of initialization for State?
-// State becomes... state with event_tx?
-// It seems like state shouldn't know about the event_tx... But how could that be?
-// Maybe events are queued in action handler, then read out in update? no...
-// Oh, we just give it a clone of the event_tx. That's it.
-
-// Idea:
-// State has a generic Phase
-// So we can define the state as having a specific phase, then only allow certain actions based on that
-// Then we can have a function to transition to the next phase
-// The only thing is we have to have a way to replace the state...
-// Like some kind of interior mutability...
-
 impl Game {
-    async fn new(mut state: State<Init>) -> Self {
-        let (input_tx, input_rx) = tokio::sync::mpsc::channel(100);
+    async fn new(mut state: State) -> Self {
+        let (action_tx, action_rx) = tokio::sync::mpsc::channel(100);
         let (event_tx, _) = tokio::sync::broadcast::channel(100);
+        let action_rx = tokio::sync::Mutex::new(action_rx);
         state.event_tx = Some(event_tx.clone());
         let alarm_time = None;
-        let game = Self {
+        Self {
             state: tokio::sync::RwLock::new(state),
-            input_rx,
-            input_tx,
+            action_rx,
+            action_tx,
             event_tx,
             alarm_time,
-        };
-        game
-    }
-
-    fn start(self) {
-        tokio::spawn(self.run());
-    }
-
-    async fn run(self) {
-        loop {
-            // use tokio::timeout to also wait for next alarm time!
-            // Eventually this allows end phase timers to be set.
-            let action = todo!();
-            let resp: tokio::sync::oneshot::Sender<Result<(), Error>> = todo!();
-            let result = self.handle_action(action).await;
-            let _ = resp.send(result);
         }
-        todo!()
     }
 
-    fn input_tx(&self) -> tokio::sync::mpsc::Sender<Input> {
-        self.input_tx.clone()
+    fn action_tx(&self) -> tokio::sync::mpsc::Sender<Action> {
+        self.action_tx.clone()
     }
 
     fn event_rx(&self) -> tokio::sync::broadcast::Receiver<Event> {
         self.event_tx.subscribe()
+    }
+
+    fn start(self) -> Arc<Self> {
+        let game = Arc::new(self);
+        let g = game.clone();
+        tokio::spawn(async move { g.run().await });
+        game
+    }
+    async fn run(&self) -> Result<(), TryLockError> {
+        let mut action_rx = self.action_rx.try_lock()?;
+        loop {
+            match self.next_action(&mut action_rx).await {
+                Ok(Some((action, resp))) => {
+                    let result = self.handle_action(action).await;
+                    let _ = resp.send(result);
+                }
+                Ok(None) => {
+                    break;
+                }
+                Err(Timeout {}) => {}
+            }
+            self.update().await;
+        }
+        Ok(())
+    }
+
+    async fn next_action(
+        &self,
+        action_rx: &mut tokio::sync::mpsc::Receiver<Action>,
+    ) -> Result<Option<(Action, tokio::sync::oneshot::Sender<Result<(), Error>>)>, Timeout> {
+        let dur = self.next_timeout()?;
+        match timeout(dur, action_rx.recv()).await? {
+            Some(action) => {
+                let (resp, rx) = tokio::sync::oneshot::channel();
+                Ok(Some((action, resp)))
+            }
+            None => Ok(None),
+        }
+    }
+    fn next_timeout(&self) -> Result<Duration, OutOfRangeError> {
+        if let Some(alarm_time) = self.alarm_time {
+            let dur = (alarm_time - Local::now()).to_std()?;
+            return Ok(dur);
+        } else {
+            return Ok(Duration::MAX);
+        }
     }
 
     /// Check validity with just read, then try writing.
@@ -150,6 +141,10 @@ impl Game {
         wstate.action(action);
         Ok(())
     }
+    async fn update(&self) -> Option<DateTime<Local>> {
+        // Check for updates
+        todo!()
+    }
 
     async fn status(&self) -> Status {
         let rstate = self.state.read().await;
@@ -158,58 +153,39 @@ impl Game {
     }
 }
 
-// Could use typestate to have state based on phase better?
+#[derive(Debug, Clone)]
+enum Team {}
 
-enum StateHolder {
-    Init(State<Init>),
-    Day(State<Day>),
-    Night(State<Night>),
-    Eclipse(State<Eclipse>),
-    End(State<End>),
+#[derive(Debug, Clone)]
+enum Phase {
+    Init,
+    Day {
+        votes: HashMap<Pid, Choice>,
+        blocks: HashMap<Pid, Vec<Pid>>,
+        elect: Option<(Choice, Pid, DateTime<Local>)>,
+    },
+    Night {
+        targets: HashMap<Pid, Choice>,
+        scheme: Option<(Pid, Choice)>,
+    },
+    Eclipse,
+    End {
+        winner: Team,
+    },
 }
 
-impl StateHolder {
-    fn validate_action(&self, action: &Action) -> Result<(), Error> {
-        todo!()
-    }
-
-    fn action(&mut self, action: Action) {
-        let _ = std::mem::replace(self, StateHolder::End(State::<End>::default()));
-        todo!()
-    }
-}
-
-struct State<P> {
+struct State {
     day: u32,
-    phase: P,
+    phase: Phase,
     event_tx: Option<tokio::sync::broadcast::Sender<Event>>,
 }
 
-impl Default for State<Eclipse> {
-    fn default() -> Self {
-        Self {
-            day: 0,
-            phase: Eclipse {},
-            event_tx: None,
-        }
-    }
-}
-
-impl Default for State<End> {
-    fn default() -> Self {
-        Self {
-            day: 0,
-            phase: End {},
-            event_tx: None,
-        }
-    }
-}
-
-impl<P> State<P> {
+impl State {
     fn status(&self) -> Status {
         todo!()
     }
 
+    // How could this validation work?
     fn validate_action(&self, action: &Action) -> Result<(), Error> {
         todo!()
     }
@@ -219,6 +195,10 @@ impl<P> State<P> {
         todo!()
     }
 
+    fn vote(&mut self, voter: Pid, ballot: Ballot) {
+        //
+    }
+
     fn send(&self, event: Event) {
         if let Some(event_tx) = &self.event_tx {
             let _ = event_tx.send(event);
@@ -226,12 +206,71 @@ impl<P> State<P> {
     }
 }
 
-impl State<Day> {
-    fn vote(&mut self, vote: Vote) {
-        todo!()
-    }
+enum Update {
+    Election {
+        choice: Choice,
+        hammer: Pid,
+        voters: Vec<Pid>,
+    },
+    ElectionImminent {
+        choice: Choice,
+        hammer: Pid,
+        time: DateTime<Local>,
+    },
+    ElectionAverted,
+    Dawn,
+    DawnImminent {
+        time: DateTime<Local>,
+    },
+    Vengeance {
+        avenger: Pid,
+        victim: Pid,
+        hammer: Pid,
+    },
+}
 
-    fn night(self) -> State<Night> {
-        todo!()
+impl State {
+    fn poll_update(&self) -> () {
+        // Check for an update to phase?
+        match &mut self.phase {
+            Phase::Day { votes, elect, .. } => {
+                // Check for an election...
+            }
+            Phase::Night {
+                pend_dawn: Some(time),
+                ..
+            } if *time < Local::now() => {
+                result = Some(UpdateResult::Dawn);
+            }
+            Phase::Night {
+                targets,
+                scheme,
+                pend_dawn,
+            } => {
+                let mut ready = true;
+                if scheme.is_none() {
+                    ready = false;
+                }
+                for (pid, role) in self.players.alive() {
+                    if role.is_targeting() && targets.get(&pid).is_none() {
+                        ready = false;
+                    }
+                }
+                if ready {
+                    let time = Local::now() + DAWN_DELAY;
+                    *pend_dawn = Some(time);
+                    result = Some(UpdateResult::DawnImminent(time));
+                }
+            }
+            Phase::Eclipse {
+                avenger,
+                hammer,
+                vote: Some(victim),
+                ..
+            } => {
+                result = Some(UpdateResult::Vengeance(*avenger, *victim, *hammer));
+            }
+            _ => {}
+        }
     }
 }
