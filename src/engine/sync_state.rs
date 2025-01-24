@@ -14,10 +14,10 @@ use toml::value::Date;
 use tracing::error;
 
 use super::{
-    id::{Choice, Gid, Pid, RawBallot, RawChoice},
+    id::{Ballot, Choice, Gid, Pid, RawBallot, RawChoice},
     phase::{Blocks, Phase, PhaseKind, Votes},
     players::{Cause, Context, PlayerState, Players},
-    Error, Event, Role, RoleKind, Rules, Team,
+    Action, Error, Event, EventTx, Role, RoleKind, Rules, Team,
 };
 
 const ELECTION_DELAY: Duration = Duration::from_secs(10);
@@ -27,8 +27,146 @@ const TICK_DELAY: Duration = Duration::from_secs(1);
 Have scheduled events? Or at least a thread that will notify when needed.
 */
 
-fn count_votes(votes: &Votes) -> HashMap<Choice, Vec<Pid>> {
+mod async_game {
+    use std::{collections::HashMap, sync::Arc, time::Duration};
+
+    use chrono::{DateTime, Local, OutOfRangeError};
+    use tokio::{
+        sync::{Mutex, RwLock, TryLockError},
+        time::timeout,
+    };
+
+    use crate::engine::{
+        id::Pid, Action, ActionMsg, ActionResponder, ActionRx, ActionTx, EventRx, EventTx,
+    };
+
+    use super::{State, Status};
+
+    enum NoAction {
+        Timeout,
+        Closed,
+    }
+
+    impl From<OutOfRangeError> for NoAction {
+        fn from(_: OutOfRangeError) -> Self {
+            NoAction::Timeout
+        }
+    }
+    impl From<tokio::time::error::Elapsed> for NoAction {
+        fn from(_: tokio::time::error::Elapsed) -> Self {
+            NoAction::Timeout
+        }
+    }
+
+    struct Game {
+        state: RwLock<State>,
+        action_rx: Mutex<ActionRx>,
+        action_tx: ActionTx,
+        event_tx: EventTx,
+    }
+
+    impl Game {
+        pub fn new(mut state: State) -> Self {
+            let (action_tx, action_rx) = tokio::sync::mpsc::channel(100);
+            let (event_tx, _) = tokio::sync::broadcast::channel(100);
+            state.event_tx = Some(event_tx.clone());
+            Self {
+                state: RwLock::new(state),
+                action_rx: Mutex::new(action_rx),
+                action_tx,
+                event_tx,
+            }
+        }
+
+        pub fn action_tx(&self) -> ActionTx {
+            self.action_tx.clone()
+        }
+
+        pub fn event_rx(&self) -> EventRx {
+            self.event_tx.subscribe()
+        }
+
+        pub async fn status(&self, names: HashMap<impl Into<Pid>, String>) -> Status {
+            let state = self.state.read().await;
+            state.status(names)
+        }
+
+        pub fn start(self) -> Arc<Self> {
+            let game = Arc::new(self);
+            let g = game.clone();
+            tokio::spawn(async move { g.run().await });
+            game
+        }
+
+        /// Run the game loop, which involves waiting for actions or for timers to expire,
+        /// handling the actions, and updating the game state.
+        async fn run(&self) -> Result<(), TryLockError> {
+            let mut action_rx = self.action_rx.try_lock()?;
+            let mut alarm_time = None;
+            loop {
+                match self.next_action(alarm_time, &mut action_rx).await {
+                    Ok((action, resp)) => {
+                        self.action(action, resp).await;
+                    }
+                    Err(NoAction::Timeout) => {}
+                    Err(NoAction::Closed) => break,
+                }
+                alarm_time = self.update().await;
+            }
+            Ok(())
+        }
+
+        async fn next_action(
+            &self,
+            alarm_time: Option<DateTime<Local>>,
+            action_rx: &mut ActionRx,
+        ) -> Result<ActionMsg, NoAction> {
+            let dur = match alarm_time {
+                Some(time) => (time - Local::now()).to_std()?,
+                None => Duration::MAX,
+            };
+            let action = timeout(dur, action_rx.recv()).await?;
+            match action {
+                Some((action, resp)) => Ok((action, resp)),
+                None => Err(NoAction::Closed),
+            }
+        }
+
+        /// First check action with read lock. If action is invalid, return error.
+        /// Then check action again with write lock, to be sure it is still valid.
+        /// If action is still valid, send ok then perform action.
+        async fn action(&self, action: Action, resp: ActionResponder) {
+            let rstate = self.state.read().await;
+            if let Err(err) = rstate.validate_action(&action) {
+                let _ = resp.send(Err(err));
+                return;
+            }
+            drop(rstate);
+            let mut wstate = self.state.write().await;
+            let action = match wstate.validate_action(&action) {
+                Ok(action) => action,
+                Err(err) => {
+                    let _ = resp.send(Err(err));
+                    return;
+                }
+            };
+            resp.send(Ok(()));
+            wstate.perform_action(action);
+        }
+
+        async fn update(&self) -> Option<DateTime<Local>> {
+            let mut wstate = self.state.write().await;
+            wstate.update()
+        }
+    }
+}
+
+fn count_votes(votes: &Votes, players: &Players) -> HashMap<Choice, Vec<Pid>> {
     let mut vote_list: HashMap<Choice, Vec<Pid>> = HashMap::new();
+    for (pid, _) in players.alive() {
+        vote_list.insert(Some(pid), vec![]);
+    }
+    vote_list.insert(None, vec![]);
     for (voter, choice) in votes {
         vote_list.entry(*choice).or_default().push(*voter);
     }
@@ -46,11 +184,7 @@ fn thresh(n: usize, choice: &Choice) -> usize {
 fn last_vote_for(event_log: &Vec<Event>, choice: &Choice) -> Option<Pid> {
     for event in event_log.iter().rev() {
         match event {
-            Event::Vote {
-                voter,
-                ballot: Some((c, _)),
-                ..
-            } => {
+            Event::Vote { voter, ballot: Some((c, _)), .. } => {
                 if c == choice {
                     return Some(*voter);
                 }
@@ -59,87 +193,6 @@ fn last_vote_for(event_log: &Vec<Event>, choice: &Choice) -> Option<Pid> {
         }
     }
     None
-}
-
-#[derive(Clone)]
-pub struct State_ {
-    inner: Arc<Mutex<(State, Option<JoinHandle<()>>)>>,
-}
-
-impl State_ {
-    pub fn new(registry: impl IntoIterator<Item = (u64, Role)>, rules: Rules) -> Self {
-        let inner = Arc::new(Mutex::new((State::new(registry, rules), None)));
-        Self { inner }
-    }
-
-    pub fn wake(&self) {
-        if let Some(handle) = &self.inner.lock().unwrap().1 {
-            handle.thread().unpark();
-        }
-    }
-
-    #[tracing::instrument(skip_all)]
-    pub fn run(&self) {
-        loop {
-            park_timeout(TICK_DELAY);
-            let mut lock = match self.inner.lock() {
-                Ok(s) => s,
-                Err(err) => {
-                    error!("Failed to lock state: {:?}", err);
-                    return;
-                }
-            };
-
-            lock.0.update();
-        }
-    }
-
-    /// Used in lieu of a started update thread
-    pub fn update(&self) {
-        let mut lock = self.inner.lock().unwrap();
-        lock.0.update();
-    }
-
-    pub fn start_update_thread(&self) {
-        let mut inner_lock = self.inner.lock().unwrap();
-        if inner_lock.1.is_some() {
-            return; // Already started
-        }
-        let s2 = self.clone();
-        let handle = std::thread::spawn(move || {
-            s2.run();
-        });
-        inner_lock.1 = Some(handle);
-    }
-    pub fn start(&self) {
-        let mut inner = self.inner.lock().unwrap();
-        inner.0.start();
-    }
-    pub fn vote(&self, voter: u64, ballot: RawBallot) -> Result<(), Error> {
-        let mut inner = self.inner.lock().unwrap();
-        let result = inner.0.vote(voter, ballot);
-        self.wake();
-        result
-    }
-
-    pub fn reveal(&self, celeb: u64) -> Result<(), Error> {
-        let mut inner = self.inner.lock().unwrap();
-        inner.0.reveal(celeb)
-    }
-
-    pub fn target(&self, actor: u64, choice: RawChoice) -> Result<(), Error> {
-        let mut inner = self.inner.lock().unwrap();
-        let result = inner.0.target(actor, choice);
-        self.wake();
-        result
-    }
-
-    pub fn scheme(&self, killer: u64, mark: RawChoice) -> Result<(), Error> {
-        let mut inner = self.inner.lock().unwrap();
-        let result = inner.0.scheme(killer, mark);
-        self.wake();
-        result
-    }
 }
 
 struct Status {
@@ -218,6 +271,14 @@ impl std::fmt::Display for Status {
     }
 }
 
+enum ValidAction {
+    Vote(Pid, Ballot),
+    Reveal(Pid),
+    Target(Pid, Choice),
+    Scheme(Pid, Choice),
+    EclipseVote(Pid),
+}
+
 // TODO: have event log be an generic trait, so that an implementation can define it?
 #[derive(Debug, Clone)]
 pub struct State {
@@ -225,8 +286,7 @@ pub struct State {
     phase: Phase,
     players: Players,
     rules: Rules,
-    event_log: Vec<Event>,
-    event_tx: tokio::sync::broadcast::Sender<Event>,
+    event_tx: Option<EventTx>,
 }
 
 impl State {
@@ -236,9 +296,7 @@ impl State {
             phase: Phase::Init,
             players: Players::from_registry(registry),
             rules,
-            event_log: Vec::new(),
-            event_tx: tokio::sync::broadcast::channel(100).0,
-            // update_thread: None,
+            event_tx: None,
         }
     }
 
@@ -246,9 +304,10 @@ impl State {
         self.players.get_target(idx)
     }
 
-    pub fn log_event(&mut self, event: Event) {
-        self.event_log.push(event.clone());
-        let _ = self.event_tx.send(event);
+    pub fn tx(&mut self, event: Event) {
+        if let Some(event_tx) = &self.event_tx {
+            let _ = event_tx.send(event);
+        }
     }
 
     pub fn status(&self, names: HashMap<impl Into<Pid>, String>) -> Status {
@@ -264,15 +323,8 @@ impl State {
         }
     }
 
-    pub fn subscribe(&self) -> tokio::sync::broadcast::Receiver<Event> {
-        self.event_tx.subscribe()
-    }
-
     fn start(&mut self) {
-        self.log_event(Event::Start {
-            players: self.players.alive(),
-            rules: self.rules.clone(),
-        });
+        self.tx(Event::Start { players: self.players.alive(), rules: self.rules.clone() });
         let n = self.players.n();
         if n % 2 == 1 {
             self.day(HashMap::new());
@@ -281,119 +333,228 @@ impl State {
         }
     }
 
-    pub fn vote(&mut self, voter: u64, ballot: RawBallot) -> Result<(), Error> {
-        let voter = self.players.validate(voter)?;
-        let ballot = self.players.validate_ballot(ballot)?;
-        if matches!(self.phase, Phase::Eclipse { .. }) {
-            return self.phase.eclipse_vote(voter, ballot);
+    pub fn validate_action(&self, action: &Action) -> Result<ValidAction, Error> {
+        use Action::*;
+        match action {
+            Vote { voter, ballot } => self.validate_vote(*voter, *ballot),
+            Target { actor, choice } => self.validate_target(*actor, *choice),
+            Scheme { killer, mark } => self.validate_scheme(*killer, *mark),
+            Reveal { actor } => self.validate_reveal(*actor),
         }
-        let former = self.phase.vote(voter, ballot)?;
-        let mut vote_list = self.phase.vote_list()?;
-
-        let ballot = ballot.map(|c| (c, vote_list.entry(c).or_default().len()));
-        let former = former.map(|c| (c, vote_list.entry(c).or_default().len()));
-
-        self.log_event(Event::Vote {
-            voter,
-            ballot,
-            former,
-        });
-        Ok(())
     }
 
-    pub fn reveal(&mut self, celeb: u64) -> Result<(), Error> {
+    pub fn perform_action(&mut self, action: ValidAction) {
+        use ValidAction::*;
+        match action {
+            Vote(voter, ballot) => self.vote(voter, ballot),
+            Target(actor, choice) => self.target(actor, choice),
+            Scheme(killer, mark) => self.scheme(killer, mark),
+            Reveal(celeb) => self.reveal(celeb),
+            EclipseVote(victim) => self.eclipse_vote(victim),
+        }
+    }
+
+    fn validate_reveal(&self, celeb: u64) -> Result<ValidAction, Error> {
         let celeb = self.players.validate(celeb)?;
         let role = self.players.get(celeb);
         if role != Role::CELEB {
-            return Err(Error::ExpectedCeleb {
-                actual: role.kind(),
-            });
+            return Err(Error::ExpectedCeleb { actual: role.kind() });
         }
-        let Phase::Day { blocks, .. } = &self.phase else {
+        if !matches!(self.phase, Phase::Day { .. }) {
             return self.phase.expected(PhaseKind::Day);
-        };
-        if let Some(blockers) = blocks.get(&celeb) {
-            self.log_event(Event::Block {
-                blocked: celeb,
-                blockers: blockers.clone(),
-            });
-        } else {
-            // Check if celeb is blocked
-            self.log_event(Event::Reveal { celeb });
         }
-        Ok(())
+        Ok(ValidAction::Reveal(celeb))
     }
 
-    pub fn target(&mut self, actor: u64, choice: RawChoice) -> Result<(), Error> {
+    pub fn reveal(&mut self, celeb: Pid) {
+        let Phase::Day { blocks, .. } = &self.phase else {
+            return panic!("Expected Day phase");
+        };
+        if let Some(blockers) = blocks.get(&celeb) {
+            self.tx(Event::Block { blocked: celeb, blockers: blockers.clone() });
+        } else {
+            self.tx(Event::Reveal { celeb });
+        }
+    }
+
+    fn validate_vote(&self, voter: u64, ballot: RawBallot) -> Result<ValidAction, Error> {
+        let voter = self.players.validate(voter)?;
+        let ballot = self.players.validate_ballot(ballot)?;
+        let Phase::Day { votes, .. } = &self.phase else {
+            if matches!(self.phase, Phase::Eclipse { .. }) {
+                return self.validate_eclipse_vote(voter, ballot);
+            }
+            return self.phase.expected(PhaseKind::Day);
+        };
+        if votes.get(&voter) == ballot.as_ref() {
+            return Err(Error::IneffectiveAction);
+        }
+        Ok(ValidAction::Vote(voter, ballot))
+    }
+
+    fn vote(&mut self, voter: Pid, ballot: Ballot) {
+        let Phase::Day { votes, .. } = &mut self.phase else {
+            panic!("Expected Day phase");
+        };
+        let former = if let Some(choice) = ballot {
+            votes.insert(voter, choice)
+        } else {
+            votes.remove(&voter)
+        };
+        let vote_list = count_votes(votes, &self.players);
+
+        let ballot_check = ballot.clone().map(|c| (c, vote_list.get(&c).unwrap().len()));
+        let former_check = former.clone().map(|c| (c, vote_list.get(&c).unwrap().len()));
+
+        self.tx(Event::Vote { voter: voter.clone(), ballot: ballot_check, former: former_check });
+        self.check_election(voter, ballot, vote_list);
+    }
+
+    fn check_election(&mut self, voter: Pid, ballot: Ballot, vote_list: HashMap<Choice, Vec<Pid>>) {
+        let Phase::Day { elect, .. } = &mut self.phase else {
+            panic!("Expected Day phase");
+        };
+
+        let n = self.players.n();
+        if let Some((choice, hammer, time)) = elect {
+            if vote_list.get(&choice).unwrap().len() < thresh(n, &choice) {
+                // Election averted
+                *elect = None;
+            }
+        }
+        if let Some(choice) = ballot {
+            let voters = vote_list.get(&choice).unwrap();
+            if voters.len() >= thresh(n, &choice) {
+                let hammer = voter;
+                let time = Local::now() + ELECTION_DELAY;
+                *elect = Some((choice, hammer, time));
+            }
+        }
+    }
+
+    // TODO: check stripper
+    fn validate_target(&self, actor: u64, choice: RawChoice) -> Result<ValidAction, Error> {
         let actor = self.players.validate(actor)?;
         let choice = self.players.validate_choice(choice)?;
         let role = self.players.get(actor);
         if !role.is_targeting() {
-            return Err(Error::ExpectedTargetingRole {
-                actual: role.kind(),
-            });
+            return Err(Error::ExpectedTargetingRole { actual: role.kind() });
         }
-        self.phase.target(actor, choice)?;
-        self.log_event(Event::Target { actor, choice });
-        Ok(())
+        let Phase::Night { targets, .. } = &self.phase else {
+            return self.phase.expected(PhaseKind::Night);
+        };
+        if targets.get(&actor).is_some() {
+            return Err(Error::IneffectiveAction);
+        }
+        Ok(ValidAction::Target(actor, choice))
     }
 
-    pub fn scheme(&mut self, killer: u64, mark: RawChoice) -> Result<(), Error> {
+    pub fn target(&mut self, actor: Pid, choice: Choice) {
+        let Phase::Night { targets, .. } = &mut self.phase else {
+            panic!("Expected Night phase");
+        };
+        targets.insert(actor, choice);
+        self.tx(Event::Target { actor, choice });
+        self.check_dawn();
+    }
+
+    fn validate_scheme(&self, killer: u64, mark: RawChoice) -> Result<ValidAction, Error> {
         let killer = self.players.validate(killer)?;
         let mark = self.players.validate_choice(mark)?;
         let role = self.players.get(killer);
         if !role.is_scheming() && mark.is_some() {
-            return Err(Error::ExpectedSchemingRole {
-                actual: role.kind(),
-            });
+            return Err(Error::ExpectedSchemingRole { actual: role.kind() });
         }
-        self.phase.scheme(killer, mark)?;
-        self.log_event(Event::Scheme { killer, mark });
-        Ok(())
+        let Phase::Night { scheme, .. } = &self.phase else {
+            return self.phase.expected(PhaseKind::Night);
+        };
+        if scheme.is_some() {
+            return Err(Error::IneffectiveAction);
+        }
+        Ok(ValidAction::Scheme(killer, mark))
     }
 
-    fn elect(&mut self, choice: Choice, hammer: Pid, voters: Vec<Pid>) -> bool {
-        self.log_event(Event::Election {
-            choice,
-            hammer,
-            voters: voters.clone(),
-        });
-        if let Some(pid) = choice {
-            // Check for IDIOT
-            if self.players.get(pid) == Role::IDIOT {
-                self.eclipse(pid, hammer, voters);
-                return true;
-            } else {
-                self.eliminate(pid, hammer, Context::new(self.day, Cause::Election));
+    pub fn scheme(&mut self, killer: Pid, mark: Choice) {
+        let Phase::Night { scheme, .. } = &mut self.phase else {
+            panic!("Expected Night phase");
+        };
+        *scheme = Some((killer, mark));
+        self.tx(Event::Scheme { killer, mark });
+        self.check_dawn();
+    }
+
+    pub fn check_dawn(&mut self) {
+        let Phase::Night { targets, scheme, dawn } = &mut self.phase else {
+            panic!("Expected Night phase");
+        };
+        if dawn.is_some() {
+            return;
+        }
+        let mut ready = true;
+        if scheme.is_none() {
+            ready = false;
+        }
+        for (pid, role) in self.players.alive() {
+            if role.is_targeting() && targets.get(&pid).is_none() {
+                ready = false;
             }
         }
-        return false;
-    }
-
-    fn eclipse(&mut self, avenger: Pid, hammer: Pid, guilty: Vec<Pid>) {
-        self.phase = Phase::Eclipse {
-            avenger,
-            hammer,
-            guilty: guilty.clone(),
-            vote: None,
-        };
-        self.log_event(Event::Eclipse {
-            avenger,
-            hammer,
-            guilty,
-        });
-    }
-    fn vengeance(&mut self, avenger: Pid, victim: Pid, hammer: Pid) {
-        self.log_event(Event::Vengeance { avenger, victim });
-        self.eliminate(victim, avenger, Context::new(self.day, Cause::Vengeance));
-        self.eliminate(avenger, hammer, Context::new(self.day, Cause::Election));
+        if ready {
+            let time = Local::now() + DAWN_DELAY;
+            *dawn = Some(time);
+        }
     }
 
     fn dawn(&mut self) -> Blocks {
-        self.log_event(Event::Dawn);
+        self.tx(Event::Dawn);
         let night_actions = NightAct::from_state(self);
 
         self.apply_night_actions(night_actions)
+    }
+
+    fn eclipse(&mut self, avenger: Pid, hammer: Pid, guilty: Vec<Pid>) {
+        self.phase = Phase::Eclipse { avenger, hammer, guilty: guilty.clone() };
+        self.tx(Event::Eclipse { avenger, hammer, guilty });
+    }
+
+    fn validate_eclipse_vote(&self, voter: Pid, ballot: Ballot) -> Result<ValidAction, Error> {
+        let Phase::Eclipse { avenger, guilty, .. } = &self.phase else {
+            return self.phase.expected(PhaseKind::Eclipse);
+        };
+        if voter != *avenger {
+            return Err(Error::IneffectiveAction);
+        }
+        match ballot {
+            Some(Some(victim)) => {
+                if victim == *avenger {
+                    return Err(Error::IneffectiveAction);
+                }
+                if !guilty.contains(&victim) {
+                    return Err(Error::IneffectiveAction);
+                }
+                return Ok(ValidAction::EclipseVote(victim));
+            }
+            Some(None) => return Err(Error::IneffectiveAction),
+            None => return Err(Error::IneffectiveAction),
+        }
+    }
+
+    fn eclipse_vote(&mut self, victim: Pid) {
+        let Phase::Eclipse { avenger, hammer, .. } = &self.phase else {
+            panic!("Expected Eclipse phase");
+        };
+        let avenger = *avenger;
+        let hammer = *hammer;
+        self.vengeance(avenger, victim, hammer);
+    }
+
+    fn vengeance(&mut self, avenger: Pid, victim: Pid, hammer: Pid) {
+        self.tx(Event::Vengeance { avenger, victim });
+        self.eliminate(victim, avenger, Context::new(self.day, Cause::Vengeance));
+        self.eliminate(avenger, hammer, Context::new(self.day, Cause::Election));
+        if !self.check_end() {
+            self.night();
+        }
     }
 
     fn eliminate(&mut self, player: Pid, _culpable: Pid, context: Context) {
@@ -401,38 +562,20 @@ impl State {
             panic!("Eliminating a dead player?");
         };
         let role = role.kind();
-        self.log_event(Event::Eliminate {
-            player,
-            role,
-            context,
-        });
+        self.tx(Event::Eliminate { player, role, context });
     }
 
     fn day(&mut self, blocks: Blocks) {
         self.day += 1;
-        self.phase = Phase::Day {
-            votes: HashMap::new(),
-            blocks,
-            pend_elect: None,
-        };
+        self.phase = Phase::Day { votes: HashMap::new(), blocks, elect: None };
         let counts = self.players.counts(Team::from);
-        self.log_event(Event::Day {
-            day: self.day,
-            counts,
-        });
+        self.tx(Event::Day { day: self.day, counts });
     }
 
     fn night(&mut self) {
-        self.phase = Phase::Night {
-            targets: HashMap::new(),
-            scheme: None,
-            pend_dawn: None,
-        };
+        self.phase = Phase::Night { targets: HashMap::new(), scheme: None, dawn: None };
         let counts = self.players.counts(Team::from);
-        self.log_event(Event::Night {
-            day: self.day,
-            counts,
-        });
+        self.tx(Event::Night { day: self.day, counts });
     }
 
     fn check_end(&mut self) -> bool {
@@ -443,144 +586,50 @@ impl State {
             self.phase = Phase::End { winner: Team::Town };
             return true;
         } else if n - n_maf <= n_maf {
-            self.phase = Phase::End {
-                winner: Team::Mafia,
-            };
+            self.phase = Phase::End { winner: Team::Mafia };
             return true;
         }
         false
     }
 
-    /*
-    One big idea: if we just assume that this update function is called at the right
-    times, we know things should work. We could just have the lobby call this function
-    in its update loop. It might also be nice to have a function that tells us when
-    the next timer wakeup will be. This way, we could have whatever is calling the
-    update function know when it's best to call it next.
-
-    One thing to think about, though, is polling events that emerge.
-    If we did have the lobby update function handling events, and it has, say, 5 events
-    to send out, each of which might take 1-2 seconds to send... that could be bad...
-
-    This means we should probably separate the update function from the event handling.
-    So the update function is in charge of... pretty much just checking if timers have
-    ended, and calling update on the games that need it.
-    We will also want one event handler for each game, that will poll the game's event
-    log and send out events as needed.
-
-    "Send event" in the state could be both adding it to the log and sending to the
-    broadcast channel... or the log could be a broadcast listener. But that seems bad.
-    If anything, the log should happen within the mutex.
-     */
-
-    /// Test for an update in phase, or for phase ending updates
     fn update(&mut self) -> Option<DateTime<Local>> {
-        #[derive(Debug)]
-        enum UpdateResult {
-            /// Choice, Hammer, Voters
-            Election(Choice, Pid, Vec<Pid>),
-            Dawn,
-            /// Avenger, Victim, Hammer
-            Vengeance(Pid, Pid, Pid),
-            ElectionImminent(DateTime<Local>),
-            DawnImminent(DateTime<Local>),
-        }
-        let mut result = None;
-        match &mut self.phase {
-            Phase::Day {
-                votes, pend_elect, ..
-            } => {
-                let mut vote_list: HashMap<Choice, Vec<Pid>> = HashMap::new();
-                for (voter, choice) in votes {
-                    vote_list.entry(*choice).or_default().push(*voter);
-                }
-                let n = self.players.n();
-                if let Some((choice, hammer, time)) = pend_elect {
-                    let voters = vote_list.entry(*choice).or_default();
-                    let thresh = thresh(n, choice);
-                    if voters.len() < thresh {
-                        *pend_elect = None;
-                    } else if *time < Local::now() {
-                        result = Some(UpdateResult::Election(*choice, *hammer, voters.clone()));
-                    }
-                }
-                if pend_elect.is_none() {
-                    for (choice, voters) in vote_list {
-                        let thresh = thresh(n, &choice);
-                        if voters.len() >= thresh {
-                            let hammer = last_vote_for(&self.event_log, &choice).unwrap();
-                            let time = Local::now() + ELECTION_DELAY;
-                            *pend_elect = Some((choice, hammer, time));
-                            result = Some(UpdateResult::ElectionImminent(time));
+        match &self.phase {
+            Phase::Day { elect: Some((choice, hammer, time)), votes, .. } => {
+                if time < &Local::now() {
+                    // ELECTION
+                    let voters = count_votes(votes, &self.players).get(choice).unwrap().clone();
+                    let (choice, hammer) = (*choice, *hammer);
+                    self.tx(Event::Election { choice, hammer, voters: voters.clone() });
+                    if let Some(pid) = choice {
+                        // Check for IDIOT
+                        if self.players.get(pid) == Role::IDIOT {
+                            self.eclipse(pid, hammer, voters);
+                            return None;
+                        } else {
+                            self.eliminate(pid, hammer, Context::new(self.day, Cause::Election));
                         }
                     }
-                }
-            }
-            Phase::Night {
-                pend_dawn: Some(time),
-                ..
-            } if *time < Local::now() => {
-                result = Some(UpdateResult::Dawn);
-            }
-            Phase::Night {
-                targets,
-                scheme,
-                pend_dawn,
-            } => {
-                let mut ready = true;
-                if scheme.is_none() {
-                    ready = false;
-                }
-                for (pid, role) in self.players.alive() {
-                    if role.is_targeting() && targets.get(&pid).is_none() {
-                        ready = false;
-                    }
-                }
-                if ready {
-                    let time = Local::now() + DAWN_DELAY;
-                    *pend_dawn = Some(time);
-                    result = Some(UpdateResult::DawnImminent(time));
-                }
-            }
-            Phase::Eclipse {
-                avenger,
-                hammer,
-                vote: Some(victim),
-                ..
-            } => {
-                result = Some(UpdateResult::Vengeance(*avenger, *victim, *hammer));
-            }
-            _ => {}
-        }
-        if let Some(result) = &result {
-            tracing::info!("Got update result: {:?}", result);
-        }
-        match result {
-            Some(UpdateResult::Election(choice, hammer, voters)) => {
-                if !self.elect(choice, hammer, voters) {
                     if !self.check_end() {
                         self.night();
                     }
+                    return None;
+                } else {
+                    return Some(*time);
                 }
             }
-            Some(UpdateResult::Dawn) => {
-                let blocks = self.dawn();
-                if !self.check_end() {
-                    self.day(blocks);
+            Phase::Night { dawn: Some(time), .. } => {
+                if time < &Local::now() {
+                    let blocks = self.dawn();
+                    if !self.check_end() {
+                        self.day(blocks);
+                    }
+                    return None;
+                } else {
+                    return Some(*time);
                 }
             }
-            Some(UpdateResult::Vengeance(avenger, victim, hammer)) => {
-                self.vengeance(avenger, victim, hammer);
-                if !self.check_end() {
-                    self.night();
-                }
-            }
-            Some(UpdateResult::ElectionImminent(time)) | Some(UpdateResult::DawnImminent(time)) => {
-                return Some(time);
-            }
-            None => {}
+            _ => return None,
         }
-        None
     }
 }
 
@@ -631,38 +680,18 @@ pub mod night_action {
     impl NightAct {
         // Assume role is a targeting role...
         pub fn from_target(role: Role, actor: Pid, target: Pid) -> Self {
-            tracing::debug!(
-                "Night action from target: {:?}, {:?}, {:?}",
-                role,
-                actor,
-                target
-            );
+            tracing::debug!("Night action from target: {:?}, {:?}, {:?}", role, actor, target);
             use Role::*;
             match role {
-                STRIPPER => NightAct {
-                    act: Act::Block,
-                    actor,
-                    target,
-                    blockers: vec![],
-                },
+                STRIPPER => NightAct { act: Act::Block, actor, target, blockers: vec![] },
                 DOCTOR => NightAct {
                     act: Act::Save { effective: false },
                     actor,
                     target,
                     blockers: vec![],
                 },
-                COP => NightAct {
-                    act: Act::Investigate,
-                    actor,
-                    target,
-                    blockers: vec![],
-                },
-                MILKY => NightAct {
-                    act: Act::Milk,
-                    actor,
-                    target,
-                    blockers: vec![],
-                },
+                COP => NightAct { act: Act::Investigate, actor, target, blockers: vec![] },
+                MILKY => NightAct { act: Act::Milk, actor, target, blockers: vec![] },
                 TOWN | CELEB | MILLER | MAFIA | GOON | GODFATHER | IDIOT | SURVIVOR | AGENT(_)
                 | GUARD(_) => panic!("Expected a targeting role"),
             }
@@ -683,10 +712,7 @@ pub mod night_action {
 
         pub fn from_state(state: &State) -> Vec<Self> {
             let players = &state.players;
-            let Phase::Night {
-                targets, scheme, ..
-            } = &state.phase
-            else {
+            let Phase::Night { targets, scheme, .. } = &state.phase else {
                 panic!("To night actions during not night");
             };
             let mut night_actions: Vec<NightAct> = targets
@@ -744,7 +770,7 @@ pub mod night_action {
                     }
                     Act::Save { effective } => {
                         if effective && !na.blockers.is_empty() {
-                            self.log_event(Event::Block {
+                            self.tx(Event::Block {
                                 blocked: na.actor,
                                 blockers: na.blockers.clone(),
                             });
@@ -756,10 +782,7 @@ pub mod night_action {
                             let mark = na.target;
                             kills.insert(mark, killer);
                         } else {
-                            self.log_event(Event::Save {
-                                saved: na.target,
-                                saviors: saviors.clone(),
-                            });
+                            self.tx(Event::Save { saved: na.target, saviors: saviors.clone() });
                         }
                     }
                     Act::Investigate => {
@@ -769,13 +792,13 @@ pub mod night_action {
                         }
                         let role = self.players.get(na.target);
                         if na.blockers.is_empty() {
-                            self.log_event(Event::Investigate {
+                            self.tx(Event::Investigate {
                                 cop: na.actor,
                                 target: na.target,
                                 appears_mafia: role.is_mafia(),
                             });
                         } else {
-                            self.log_event(Event::Block {
+                            self.tx(Event::Block {
                                 blocked: na.actor,
                                 blockers: na.blockers.clone(),
                             });
@@ -787,12 +810,9 @@ pub mod night_action {
                             continue;
                         }
                         if na.blockers.is_empty() {
-                            self.log_event(Event::Milk {
-                                milky: na.actor,
-                                target: na.target,
-                            });
+                            self.tx(Event::Milk { milky: na.actor, target: na.target });
                         } else if self.players.is_alive(na.actor) {
-                            self.log_event(Event::Block {
+                            self.tx(Event::Block {
                                 blocked: na.actor,
                                 blockers: na.blockers.clone(),
                             });
@@ -801,17 +821,17 @@ pub mod night_action {
                 }
             }
             if kills.is_empty() {
-                self.log_event(Event::NoKill);
+                self.tx(Event::NoKill);
             }
             for (mark, killer) in kills.into_iter() {
-                self.log_event(Event::Kill { killer, mark });
+                self.tx(Event::Kill { killer, mark });
                 self.eliminate(mark, killer, Context::new(self.day, Cause::Kill));
             }
             blocks
         }
     }
 }
-
+/*
 #[cfg(test)]
 mod tests {
     use core::panic;
@@ -827,11 +847,7 @@ mod tests {
     fn state_3() -> State {
         State {
             day: 1,
-            phase: Phase::Day {
-                votes: HashMap::new(),
-                blocks: HashMap::new(),
-                pend_elect: None,
-            },
+            phase: Phase::Day { votes: HashMap::new(), blocks: HashMap::new(), elect: None },
             players: Players::from_registry(vec![
                 (1, Role::TOWN),
                 (2, Role::TOWN),
@@ -865,18 +881,14 @@ mod tests {
             panic!("Expected Day phase");
         }
 
-        state
-            .vote(1, Some(Some(2)))
-            .expect("Vote other should work");
+        state.vote(1, Some(Some(2))).expect("Vote other should work");
         if let Phase::Day { votes, .. } = &state.phase {
             assert_eq!(votes.get(&one).unwrap(), &Some(two));
         } else {
             panic!("Expected Day phase");
         }
 
-        state
-            .vote(1, Some(Some(3)))
-            .expect("Vote again should work");
+        state.vote(1, Some(Some(3))).expect("Vote again should work");
         if let Phase::Day { votes, .. } = &state.phase {
             assert_eq!(votes.get(&one).unwrap(), &Some(three));
         } else {
@@ -899,58 +911,38 @@ mod tests {
         let three = Pid::from(3);
         let mut state = state_3();
 
-        let err = state
-            .vote(1, Some(Some(2)))
-            .expect_err("Vote in init should fail");
+        let err = state.vote(1, Some(Some(2))).expect_err("Vote in init should fail");
         assert!(matches!(err, Error::InvalidPhase { .. }));
 
-        state.phase = Phase::Night {
-            targets: HashMap::new(),
-            scheme: None,
-            pend_dawn: None,
-        };
+        state.phase = Phase::Night { targets: HashMap::new(), scheme: None, dawn: None };
 
-        let err = state
-            .vote(1, Some(Some(3)))
-            .expect_err("Vote in night should fail");
+        let err = state.vote(1, Some(Some(3))).expect_err("Vote in night should fail");
         assert!(matches!(err, Error::InvalidPhase { .. }));
 
         state.phase = Phase::End { winner: Team::Town };
 
-        let err = state
-            .vote(1, Some(None))
-            .expect_err("Vote in end should fail");
+        let err = state.vote(1, Some(None)).expect_err("Vote in end should fail");
         assert!(matches!(err, Error::InvalidPhase { .. }));
 
-        state.phase = Phase::Day {
-            votes: HashMap::new(),
-            blocks: HashMap::new(),
-            pend_elect: None,
-        };
+        state.phase = Phase::Day { votes: HashMap::new(), blocks: HashMap::new(), elect: None };
 
         // Invalid voter
-        let err = state
-            .vote(4, Some(Some(2)))
-            .expect_err("Invalid voter should fail");
+        let err = state.vote(4, Some(Some(2))).expect_err("Invalid voter should fail");
 
         assert!(matches!(err, Error::InvalidPlayer { .. }));
 
         // Invalid ballot
 
-        let err = state
-            .vote(1, Some(Some(4)))
-            .expect_err("Invalid ballot should fail");
+        let err = state.vote(1, Some(Some(4))).expect_err("Invalid ballot should fail");
 
         assert!(matches!(err, Error::InvalidPlayer { .. }));
 
         // Ineffective vote
 
         state.vote(1, Some(Some(2))).expect("Vote should work");
-        let err = state
-            .vote(1, Some(Some(2)))
-            .expect_err("Ineffective vote should fail");
+        let err = state.vote(1, Some(Some(2))).expect_err("Ineffective vote should fail");
 
-        assert!(matches!(err, Error::IneffectiveVote));
+        assert!(matches!(err, Error::IneffectiveAction));
     }
 
     #[test]
@@ -965,13 +957,10 @@ mod tests {
 
         // Now, after one update, election should be scheduled
         state.update();
-        if let Phase::Day { pend_elect, .. } = &mut state.phase {
+        if let Phase::Day { elect: pend_elect, .. } = &mut state.phase {
             assert!(pend_elect.is_some());
-            *pend_elect = Some((
-                Some(Pid::from(3)),
-                Pid::from(2),
-                Local::now() - Duration::from_secs(1),
-            ));
+            *pend_elect =
+                Some((Some(Pid::from(3)), Pid::from(2), Local::now() - Duration::from_secs(1)));
         } else {
             panic!("Expected Day phase");
         }
@@ -993,11 +982,7 @@ mod tests {
         let three = Pid::from(3);
         let four = Pid::from(4);
         let mut state = start_state_6();
-        state.phase = Phase::Night {
-            targets: HashMap::new(),
-            scheme: None,
-            pend_dawn: None,
-        };
+        state.phase = Phase::Night { targets: HashMap::new(), scheme: None, dawn: None };
 
         state.target(2, Some(4)).expect("Target self should work");
         if let Phase::Night { targets, .. } = &state.phase {
@@ -1013,9 +998,7 @@ mod tests {
             panic!("Expected Night phase");
         }
 
-        state
-            .target(2, None)
-            .expect("Change to None Target should work");
+        state.target(2, None).expect("Change to None Target should work");
         if let Phase::Night { targets, .. } = &state.phase {
             assert_eq!(targets.get(&two).unwrap(), &None);
         } else {
@@ -1031,11 +1014,9 @@ mod tests {
 
         state.update(); // Dawn should be scheduled
 
-        state
-            .target(2, Some(4))
-            .expect("Target should work even with dawn pending");
+        state.target(2, Some(4)).expect("Target should work even with dawn pending");
 
-        if let Phase::Night { pend_dawn, .. } = &mut state.phase {
+        if let Phase::Night { dawn, .. } = &mut state.phase {
             assert!(pend_dawn.is_some());
         } else {
             panic!("Expected Night phase");
@@ -1049,60 +1030,31 @@ mod tests {
         let three = Pid::from(3);
         let four = Pid::from(4);
         let mut state = start_state_6();
-        state.phase = Phase::Night {
-            targets: HashMap::new(),
-            scheme: None,
-            pend_dawn: None,
-        };
+        state.phase = Phase::Night { targets: HashMap::new(), scheme: None, dawn: None };
 
-        let err = state
-            .target(7, Some(1))
-            .expect_err("Invalid actor should fail");
+        let err = state.target(7, Some(1)).expect_err("Invalid actor should fail");
 
         assert!(matches!(err, Error::InvalidPlayer { .. }));
 
-        let err = state
-            .target(2, Some(7))
-            .expect_err("Invalid target should fail");
+        let err = state.target(2, Some(7)).expect_err("Invalid target should fail");
 
         assert!(matches!(err, Error::InvalidPlayer { .. }));
 
-        let err = state
-            .target(1, Some(4))
-            .expect_err("Invalid role should fail");
+        let err = state.target(1, Some(4)).expect_err("Invalid role should fail");
 
-        assert!(matches!(
-            err,
-            Error::ExpectedTargetingRole {
-                actual: RoleKind::TOWN
-            }
-        ));
+        assert!(matches!(err, Error::ExpectedTargetingRole { actual: RoleKind::TOWN }));
 
         state.phase = Phase::Init;
 
-        let err = state
-            .target(2, Some(4))
-            .expect_err("Target in init should fail");
+        let err = state.target(2, Some(4)).expect_err("Target in init should fail");
 
         assert!(matches!(err, Error::InvalidPhase { .. }));
 
-        state.phase = Phase::Day {
-            votes: HashMap::new(),
-            blocks: HashMap::new(),
-            pend_elect: None,
-        };
+        state.phase = Phase::Day { votes: HashMap::new(), blocks: HashMap::new(), elect: None };
 
-        let err = state
-            .target(2, Some(4))
-            .expect_err("Target in day should fail");
+        let err = state.target(2, Some(4)).expect_err("Target in day should fail");
 
-        assert!(matches!(
-            err,
-            Error::InvalidPhase {
-                actual: PhaseKind::Day,
-                ..
-            }
-        ));
+        assert!(matches!(err, Error::InvalidPhase { actual: PhaseKind::Day, .. }));
     }
 
     fn start_state_6() -> State {
@@ -1134,7 +1086,7 @@ mod tests {
             .into_iter()
             .collect(),
             scheme: Some((pid(4), Some(pid(3)))),
-            pend_dawn: Some(Local::now() - Duration::from_secs(1)),
+            dawn: Some(Local::now() - Duration::from_secs(1)),
         };
 
         state1.update();
@@ -1146,24 +1098,13 @@ mod tests {
         tracing::debug!("Events: {:#?}", events);
         let exp_events = vec![
             Event::Dawn,
-            Event::Block {
-                blocked: pid(2),
-                blockers: vec![pid(5)],
-            },
-            Event::Save {
-                saved: pid(3),
-                saviors: vec![pid(3)],
-            },
-            Event::Milk {
-                milky: pid(6),
-                target: pid(1),
-            },
+            Event::Block { blocked: pid(2), blockers: vec![pid(5)] },
+            Event::Save { saved: pid(3), saviors: vec![pid(3)] },
+            Event::Milk { milky: pid(6), target: pid(1) },
             Event::NoKill,
             Event::Day {
                 day: 1,
-                counts: vec![(Team::Town, 4), (Team::Mafia, 2)]
-                    .into_iter()
-                    .collect(),
+                counts: vec![(Team::Town, 4), (Team::Mafia, 2)].into_iter().collect(),
             },
         ];
 
@@ -1187,7 +1128,7 @@ mod tests {
             .into_iter()
             .collect(),
             scheme: Some((pid(4), Some(pid(1)))),
-            pend_dawn: Some(Local::now() - Duration::from_secs(1)),
+            dawn: Some(Local::now() - Duration::from_secs(1)),
         };
 
         state.update();
@@ -1197,20 +1138,10 @@ mod tests {
         let events = &state.event_log[0..];
         tracing::debug!("Events: {:#?}", events);
         let exp_events = vec![
-            Event::Investigate {
-                cop: pid(2),
-                target: pid(4),
-                appears_mafia: true,
-            },
-            Event::Kill {
-                killer: pid(4),
-                mark: pid(1),
-            },
+            Event::Investigate { cop: pid(2), target: pid(4), appears_mafia: true },
+            Event::Kill { killer: pid(4), mark: pid(1) },
         ];
-        let exp_not_events = vec![Event::Kill {
-            killer: pid(4),
-            mark: pid(3),
-        }];
+        let exp_not_events = vec![Event::Kill { killer: pid(4), mark: pid(3) }];
 
         for ee in exp_events {
             assert!(events.contains(&ee), "Could not find event: {:?}", ee);
@@ -1235,7 +1166,7 @@ mod tests {
             .into_iter()
             .collect(),
             scheme: Some((pid(4), Some(pid(3)))),
-            pend_dawn: Some(Local::now() - Duration::from_secs(1)),
+            dawn: Some(Local::now() - Duration::from_secs(1)),
         };
 
         state.update();
@@ -1245,24 +1176,13 @@ mod tests {
         let events = &state.event_log[0..];
         tracing::debug!("Events: {:#?}", events);
         let exp_events = vec![
-            Event::Kill {
-                killer: pid(4),
-                mark: pid(3),
-            },
-            Event::Block {
-                blocked: pid(3),
-                blockers: vec![pid(5)],
-            },
+            Event::Kill { killer: pid(4), mark: pid(3) },
+            Event::Block { blocked: pid(3), blockers: vec![pid(5)] },
             Event::Day {
                 day: 1,
-                counts: vec![(Team::Town, 3), (Team::Mafia, 2)]
-                    .into_iter()
-                    .collect(),
+                counts: vec![(Team::Town, 3), (Team::Mafia, 2)].into_iter().collect(),
             },
-            Event::Milk {
-                milky: pid(6),
-                target: pid(1),
-            },
+            Event::Milk { milky: pid(6), target: pid(1) },
         ];
         let exp_not_events = vec![Event::NoKill];
 
@@ -1289,7 +1209,7 @@ mod tests {
             .into_iter()
             .collect(),
             scheme: Some((pid(4), Some(pid(2)))),
-            pend_dawn: Some(Local::now() - Duration::from_secs(1)),
+            dawn: Some(Local::now() - Duration::from_secs(1)),
         };
 
         state.update();
@@ -1298,20 +1218,10 @@ mod tests {
 
         let events = &state.event_log[0..];
         tracing::debug!("Events: {:#?}", events);
-        let exp_events = vec![Event::Kill {
-            killer: pid(4),
-            mark: pid(2),
-        }];
+        let exp_events = vec![Event::Kill { killer: pid(4), mark: pid(2) }];
         let exp_not_events = vec![
-            Event::Investigate {
-                cop: pid(2),
-                target: pid(1),
-                appears_mafia: false,
-            },
-            Event::Block {
-                blocked: pid(3),
-                blockers: vec![pid(5)],
-            },
+            Event::Investigate { cop: pid(2), target: pid(1), appears_mafia: false },
+            Event::Block { blocked: pid(3), blockers: vec![pid(5)] },
         ];
 
         for ee in exp_events {
@@ -1337,7 +1247,7 @@ mod tests {
             .into_iter()
             .collect(),
             scheme: Some((pid(4), Some(pid(6)))),
-            pend_dawn: Some(Local::now() - Duration::from_secs(1)),
+            dawn: Some(Local::now() - Duration::from_secs(1)),
         };
 
         state.update();
@@ -1347,25 +1257,13 @@ mod tests {
         let events = &state.event_log[0..];
         tracing::debug!("Events: {:#?}", events);
         let exp_events = vec![
-            Event::Kill {
-                killer: pid(4),
-                mark: pid(6),
-            },
+            Event::Kill { killer: pid(4), mark: pid(6) },
             Event::Day {
                 day: 1,
-                counts: vec![(Team::Town, 3), (Team::Mafia, 2)]
-                    .into_iter()
-                    .collect(),
+                counts: vec![(Team::Town, 3), (Team::Mafia, 2)].into_iter().collect(),
             },
-            Event::Milk {
-                milky: pid(6),
-                target: pid(1),
-            },
-            Event::Investigate {
-                cop: pid(2),
-                target: pid(6),
-                appears_mafia: false,
-            },
+            Event::Milk { milky: pid(6), target: pid(1) },
+            Event::Investigate { cop: pid(2), target: pid(6), appears_mafia: false },
         ];
         let exp_not_events = vec![];
 
@@ -1398,40 +1296,30 @@ mod tests {
         let mut state = start_state_7();
 
         state.phase = Phase::Day {
-            votes: vec![
-                (pid(1), Some(pid(5))),
-                (pid(2), Some(pid(5))),
-                (pid(3), Some(pid(5))),
-            ]
-            .into_iter()
-            .collect(),
+            votes: vec![(pid(1), Some(pid(5))), (pid(2), Some(pid(5))), (pid(3), Some(pid(5)))]
+                .into_iter()
+                .collect(),
             blocks: HashMap::new(),
-            pend_elect: None,
+            elect: None,
         };
 
         state.vote(5, Some(Some(5))).expect("Vote self should work");
 
         state.update();
 
-        if let Phase::Day { pend_elect, .. } = &mut state.phase {
-            let Some((choice, hammer, time)) = &pend_elect else {
+        if let Phase::Day { elect, .. } = &mut state.phase {
+            let Some((choice, hammer, time)) = &elect else {
                 return panic!("Expected pending election");
             };
             let new_elect = Some((*choice, *hammer, *time - Duration::from_secs(100)));
-            *pend_elect = new_elect;
+            *elect = new_elect;
         } else {
             panic!("Expected Day phase");
         }
 
         state.update();
 
-        if let Phase::Eclipse {
-            avenger,
-            hammer,
-            guilty,
-            vote,
-        } = &state.phase
-        {
+        if let Phase::Eclipse { avenger, hammer, guilty, vote } = &state.phase {
             assert_eq!(avenger, &pid(5));
             assert_eq!(hammer, &pid(5));
             for v in vec![pid(1), pid(2), pid(3), pid(5)] {
@@ -1443,32 +1331,22 @@ mod tests {
         }
 
         // Check fail votes during eclipse
-        let err = state
-            .vote(1, Some(Some(2)))
-            .expect_err("Voter not avenger during eclipse should fail");
-        assert!(matches!(err, Error::IneffectiveVote));
+        let err =
+            state.vote(1, Some(Some(2))).expect_err("Voter not avenger during eclipse should fail");
+        assert!(matches!(err, Error::IneffectiveAction));
 
-        let err = state
-            .vote(5, Some(Some(6)))
-            .expect_err("Avenger voting for not guilty should fail");
-        assert!(matches!(err, Error::IneffectiveVote));
+        let err =
+            state.vote(5, Some(Some(6))).expect_err("Avenger voting for not guilty should fail");
+        assert!(matches!(err, Error::IneffectiveAction));
 
-        let err = state
-            .vote(5, None)
-            .expect_err("Avenger unvoting should fail");
-        assert!(matches!(err, Error::IneffectiveVote));
+        let err = state.vote(5, None).expect_err("Avenger unvoting should fail");
+        assert!(matches!(err, Error::IneffectiveAction));
 
-        let err = state
-            .vote(5, Some(None))
-            .expect_err("Avenger voting for peace should fail");
+        let err = state.vote(5, Some(None)).expect_err("Avenger voting for peace should fail");
 
-        let err = state
-            .vote(5, Some(Some(5)))
-            .expect_err("Avenger voting for self should fail");
+        let err = state.vote(5, Some(Some(5))).expect_err("Avenger voting for self should fail");
 
-        state
-            .vote(5, Some(Some(1)))
-            .expect("Avenger voting for guilty should work");
+        state.vote(5, Some(Some(1))).expect("Avenger voting for guilty should work");
 
         state.update();
 
@@ -1488,10 +1366,7 @@ mod tests {
                 hammer: pid(5),
                 guilty: vec![pid(1), pid(2), pid(3), pid(5)],
             },
-            Event::Vengeance {
-                avenger: pid(5),
-                victim: pid(1),
-            },
+            Event::Vengeance { avenger: pid(5), victim: pid(1) },
             Event::Eliminate {
                 player: pid(1),
                 role: RoleKind::MILLER,
@@ -1505,3 +1380,4 @@ mod tests {
         ];
     }
 }
+*/

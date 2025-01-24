@@ -12,29 +12,14 @@ use tokio::sync::{broadcast, mpsc, oneshot};
 
 #[derive(Debug, Clone)]
 pub enum Error {
-    InvalidPhase {
-        expected: PhaseKind,
-        actual: PhaseKind,
-    },
-    InvalidPlayer {
-        pid: u64,
-    },
-    DeadPlayer {
-        pid: u64,
-    },
-    ExpectedTargetingRole {
-        actual: RoleKind,
-    },
-    ExpectedSchemingRole {
-        actual: RoleKind,
-    },
-    ExpectedCeleb {
-        actual: RoleKind,
-    },
-    IneffectiveVote,
-    InvalidTarget {
-        idx: usize,
-    },
+    InvalidPhase { expected: PhaseKind, actual: PhaseKind },
+    InvalidPlayer { pid: u64 },
+    DeadPlayer { pid: u64 },
+    ExpectedTargetingRole { actual: RoleKind },
+    ExpectedSchemingRole { actual: RoleKind },
+    ExpectedCeleb { actual: RoleKind },
+    IneffectiveAction,
+    InvalidTarget { idx: usize },
 }
 
 impl std::fmt::Display for Error {
@@ -54,7 +39,7 @@ impl std::fmt::Display for Error {
             Error::ExpectedCeleb { actual } => {
                 write!(f, "Expected celeb, got {actual}")
             }
-            Error::IneffectiveVote => {
+            Error::IneffectiveAction => {
                 write!(f, "This vote would not have any effect")
             }
             Error::InvalidTarget { idx } => {
@@ -66,22 +51,10 @@ impl std::fmt::Display for Error {
 
 #[derive(Debug, Clone, Copy, Deserialize)]
 pub enum Action {
-    Start,
-    Vote {
-        voter: u64,
-        ballot: Option<Option<u64>>,
-    },
-    Target {
-        actor: u64,
-        choice: Option<u64>,
-    },
-    Scheme {
-        killer: u64,
-        mark: Option<u64>,
-    },
-    Reveal {
-        actor: u64,
-    },
+    Vote { voter: u64, ballot: Option<Option<u64>> },
+    Target { actor: u64, choice: Option<u64> },
+    Scheme { killer: u64, mark: Option<u64> },
+    Reveal { actor: u64 },
 }
 
 impl Action {
@@ -99,17 +72,9 @@ impl Action {
     pub fn other(&self) -> Option<u64> {
         use Action::*;
         match self {
-            Vote {
-                ballot: Some(Some(other)),
-                ..
-            }
-            | Target {
-                choice: Some(other),
-                ..
-            }
-            | Scheme {
-                mark: Some(other), ..
-            } => Some(*other),
+            Vote { ballot: Some(Some(other)), .. }
+            | Target { choice: Some(other), .. }
+            | Scheme { mark: Some(other), .. } => Some(*other),
             _ => None,
         }
     }

@@ -205,7 +205,7 @@ impl State {
             }
         }
         debug!("New elect {:?}", new_elect);
-        let Phase::Day { pend_elect, .. } = &mut self.phase else {
+        let Phase::Day { elect: pend_elect, .. } = &mut self.phase else {
             return;
         };
         // Check if an election is cancelled
@@ -264,7 +264,7 @@ impl State {
         let Phase::Night {
             targets,
             scheme,
-            pend_dawn,
+            dawn: pend_dawn,
         } = &mut self.phase
         else {
             return;
@@ -325,7 +325,7 @@ impl State {
         self.phase = Phase::Day {
             votes: HashMap::new(),
             blocks,
-            pend_elect: None,
+            elect: None,
         };
         self.tx(Event::Day {
             day: self.day,
@@ -341,7 +341,7 @@ impl State {
         self.phase = Phase::Night {
             targets: HashMap::new(),
             scheme: None,
-            pend_dawn: None,
+            dawn: None,
         };
         self.tx(Event::Night {
             day: self.day,
