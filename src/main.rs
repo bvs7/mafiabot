@@ -10,6 +10,8 @@ mod engine;
 mod groupme;
 mod server;
 
+mod refactor;
+
 use anyhow;
 
 // Game loop.

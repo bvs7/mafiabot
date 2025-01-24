@@ -10,9 +10,10 @@ use chrono::{format, DateTime, Local};
 use parse::{Cmd, Command, GameCmd, LobbyCmd, Response};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use tokio::sync::mpsc;
+use tokio::sync::{broadcast::error::SendError, mpsc};
 
 use crate::engine::{
+    interface::Event,
     state::{
         id::{Gid, Pid},
         role::Role,
@@ -582,6 +583,9 @@ Controller. When we create one of these...
 
 The update functions for each system should be called each time a mutating command was passed in.
 They should return a time for when they need to be called again.
+
+
+
 */
 // TODO: put this in api? maybe
 struct GroupMeGroup {
@@ -598,6 +602,15 @@ impl GroupMeGroup {
         }
     }
 }
+
+/*
+What if we want to get rid of async?
+We could have a task for each loop. For games and for lobbies (and for controller)
+Then those could just pass messages to each other.
+
+
+
+*/
 
 struct Controller {
     lobbies: HashMap<GroupId, Lobby>,
@@ -645,26 +658,33 @@ impl Controller {
 // Note: for now, Mutex is std::sync::Mutex, which means the Guard can't be held
 // over await boundaries... so we need to be careful about that.
 // Let's have a
-
+type SendEvent = fn(Event) -> Result<usize, SendError<Event>>;
 struct Game {
     game_id: Gid,
     main_chat: GroupMeGroup,
     mafia_chat: GroupMeGroup,
     state: Arc<Mutex<State>>,
+    send_event: SendEvent,
+}
+
+fn send(event: Event) -> Result<usize, SendError<Event>> {
+    // Send the event
+    todo!()
 }
 
 impl Game {
     async fn new(game_id: Gid, state: State) -> Self {
         let main_chat = GroupMeGroup::new(&format!("Main Chat #{game_id}")).await;
         let mafia_chat = GroupMeGroup::new(&format!("Mafia Chat #{game_id}")).await;
+
         Self {
             game_id,
             main_chat,
             mafia_chat,
             state: Arc::new(Mutex::new(state)),
+            send_event: send,
         }
     }
-
     fn handle_command(&mut self, uid: UserId, cmd: GameCmd, response: Response) {
         let raw_uid = u64::from(uid);
         let mut rstate = self.state.lock().unwrap();
