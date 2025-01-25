@@ -116,13 +116,16 @@ impl std::fmt::Display for Status {
 }
 
 // TODO: have event log be an generic trait, so that an implementation can define it?
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct State {
     day: u32,
     phase: Phase,
     players: Players,
     rules: Rules,
-    pub event_tx: Option<EventTx>,
+    #[serde(skip)]
+    event_tx: mpsc::UnboundedSender<Event>,
+    #[serde(skip)]
+    action_rx: mpsc::Receiver<(Action, oneshot::Sender<Result<(), Error>>)>,
 }
 
 impl State {

@@ -1,5 +1,6 @@
 /target
 
-
 # Secret discord token
 data/.discord.token
+
+mafia_types/target
