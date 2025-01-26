@@ -12,32 +12,6 @@ pub use phase::PhaseKind;
 use phase::{Blocks, Phase, Votes};
 use players::{PlayerState, Players};
 
-const ELECTION_DELAY: Duration = Duration::from_secs(10);
-const DAWN_DELAY: Duration = Duration::from_secs(10);
-const TICK_DELAY: Duration = Duration::from_secs(1);
-/*
-Have scheduled events? Or at least a thread that will notify when needed.
-*/
-
-fn count_votes(votes: &Votes, players: &Players) -> HashMap<Choice, Vec<Pid>> {
-    let mut vote_list: HashMap<Choice, Vec<Pid>> = HashMap::new();
-    for (pid, _) in players.alive() {
-        vote_list.insert(Some(pid), vec![]);
-    }
-    vote_list.insert(None, vec![]);
-    for (voter, choice) in votes {
-        vote_list.entry(*choice).or_default().push(*voter);
-    }
-    vote_list
-}
-
-fn thresh(n: usize, choice: &Choice) -> usize {
-    if choice.is_some() {
-        return (n / 2) + 1;
-    } else {
-        return (n + 1) / 2;
-    }
-}
 
 pub struct Status {
     pub day: u32,
@@ -184,6 +158,12 @@ pub enum ValidAction {
 impl State {
     pub fn validate_action(&self, action: &Action) -> Result<ValidAction, Error> {
         use Action::*;
+        let actor = match action {
+            Vote { voter: actor, .. } |
+            Target { actor, .. } |
+            Scheme { killer: actor, .. } |
+            Reveal { actor: actor } => self.players.validate(actor),
+        }
         match action {
             Vote { voter, ballot } => self.validate_vote(*voter, *ballot),
             Target { actor, choice } => self.validate_target(*actor, *choice),
@@ -502,5 +482,3 @@ impl State {
         false
     }
 }
-
-pub mod night_action {}

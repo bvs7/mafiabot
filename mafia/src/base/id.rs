@@ -27,29 +27,5 @@ impl std::fmt::Display for Pid {
     }
 }
 
-#[derive(Debug, Clone, Copy, Hash, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(into = "u64", from = "u64")]
-pub struct GameId(u64);
-
-impl GameId {
-    pub fn new() -> Self {
-        Self(0)
-    }
-}
-
-impl From<GameId> for u64 {
-    fn from(value: GameId) -> Self {
-        value.0
-    }
-}
-impl From<u64> for GameId {
-    fn from(value: u64) -> Self {
-        Self(value)
-    }
-}
-
-impl std::fmt::Display for GameId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
+pub type Choice = Option<Pid>;
+pub type Ballot = Option<Choice>;

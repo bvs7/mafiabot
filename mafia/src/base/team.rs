@@ -1,6 +1,4 @@
-use serde::{Deserialize, Serialize};
-
-use crate::role::{Role, RoleKind};
+use crate::prelude::*;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Team {

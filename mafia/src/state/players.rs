@@ -23,8 +23,16 @@ impl TryFrom<PlayerState> for Role {
     }
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct Context {}
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Context {
+    day: u32,
+    phase: PhaseKind,
+}
+impl Context {
+    pub fn new(day: u32, phase: PhaseKind) -> Self {
+        Self { day, phase }
+    }
+}
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Players {
@@ -62,14 +70,25 @@ impl Players {
         ballot.map(|choice| self.validate_choice(choice)).transpose()
     }
 
-    pub fn get_role(&self, pid: Pid) -> Result<Role, Error> {
+    pub fn get_role(&self, pid: Pid) -> Role {
         match self.map.get(&pid) {
-            Some(PlayerState::Alive(role)) => Ok(*role),
-            Some(PlayerState::Dead) => Err(Error::DeadPlayer),
-            None => Err(Error::InvalidPlayer { pid: pid.into() }),
+            Some(PlayerState::Alive(role)) => *role,
+            _ => {
+                error!("get_role pid should be valid: {:?}", pid);
+                panic!("get_role pid should be valid: {:?}", pid);
+            }
         }
     }
 
+    pub fn list(&self) -> Vec<Pid> {
+        let mut list: Vec<Pid> = self
+            .map
+            .iter()
+            .filter_map(|(p, ps)| matches!(ps, PlayerState::Alive(_)).then(|| *p))
+            .collect();
+        list.sort();
+        list
+    }
     // Always sort the list of players by pid to ensure consistent ordering.
     pub fn alive(&self) -> Vec<(Pid, Role)> {
         let mut alive: Vec<(Pid, Role)> = self

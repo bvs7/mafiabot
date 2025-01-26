@@ -37,19 +37,19 @@ impl Phase {
         PhaseKind::from(self)
     }
 
-    // pub fn expected<T>(&self, expected: PhaseKind) -> Result<T, Error> {
-    //     Err(Error::InvalidPhase { expected, actual: self.kind() })
-    // }
-    // pub fn vote_list(&self) -> Result<HashMap<Choice, Vec<Pid>>, Error> {
-    //     let Self::Day { votes, .. } = self else {
-    //         return self.expected(PhaseKind::Day);
-    //     };
-    //     let mut map: HashMap<_, Vec<Pid>> = HashMap::new();
-    //     for (voter, choice) in votes {
-    //         map.entry(*choice).or_default().push(*voter);
-    //     }
-    //     Ok(map)
-    // }
+    pub fn expected<T>(&self, expected: PhaseKind) -> Result<T, Error> {
+        Err(Error::InvalidPhase { expected, actual: self.kind() })
+    }
+    pub fn vote_list(&self) -> Result<HashMap<Choice, Vec<Pid>>, Error> {
+        let Self::Day { votes, .. } = self else {
+            return self.expected(PhaseKind::Day);
+        };
+        let mut map: HashMap<_, Vec<Pid>> = HashMap::new();
+        for (voter, choice) in votes {
+            map.entry(*choice).or_default().push(*voter);
+        }
+        Ok(map)
+    }
 }
 
 impl std::fmt::Display for PhaseKind {
@@ -61,5 +61,11 @@ impl std::fmt::Display for PhaseKind {
             PhaseKind::Eclipse => write!(f, "Eclipse"),
             PhaseKind::End => write!(f, "End"),
         }
+    }
+}
+
+impl Default for PhaseKind {
+    fn default() -> Self {
+        PhaseKind::Init
     }
 }
