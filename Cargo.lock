@@ -242,7 +242,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "mafiabot"
+name = "mafiabot_groupme"
 version = "0.1.0"
 dependencies = [
  "groupme",

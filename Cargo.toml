@@ -1,5 +1,5 @@
 [workspace]
-members = ["mafia", "groupme", "mafiabot"]
+members = ["mafia", "groupme", "mafiabot_groupme"]
 
 # [dependencies]
 # anyhow = "1.0.95"
