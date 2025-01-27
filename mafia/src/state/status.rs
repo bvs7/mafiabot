@@ -2,6 +2,7 @@ use crate::prelude::*;
 
 use super::util::thresh;
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Status {
     pub day: u32,
     pub phase: PhaseKind,

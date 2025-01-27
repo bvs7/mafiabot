@@ -1,5 +1,6 @@
 use std::{env, future::Future, path::PathBuf, sync::Arc};
 
+use async_trait::async_trait;
 use tokio::{
     sync::{watch, RwLock},
     time::error::Elapsed,
@@ -76,7 +77,7 @@ So let's think about how to do this. Definitely some kind of initialization and 
 let's write out the loops then try writing a basic handler
 
 */
-
+#[async_trait]
 pub trait ActionHandler<P> {
     fn init(&mut self, game: &Game);
     async fn recv_action(&mut self) -> Option<Action<P>>;
@@ -84,36 +85,11 @@ pub trait ActionHandler<P> {
     async fn update_status(&mut self, state: &State);
 }
 
+#[async_trait]
 pub trait EventHandler {
     fn init(&mut self, game: &Game);
-    fn handle_event(&mut self, event: Event) -> impl Future<Output = ()> + Send;
+    async fn handle_event(&mut self, event: Event);
 }
-
-// Wrapper for the game state, which takes takes an event_tx (and an action_rx?)
-// Then has an async run method that listens for actions and updates the state...
-// Or should this just be done one level up?
-// Should ActionHandler and EventHandler be separate? Or should they be combined?
-
-/*
-If they are combined, then they need to be able to share data between two threads...
-It seems like it would be too restrictive to not let event handler get &mut self...
-
-What does ActionHandler need?
-- It needs to receive actions, easy, just have a channel
-- It needs to send action responses, easy, just have a channel
-- It needs to update the status, and for that it needs names? Should names be part of status? No.
-Names are a part of the GroupMe Group objects...
-
-Maybe EventHandler can wrap some shared state with Action Handler?
-
-It does seem like they need to be separate to allow passing the event handler to another thread...
-
-What does the eventhandler need.
-- It needs to receive events from the state, use the event channel
-- It needs to send out dms and group messages. It needs access to GroupMeGroups and some kind of Pid -> UserIds
-    What could that be? It's probably shared, and we want to be able to update it.
-    Who updates it? Probably the top level command input point. So... It could be a RwLock of GroupMeGroups?
-*/
 
 pub struct Game {
     id: GameId,
@@ -211,17 +187,18 @@ struct GroupMeGroup {
 
 struct BasicActionHandler {
     game_id: GameId,
+    main_chat_id: Option<u64>,
+    mafia_chat_id: Option<u64>,
     app_comms: Arc<RwLock<AppComms>>,
     action_rx: mpsc::Receiver<(Action<u64>, RespContext)>,
     resp: Option<RespContext>,
     status_tx: watch::Sender<Statuses>,
 }
 
+#[async_trait]
 impl ActionHandler<u64> for BasicActionHandler {
     fn init(&mut self, game: &Game) {
-        // let (action_tx, action_rx) = mpsc::channel(100);
-        // game.action_tx = Some(action_tx);
-        // self.action_rx = action_rx;
+        // Create Main Chat and Mafia Chat...
     }
 
     async fn recv_action(&mut self) -> Option<Action<u64>> {
@@ -238,8 +215,16 @@ impl ActionHandler<u64> for BasicActionHandler {
     }
 
     async fn update_status(&mut self, state: &State) {
-        let names = self.app_comms.read().await.groups.get(&self.game_id).unwrap().names.clone();
-        let status = state.status();
+        let names = self
+            .app_comms
+            .read()
+            .await
+            .groups
+            .get(&self.main_chat_id.unwrap())
+            .unwrap()
+            .names
+            .clone();
+        let status = state.status(names);
     }
 }
 
@@ -249,6 +234,7 @@ struct BasicEventHandler {
     event_rx: mpsc::UnboundedSender<Event>,
 }
 
+#[async_trait]
 impl EventHandler for BasicEventHandler {
     fn init(&mut self, game: &Game) {
         // let (event_tx, event_rx) = mpsc::unbounded_channel();
@@ -256,8 +242,8 @@ impl EventHandler for BasicEventHandler {
         // self.event_rx = event_rx;
     }
 
-    fn handle_event(&mut self, event: Event) -> impl Future<Output = ()> + Send {
-        self.event_rx.send(event)
+    async fn handle_event(&mut self, event: Event) {
+        let _ = self.event_rx.send(event);
     }
 }
 

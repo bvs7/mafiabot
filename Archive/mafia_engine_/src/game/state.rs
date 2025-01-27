@@ -11,7 +11,7 @@ use night_act::NightAct;
 pub use phase::PhaseKind;
 use phase::{Blocks, Phase, Votes};
 use players::{PlayerState, Players};
-
+    
 
 pub struct Status {
     pub day: u32,
