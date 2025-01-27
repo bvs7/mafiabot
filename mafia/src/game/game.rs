@@ -11,7 +11,7 @@ use crate::prelude::*;
 use super::action;
 
 #[derive(thiserror::Error, Debug)]
-enum GameIdError {
+pub enum GameIdError {
     #[error("Failed to read game_id file: {0}")]
     ReadError(#[from] std::io::Error),
     #[error("Failed to parse game_id file: {0}")]
@@ -165,7 +165,7 @@ impl Game {
             match result {
                 Err(err) => handler.resp_action(Err(err)).await,
                 Ok(action) => {
-                    handler.resp_action(Ok(()));
+                    handler.resp_action(Ok(())).await;
                     self.state.perform_action(action);
                 }
             }
