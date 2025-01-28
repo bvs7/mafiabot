@@ -65,6 +65,16 @@ impl std::fmt::Display for GameId {
     }
 }
 
+/*
+It might be nice to do start stuff and initialization for the handlers smartly.
+I.e. don't do start event in event handler...
+
+What do we need to know for start?
+- Players and lobby nicknames and roles
+- Game Id...
+
+*/
+
 // Ok, let's think. How is a game created?
 // 1. We have a list of players and a set of rules.
 // 2. Generate and assign roles...

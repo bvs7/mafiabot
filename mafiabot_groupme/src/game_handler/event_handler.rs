@@ -273,6 +273,7 @@ impl EventHandler for GroupMeEventHandler {
                 let msg = format!("{winner} wins!",);
                 let _ = api::send_group_message(&self.main_id, &msg).await;
                 // TODO: end stuff?
+                // TODO: reveal roles.
             }
         }
     }
