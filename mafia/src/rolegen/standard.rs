@@ -58,7 +58,7 @@ impl Role_ {
             Role_::Role(RoleKind::CELEB) => -0.5,
             Role_::Role(RoleKind::MILKY) => -0.25,
             Role_::Role(RoleKind::STRIPPER) => 1.5,
-            Role_::Role(RoleKind::MAFIA) => 2.0, // This means an extra mafia!
+            Role_::Role(RoleKind::MAFIA) => 1.0, // This means an extra mafia!
             _ => {
                 warn!("No sigma adjustment for observed {:?}", self);
                 0.0
@@ -103,8 +103,11 @@ fn get_n_rogue(n: usize, rng: &mut impl Rng) -> isize {
 }
 
 fn get_n_power(n: usize, rng: &mut impl Rng) -> isize {
-    // TODO
-    return 3;
+    // TODO: add K and V inputs
+    let rate = n as f64 / 10.0 * 3.0;
+    let poisson = Poisson::new(rate).unwrap();
+    let n_rogue: u64 = poisson.sample(rng);
+    return n_rogue as isize;
 }
 
 // TODO: construct these based on allowed_roles
@@ -330,7 +333,7 @@ mod tests {
     fn try_std_role_gen() {
         let rules = Rules::default();
         let mut rng = rand::thread_rng();
-        let n = 7;
+        let n = 11;
         let roles = StandardRoleGen::generate_roles(n, &rules, &mut rng);
         println!("{:#?}", roles);
     }
