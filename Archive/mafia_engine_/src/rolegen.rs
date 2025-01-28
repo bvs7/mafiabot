@@ -241,14 +241,7 @@ mod test {
                 let p = p(n, m);
                 let p_100 = p_100(n, m);
                 let e = map[key] as f64 / tot as f64;
-                println!(
-                    "{}-{}: {:.2}%, p = {:.4},(P = {:.4})",
-                    n,
-                    key,
-                    e * 100.0,
-                    p,
-                    p_100
-                );
+                println!("{}-{}: {:.2}%, p = {:.4},(P = {:.4})", n, key, e * 100.0, p, p_100);
                 expected_p += p * e
             }
             println!("E[p] = {:.4}", expected_p);

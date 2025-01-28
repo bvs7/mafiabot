@@ -54,6 +54,51 @@ impl Role {
     }
 }
 
+impl From<RoleKind> for Role {
+    fn from(kind: RoleKind) -> Self {
+        use Role::*;
+        match kind {
+            RoleKind::TOWN => TOWN,
+            RoleKind::COP => COP,
+            RoleKind::DOCTOR => DOCTOR,
+            RoleKind::CELEB => CELEB,
+            RoleKind::MILKY => MILKY,
+            RoleKind::MILLER => MILLER,
+            RoleKind::MAFIA => MAFIA,
+            RoleKind::STRIPPER => STRIPPER,
+            RoleKind::GODFATHER => GODFATHER,
+            RoleKind::GOON => GOON,
+            RoleKind::IDIOT => IDIOT,
+            RoleKind::SURVIVOR => SURVIVOR,
+            RoleKind::GUARD => GUARD(Pid::new()),
+            RoleKind::AGENT => AGENT(Pid::new()),
+        }
+    }
+}
+
+pub const ALL_ROLES: [RoleKind; 14] = [
+    RoleKind::TOWN,
+    RoleKind::COP,
+    RoleKind::DOCTOR,
+    RoleKind::CELEB,
+    RoleKind::MILKY,
+    RoleKind::MILLER,
+    RoleKind::MAFIA,
+    RoleKind::STRIPPER,
+    RoleKind::GODFATHER,
+    RoleKind::GOON,
+    RoleKind::IDIOT,
+    RoleKind::SURVIVOR,
+    RoleKind::GUARD,
+    RoleKind::AGENT,
+];
+
+impl RoleKind {
+    pub fn team(&self) -> Team {
+        Team::from(*self)
+    }
+}
+
 impl PartialEq<Role> for RoleKind {
     fn eq(&self, role: &Role) -> bool {
         let role_kind: RoleKind = role.into();
