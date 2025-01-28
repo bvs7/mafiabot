@@ -93,6 +93,10 @@ impl Game {
         self.id
     }
 
+    pub fn players(&self) -> Vec<(Pid, Role)> {
+        self.state.players.alive()
+    }
+
     pub async fn run<P: Into<Pid> + Copy + 'static, E, A>(
         mut self,
         action_handler: A,

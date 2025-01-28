@@ -11,7 +11,7 @@ use crate::prelude::*;
 pub struct State {
     day: u32,
     phase: Phase,
-    players: Players,
+    pub players: Players,
     rules: Rules,
     #[serde(skip)]
     pub event_tx: Option<mpsc::UnboundedSender<Event>>,

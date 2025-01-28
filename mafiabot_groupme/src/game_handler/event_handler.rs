@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use api::Member;
 use mafia::{
     game::{self, EventHandler},
@@ -13,6 +15,7 @@ pub struct GroupMeEventHandler {
     lobby_id: GroupId,
     main_id: GroupId,
     mafia_id: GroupId,
+    targeters: HashSet<Pid>,
     status_rx: watch::Receiver<Status>,
     app_status: Arc<RwLock<AppStatus>>,
 }
@@ -26,7 +29,12 @@ impl GroupMeEventHandler {
         let main_id = game_info.main_id.clone();
         let mafia_id = game_info.mafia_id.clone();
         drop(r_app_status);
-        Self { game_id, lobby_id, main_id, mafia_id, status_rx, app_status }
+        let targeters = game
+            .players()
+            .into_iter()
+            .filter_map(|(pid, role)| role.is_targeting().then(|| pid))
+            .collect();
+        Self { game_id, lobby_id, main_id, mafia_id, status_rx, app_status, targeters }
     }
 
     fn name(&self, pid: Pid) -> String {
@@ -44,6 +52,15 @@ fn create_start_msg(role: Role, names: &HashMap<Pid, String>) -> String {
             msg.push_str(format!("Your charge is {}", names.get(&charge).unwrap()).as_str());
         }
         _ => {}
+    }
+    msg
+}
+
+fn option_msg(options: Vec<Pid>, names: &HashMap<Pid, String>) -> String {
+    let mut msg = "Choose a target:\n".to_string();
+    for pid in options {
+        let name = names.get(&pid).unwrap();
+        msg.push_str(format!("/vote {} {}\n", pid, name).as_str());
     }
     msg
 }
@@ -121,7 +138,14 @@ impl EventHandler for GroupMeEventHandler {
             Event::Night { day, counts } => {
                 let msg = format!("Night {} falls...\n", day);
                 let _ = api::send_group_message(&self.main_id, &msg).await;
-                // TODO: send options
+
+                let players = self.status_rx.borrow().players.clone();
+                let names = self.status_rx.borrow().names.clone();
+                let opt_msg = option_msg(players, &names);
+                let _ = api::send_group_message(&self.mafia_id, &opt_msg).await;
+                for targeter in self.targeters.iter() {
+                    let _ = api::send_dm(UserId(u64::from(*targeter)), &opt_msg).await;
+                }
             }
             Event::Eclipse { avenger, hammer, guilty } => {
                 let avenger = self.name(avenger);
@@ -137,56 +161,116 @@ impl EventHandler for GroupMeEventHandler {
                 let msg = format!("{avenger} has chosen {victim} to die with them!\n",);
                 let _ = api::send_group_message(&self.main_id, &msg).await;
             }
+            // TODO: add thresh to ballot and former?
             Event::Vote { voter, ballot, former } => {
+                let n = self.status_rx.borrow().players.len();
+                let thresh = n / 2 + 1;
+                let pthresh = (n + 1) / 2;
                 let mut msg = "".to_string();
                 let voter = self.name(voter);
                 if let Some((choice, count)) = ballot {
                     if let Some(pid) = choice {
                         let name = self.name(pid);
-                        msg.push_str(format!("{voter} votes for {name} \n",).as_str());
+                        msg.push_str(
+                            format!("{voter} votes for {name} ({count}/{thresh})").as_str(),
+                        );
                     } else {
-                        msg.push_str(format!("{voter} votes for peace.\n",).as_str());
+                        msg.push_str(
+                            format!("{voter} votes for peace.({count}/{pthresh})").as_str(),
+                        );
+                    }
+                } else {
+                    msg.push_str(format!("{voter} retracts their vote.").as_str());
+                }
+                if let Some((choice, count)) = former {
+                    if let Some(pid) = choice {
+                        let name = self.name(pid);
+                        msg.push_str(format!("\n({name} still has {count}/{thresh})").as_str());
+                    } else {
+                        msg.push_str(format!("\n(peace still has {count}/{pthresh})").as_str());
                     }
                 }
+                let _ = api::send_group_message(&self.main_id, &msg).await;
             }
             Event::Reveal { celeb } => {
-                todo!()
+                let msg = format!("{celeb} reveals, they are CELEB!\n",);
+                let _ = api::send_group_message(&self.main_id, &msg).await;
             }
             Event::Election { choice, hammer, voters } => {
-                todo!()
+                if let Some(pid) = choice {
+                    let name = self.name(pid);
+                    let msg = format!("{name} is elected!",);
+                    let _ = api::send_group_message(&self.main_id, &msg).await;
+                } else {
+                    let msg = "Nobody has been elected.".to_string();
+                    let _ = api::send_group_message(&self.main_id, &msg).await;
+                }
             }
             Event::Dawn => {
-                todo!()
+                let msg = "Dawn breaks...".to_string();
+                let _ = api::send_group_message(&self.main_id, &msg).await;
             }
             Event::Eliminate { player, role, context } => {
-                todo!()
+                self.targeters.remove(&player);
+                let name = self.name(player);
+                let team = role.team();
+                let msg = format!("{name} was {team}!",);
+                let _ = api::send_group_message(&self.main_id, &msg).await;
             }
             Event::Target { actor, choice } => {
-                todo!()
+                let mut msg = "".to_string();
+                if let Some(pid) = choice {
+                    let name = self.name(pid);
+                    msg.push_str(format!("You target {name}...",).as_str());
+                } else {
+                    msg.push_str("You target nobody...");
+                }
+                let _ = api::send_dm(UserId(u64::from(actor)), &msg).await;
             }
             Event::Scheme { killer, mark } => {
-                todo!()
+                let mut msg = "".to_string();
+                let actor = self.name(killer);
+                if let Some(pid) = mark {
+                    let name = self.name(pid);
+                    msg.push_str(format!("{killer} targets {name}...",).as_str());
+                } else {
+                    msg.push_str(format!("{killer} targets nobody...").as_str());
+                }
+                let _ = api::send_group_message(&self.mafia_id, &msg).await;
             }
             Event::Block { blocked, blockers } => {
-                todo!()
+                let msg = "Your action was blocked...".to_string();
+                let _ = api::send_dm(UserId(u64::from(blocked)), &msg).await;
+                for blocker in blockers {
+                    let msg = "You blocked an action...".to_string();
+                    let _ = api::send_dm(UserId(u64::from(blocker)), &msg).await;
+                }
             }
-            Event::Save { saved, saviors } => {
-                todo!()
-            }
+            Event::Save { saved, saviors } => {}
             Event::NoKill => {
-                todo!()
+                let msg = "Nobody was killed...".to_string();
+                let _ = api::send_group_message(&self.main_id, &msg).await;
             }
             Event::Kill { killer, mark } => {
-                todo!()
+                let mark = self.name(mark);
+                let msg = format!("{mark} was killed in the Night!",);
+                let _ = api::send_group_message(&self.main_id, &msg).await;
             }
             Event::Investigate { cop, target, appears_mafia } => {
-                todo!()
+                let target = self.name(target);
+                let align = if appears_mafia { "Mafia Aligned" } else { "Not Mafia Aligned" };
+                let msg = format!("{target} is {}", align);
+                let _ = api::send_dm(UserId(u64::from(cop)), &msg).await;
             }
             Event::Milk { milky, target } => {
-                todo!()
+                let target = self.name(target);
+                let msg = format!("{target} received milk",);
+                let _ = api::send_group_message(&self.main_id, &msg).await;
             }
             Event::End { winner } => {
-                todo!()
+                let msg = format!("{winner} wins!",);
+                let _ = api::send_group_message(&self.main_id, &msg).await;
+                // TODO: end stuff?
             }
         }
     }

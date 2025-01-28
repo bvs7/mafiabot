@@ -35,3 +35,9 @@ pub struct AppStatus {
     pub groups: HashMap<GroupId, GroupMeGroup>,
     pub lobbies: HashMap<GroupId, LobbyInfo>,
 }
+
+impl AppStatus {
+    pub fn new() -> Self {
+        Self { games: HashMap::new(), groups: HashMap::new(), lobbies: HashMap::new() }
+    }
+}
