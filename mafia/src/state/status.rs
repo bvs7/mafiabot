@@ -2,7 +2,7 @@ use crate::prelude::*;
 
 use super::util::thresh;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Status {
     pub day: u32,
     pub phase: PhaseKind,
@@ -80,8 +80,8 @@ impl std::fmt::Display for Status {
 }
 
 impl State {
-    pub fn status(&self, names: HashMap<impl Into<Pid>, String>) -> Status {
-        let names = names.into_iter().map(|(k, v)| (k.into(), v)).collect();
+    pub fn status(&self, names: &HashMap<impl Into<Pid> + Copy, String>) -> Status {
+        let names = names.into_iter().map(|(k, v)| ((*k).into(), v.clone())).collect();
         Status {
             day: self.day,
             phase: self.phase.kind(),

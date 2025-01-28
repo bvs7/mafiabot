@@ -93,6 +93,27 @@ pub const ALL_ROLES: [RoleKind; 14] = [
     RoleKind::AGENT,
 ];
 
+impl std::fmt::Display for Role {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Role::TOWN => write!(f, "TOWN"),
+            Role::COP => write!(f, "COP"),
+            Role::DOCTOR => write!(f, "DOCTOR"),
+            Role::CELEB => write!(f, "CELEB"),
+            Role::MILKY => write!(f, "MILKY"),
+            Role::MILLER => write!(f, "MILLER"),
+            Role::MAFIA => write!(f, "MAFIA"),
+            Role::STRIPPER => write!(f, "STRIPPER"),
+            Role::GODFATHER => write!(f, "GODFATHER"),
+            Role::GOON => write!(f, "GOON"),
+            Role::IDIOT => write!(f, "IDIOT"),
+            Role::SURVIVOR => write!(f, "SURVIVOR"),
+            Role::GUARD(_) => write!(f, "GUARD"),
+            Role::AGENT(_) => write!(f, "AGENT"),
+        }
+    }
+}
+
 impl RoleKind {
     pub fn team(&self) -> Team {
         Team::from(*self)

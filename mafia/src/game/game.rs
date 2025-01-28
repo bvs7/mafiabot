@@ -6,7 +6,7 @@ use tokio::{
     time::error::Elapsed,
 };
 
-use crate::prelude::*;
+use crate::{prelude::*, state};
 
 use super::action;
 
@@ -64,37 +64,48 @@ impl std::fmt::Display for GameId {
     }
 }
 
+// Ok, let's think. How is a game created?
+// 1. We have a list of players and a set of rules.
+// 2. Generate and assign roles...
+// 3. Create game chats and add members...
+// 4. Hook up event handler and action handler...
+// 5. Start the game.
+
+// For Action Handler and Event Handler...
+// We want a universal state...
+// That holds watch::Receiver<Status> for games... as well as Game chat ids?
+// We should pass in a ref to the game when creating ActionHandler and EventHandler...
+// So we need to be able to create a game, then pass to handlers, then start handlers
+
 pub struct Game {
     id: GameId,
     state: State,
 }
 
 impl Game {
-    pub async fn create<P, E, A>(
-        players: impl IntoIterator<Item = impl Into<Pid>>,
-        rules: Rules,
-        mut action_handler: A,
-        mut event_handler: E,
+    // Do Rolegen before here.
+    pub fn new(registry: impl IntoIterator<Item = (impl Into<Pid>, Role)>, rules: Rules) -> Self {
+        let state = State::new(registry, rules);
+        Self { id: GameId::new().unwrap_or_default(), state }
+    }
+
+    pub fn id(&self) -> GameId {
+        self.id
+    }
+
+    pub async fn run<P: Into<Pid> + Copy + 'static, E, A>(
+        mut self,
+        action_handler: A,
+        event_handler: E,
     ) where
-        P: Into<Pid> + Copy,
-        A: ActionHandler<P>,
+        A: ActionHandler<PID = P> + Send + 'static,
         E: EventHandler + Send + 'static,
     {
         let (event_tx, event_rx) = mpsc::unbounded_channel();
-
-        let roles: Vec<Role> = Vec::new(); // Generate roles from rules!
-        let registry = players.into_iter().zip(roles).collect::<Vec<_>>();
-        let mut state = State::new(registry, rules);
-        state.event_tx = Some(event_tx);
-
-        let game = Self { id: GameId::new().unwrap_or_default(), state };
-
-        action_handler.init(&game);
-        event_handler.init(&game);
+        self.state.event_tx = Some(event_tx);
 
         tokio::spawn(Game::event_handler(event_rx, event_handler));
-
-        game.action_handler(action_handler).await;
+        self.action_handler(action_handler).await;
     }
 
     #[instrument(skip_all)]
@@ -114,11 +125,10 @@ impl Game {
     }
 
     #[instrument(skip_all)]
-    pub async fn action_handler<P, A>(mut self, mut handler: A)
-    where
-        P: Into<Pid> + Copy,
-        A: ActionHandler<P>,
-    {
+    pub async fn action_handler<P: Into<Pid> + Copy>(
+        mut self,
+        mut handler: impl ActionHandler<PID = P>,
+    ) {
         loop {
             let timeout = self.state.update();
             handler.update_status(&self.state).await;
@@ -145,82 +155,3 @@ impl Game {
         }
     }
 }
-
-// type RespContext = oneshot::Sender<Result<(), Error>>;
-
-// struct Statuses {
-//     games: HashMap<GameId, Status>,
-//     lobbies: HashMap<u64, HashMap<u64, String>>,
-// }
-
-// struct GroupMeGroup {
-//     id: u64,
-//     names: HashMap<u64, String>,
-// }
-
-// struct BasicActionHandler {
-//     game_id: GameId,
-//     main_chat_id: Option<u64>,
-//     mafia_chat_id: Option<u64>,
-//     app_comms: Arc<RwLock<AppComms>>,
-//     action_rx: mpsc::Receiver<(Action<u64>, RespContext)>,
-//     resp: Option<RespContext>,
-//     status_tx: watch::Sender<Statuses>,
-// }
-
-// #[async_trait]
-// impl ActionHandler<u64> for BasicActionHandler {
-//     fn init(&mut self, game: &Game) {
-//         // Create Main Chat and Mafia Chat...
-//     }
-
-//     async fn recv_action(&mut self) -> Option<Action<u64>> {
-//         self.action_rx.recv().await.map(|(action, ctx)| {
-//             self.resp = Some(ctx);
-//             action
-//         })
-//     }
-
-//     async fn resp_action(&mut self, result: Result<(), Error>) {
-//         if let Some(ctx) = self.resp.take() {
-//             let _ = ctx.send(result);
-//         }
-//     }
-
-//     async fn update_status(&mut self, state: &State) {
-//         let names = self
-//             .app_comms
-//             .read()
-//             .await
-//             .groups
-//             .get(&self.main_chat_id.unwrap())
-//             .unwrap()
-//             .names
-//             .clone();
-//         let status = state.status(names);
-//     }
-// }
-
-// struct BasicEventHandler {
-//     game_id: GameId,
-//     app_comms: Arc<RwLock<AppComms>>,
-//     event_rx: mpsc::UnboundedSender<Event>,
-// }
-
-// #[async_trait]
-// impl EventHandler for BasicEventHandler {
-//     fn init(&mut self, game: &Game) {
-//         // let (event_tx, event_rx) = mpsc::unbounded_channel();
-//         // game.event_tx = Some(event_tx);
-//         // self.event_rx = event_rx;
-//     }
-
-//     async fn handle_event(&mut self, event: Event) {
-//         let _ = self.event_rx.send(event);
-//     }
-// }
-
-// struct AppComms {
-//     groups: HashMap<u64, GroupMeGroup>, // GroupId -> GroupMeGroup
-//     users: HashMap<u64, u64>,           // Pid -> UserId
-// }

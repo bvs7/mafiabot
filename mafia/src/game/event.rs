@@ -78,5 +78,4 @@ pub enum Event {
     End {
         winner: Team,
     },
-    Debug,
 }
