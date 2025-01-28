@@ -2,7 +2,7 @@ use crate::prelude::*;
 
 #[derive(Debug, Clone, Copy, Hash, Eq, PartialEq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(into = "u64", from = "u64")]
-pub struct Pid(u64);
+pub struct Pid(pub u64);
 
 impl Pid {
     pub fn new() -> Self {

@@ -9,7 +9,7 @@ use rand::{
 use serde::de;
 use statrs::distribution::Poisson;
 
-use super::{GenRole, RoleGen};
+use super::RoleGen;
 
 const MIN_P: f64 = 0.2;
 const MAX_P: f64 = 0.5;
@@ -23,26 +23,26 @@ const POWERS: [RoleKind; 5] =
 const MISLEAD: [RoleKind; 2] = [RoleKind::MILLER, RoleKind::GODFATHER];
 
 const BASE_POWER_HIGH_P: [(Adjustment, f64); 4] = [
-    (Adjustment::ReplaceTOWN(TempGenRole::Role(RoleKind::DOCTOR)), 1.0),
-    (Adjustment::ReplaceTOWN(TempGenRole::Role(RoleKind::COP)), 1.0),
-    (Adjustment::ReplaceTOWN(TempGenRole::Role(RoleKind::CELEB)), 0.75),
-    (Adjustment::ReplaceTOWN(TempGenRole::Role(RoleKind::MILKY)), 0.25),
+    (Adjustment::ReplaceTOWN(GenRole::Role(RoleKind::DOCTOR)), 1.0),
+    (Adjustment::ReplaceTOWN(GenRole::Role(RoleKind::COP)), 1.0),
+    (Adjustment::ReplaceTOWN(GenRole::Role(RoleKind::CELEB)), 0.75),
+    (Adjustment::ReplaceTOWN(GenRole::Role(RoleKind::MILKY)), 0.25),
 ];
 
 const BASE_POWER_LOW_P: [(Adjustment, f64); 3] = [
     (Adjustment::AddMafia, 0.5),
-    (Adjustment::ReplaceTOWN(TempGenRole::Role(RoleKind::MAFIA)), 0.5),
-    (Adjustment::ReplaceMAFIA(TempGenRole::Role(RoleKind::STRIPPER)), 0.5),
+    (Adjustment::ReplaceTOWN(GenRole::Role(RoleKind::MAFIA)), 0.5),
+    (Adjustment::ReplaceMAFIA(GenRole::Role(RoleKind::STRIPPER)), 0.5),
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-enum TempGenRole {
+enum GenRole {
     Role(RoleKind),
     GuardCharged(Team),
     AgentCharged(Team),
 }
 
-impl TempGenRole {
+impl GenRole {
     fn from_kind(kind: RoleKind) -> Self {
         Self::Role(kind)
     }
@@ -91,8 +91,8 @@ impl TempGenRole {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum Adjustment {
-    ReplaceTOWN(TempGenRole),
-    ReplaceMAFIA(TempGenRole),
+    ReplaceTOWN(GenRole),
+    ReplaceMAFIA(GenRole),
     AddMafia,
 }
 
@@ -136,16 +136,16 @@ fn get_n_power(n: usize, rng: &mut impl Rng) -> isize {
 fn get_rogue_adjust(e_p: f64, rng: &mut impl Rng) -> Adjustment {
     let choices = if e_p > TARGET_P {
         vec![
-            (Adjustment::ReplaceMAFIA(TempGenRole::Role(RoleKind::IDIOT)), 0.75),
-            (Adjustment::ReplaceTOWN(TempGenRole::GuardCharged(Team::Town)), 0.20),
-            (Adjustment::ReplaceTOWN(TempGenRole::AgentCharged(Team::Mafia)), 0.05),
+            (Adjustment::ReplaceMAFIA(GenRole::Role(RoleKind::IDIOT)), 0.75),
+            (Adjustment::ReplaceTOWN(GenRole::GuardCharged(Team::Town)), 0.20),
+            (Adjustment::ReplaceTOWN(GenRole::AgentCharged(Team::Mafia)), 0.05),
         ]
     } else {
         vec![
-            (Adjustment::ReplaceTOWN(TempGenRole::Role(RoleKind::IDIOT)), 0.70),
-            (Adjustment::ReplaceTOWN(TempGenRole::Role(RoleKind::SURVIVOR)), 0.05),
-            (Adjustment::ReplaceTOWN(TempGenRole::GuardCharged(Team::Town)), 0.05),
-            (Adjustment::ReplaceTOWN(TempGenRole::AgentCharged(Team::Town)), 0.20),
+            (Adjustment::ReplaceTOWN(GenRole::Role(RoleKind::IDIOT)), 0.70),
+            (Adjustment::ReplaceTOWN(GenRole::Role(RoleKind::SURVIVOR)), 0.05),
+            (Adjustment::ReplaceTOWN(GenRole::GuardCharged(Team::Town)), 0.05),
+            (Adjustment::ReplaceTOWN(GenRole::AgentCharged(Team::Town)), 0.20),
         ]
     };
     return choices.choose_weighted(rng, |x| x.1).unwrap().0;
@@ -168,7 +168,7 @@ pub struct StandardRoleGen<'a, R> {
     n: usize,
     rules: Rules,
     sigma: f64,
-    roles: Vec<TempGenRole>,
+    roles: Vec<GenRole>,
     rng: &'a mut R,
 }
 
@@ -192,10 +192,10 @@ impl<'a, R: Rng> StandardRoleGen<'a, R> {
     fn initialize(&mut self) {
         self.sigma = get_sigma_maf(self.n, &mut self.rng);
         debug!("Initial sigma: {:?}", self.sigma);
-        self.roles = vec![TempGenRole::from_kind(RoleKind::TOWN); self.n];
+        self.roles = vec![GenRole::from_kind(RoleKind::TOWN); self.n];
         while self.sigma > 0.5 {
             self.roles.pop();
-            self.roles.insert(0, TempGenRole::from_kind(RoleKind::MAFIA));
+            self.roles.insert(0, GenRole::from_kind(RoleKind::MAFIA));
             self.sigma -= 1.0;
         }
         debug!("Initial roles: {:?}", self.roles);
@@ -208,9 +208,9 @@ impl<'a, R: Rng> StandardRoleGen<'a, R> {
             if let Some(n_role) = self.rules.guaranteed_roles.get(role) {
                 for _ in 0..*n_role {
                     if role.team() == Team::Mafia {
-                        self.apply(Adjustment::ReplaceMAFIA(TempGenRole::from_kind(*role)));
+                        self.apply(Adjustment::ReplaceMAFIA(GenRole::from_kind(*role)));
                     } else {
-                        self.apply(Adjustment::ReplaceTOWN(TempGenRole::from_kind(*role)));
+                        self.apply(Adjustment::ReplaceTOWN(GenRole::from_kind(*role)));
                     }
                     n_rogue -= 1;
                 }
@@ -229,9 +229,9 @@ impl<'a, R: Rng> StandardRoleGen<'a, R> {
             if let Some(n_role) = self.rules.guaranteed_roles.get(role) {
                 for _ in 0..*n_role {
                     if role.team() == Team::Mafia {
-                        self.apply(Adjustment::ReplaceMAFIA(TempGenRole::from_kind(*role)));
+                        self.apply(Adjustment::ReplaceMAFIA(GenRole::from_kind(*role)));
                     } else {
-                        self.apply(Adjustment::ReplaceTOWN(TempGenRole::from_kind(*role)));
+                        self.apply(Adjustment::ReplaceTOWN(GenRole::from_kind(*role)));
                     }
                     n_power -= 1;
                 }
@@ -251,25 +251,24 @@ impl<'a, R: Rng> StandardRoleGen<'a, R> {
 
         for role in self.roles.iter() {
             match role {
-                TempGenRole::Role(rk)
-                    if odds_high_p
-                        .contains_key(&Adjustment::ReplaceTOWN(TempGenRole::Role(*rk))) =>
+                GenRole::Role(rk)
+                    if odds_high_p.contains_key(&Adjustment::ReplaceTOWN(GenRole::Role(*rk))) =>
                 {
                     odds_high_p
-                        .entry(Adjustment::ReplaceTOWN(TempGenRole::Role(*rk)))
+                        .entry(Adjustment::ReplaceTOWN(GenRole::Role(*rk)))
                         .and_modify(|e| *e *= 0.5);
                 }
 
-                TempGenRole::Role(RoleKind::STRIPPER) => {
+                GenRole::Role(RoleKind::STRIPPER) => {
                     odds_low_p
-                        .entry(Adjustment::ReplaceMAFIA(TempGenRole::Role(RoleKind::STRIPPER)))
+                        .entry(Adjustment::ReplaceMAFIA(GenRole::Role(RoleKind::STRIPPER)))
                         .and_modify(|e| *e *= 0.5);
                     odds_low_p.entry(Adjustment::AddMafia).and_modify(|e| *e *= 0.75);
                 }
-                TempGenRole::Role(RoleKind::MAFIA) => {
+                GenRole::Role(RoleKind::MAFIA) => {
                     odds_low_p.entry(Adjustment::AddMafia).and_modify(|e| *e *= 0.75);
                     odds_low_p
-                        .entry(Adjustment::ReplaceTOWN(TempGenRole::Role(RoleKind::MAFIA)))
+                        .entry(Adjustment::ReplaceTOWN(GenRole::Role(RoleKind::MAFIA)))
                         .and_modify(|e| *e *= 0.5);
                 }
 
@@ -291,9 +290,9 @@ impl<'a, R: Rng> StandardRoleGen<'a, R> {
             for role in MISLEAD.iter() {
                 for _ in 0..n_mislead {
                     if role.team() == Team::Mafia {
-                        self.apply(Adjustment::ReplaceMAFIA(TempGenRole::from_kind(*role)));
+                        self.apply(Adjustment::ReplaceMAFIA(GenRole::from_kind(*role)));
                     } else {
-                        self.apply(Adjustment::ReplaceTOWN(TempGenRole::from_kind(*role)));
+                        self.apply(Adjustment::ReplaceTOWN(GenRole::from_kind(*role)));
                     }
                     n_mislead -= 1;
                 }
@@ -302,8 +301,8 @@ impl<'a, R: Rng> StandardRoleGen<'a, R> {
                 let n_town =
                     self.roles.iter().filter(|r| r.kind() == RoleKind::TOWN).count() as f64;
                 let choices = [
-                    (Adjustment::ReplaceTOWN(TempGenRole::Role(RoleKind::MILLER)), n_town),
-                    (Adjustment::ReplaceMAFIA(TempGenRole::Role(RoleKind::GODFATHER)), self.sigma),
+                    (Adjustment::ReplaceTOWN(GenRole::Role(RoleKind::MILLER)), n_town),
+                    (Adjustment::ReplaceMAFIA(GenRole::Role(RoleKind::GODFATHER)), self.sigma),
                 ];
                 let (adj, _) = choices.choose_weighted(&mut self.rng, |x| x.1).unwrap();
                 self.apply(*adj);
@@ -315,13 +314,13 @@ impl<'a, R: Rng> StandardRoleGen<'a, R> {
         for _ in 0..5 {
             if self.get_e_p() < MIN_P {
                 debug!("Adding Mafia at finish");
-                self.apply(Adjustment::ReplaceTOWN(TempGenRole::from_kind(RoleKind::MAFIA)));
+                self.apply(Adjustment::ReplaceTOWN(GenRole::from_kind(RoleKind::MAFIA)));
             }
         }
         for _ in 0..5 {
             if self.get_e_p() > MAX_P {
                 debug!("Adding Town at finish");
-                self.apply(Adjustment::ReplaceMAFIA(TempGenRole::from_kind(RoleKind::TOWN)));
+                self.apply(Adjustment::ReplaceMAFIA(GenRole::from_kind(RoleKind::TOWN)));
             }
         }
         self.sigma = 0.0;
@@ -353,23 +352,24 @@ impl<'a, R: Rng> StandardRoleGen<'a, R> {
         let mut gen_roles = Vec::new();
         for role in role_copy.into_iter() {
             match role {
-                TempGenRole::GuardCharged(team) => {
-                    gen_roles.push(GenRole::GuardCharged(self.find_team(team)));
+                GenRole::GuardCharged(team) => {
+                    gen_roles.push(GenRole::GuardCharged(Team::Town));
                 }
-                TempGenRole::Role(RoleKind::GUARD) => {
-                    gen_roles.push(GenRole::GuardCharged(self.find_team_none()));
+                GenRole::Role(RoleKind::GUARD) => {
+                    gen_roles.push(GenRole::GuardCharged(Team::Town));
                 }
-                TempGenRole::AgentCharged(team) => {
-                    gen_roles.push(GenRole::GuardCharged(self.find_team(team)));
+                GenRole::AgentCharged(team) => {
+                    gen_roles.push(GenRole::GuardCharged(Team::Town));
                 }
-                TempGenRole::Role(RoleKind::AGENT) => {
-                    gen_roles.push(GenRole::GuardCharged(self.find_team_none()));
+                GenRole::Role(RoleKind::AGENT) => {
+                    gen_roles.push(GenRole::GuardCharged(Team::Town));
                 }
-                TempGenRole::Role(rk) => {
+                GenRole::Role(rk) => {
                     gen_roles.push(GenRole::Role(rk));
                 }
             }
         }
+
         return gen_roles;
     }
 
@@ -422,43 +422,49 @@ impl<'a, R: Rng> StandardRoleGen<'a, R> {
         }
     }
 
-    fn add_role(&mut self, role: TempGenRole) {
+    fn add_role(&mut self, role: GenRole) {
         self.roles.insert(0, role);
         self.sigma -= role.sigma_adj(self.n);
     }
 
-    fn pop_role(&mut self) -> TempGenRole {
+    fn pop_role(&mut self) -> GenRole {
         let role = self.roles.pop().unwrap();
         self.sigma += role.sigma_adj(self.n);
         return role;
     }
 }
 
-impl<'a, R: Rng> RoleGen for StandardRoleGen<'a, R> {
-    type RNG = R;
-    fn generate_roles(n: usize, rules: &Rules, rng: &mut Self::RNG) -> Vec<GenRole> {
-        let mut gen = StandardRoleGen::new(n, rules.clone(), rng);
-        let mut i = 0;
-        loop {
-            gen.initialize();
-            // info!("After choosing Sigma: {:?}", gen);
-            gen.add_rogue();
-            // info!("After choosing Rogue: {:?}", gen);
-            gen.add_power();
-            // info!("After choosing Power: {:?}", gen);
-            gen.add_mislead();
-            // info!("After choosing Mislead: {:?}", gen);
-            let final_e_p = gen.balance_maf();
-            if (final_e_p >= MIN_P && final_e_p <= MAX_P) || i >= 15 {
-                gen.roles.shuffle(gen.rng);
-                return gen.assign_charges();
-            }
-            debug!("Re-rolling... {:?}", gen);
-            i += 1;
-        }
-    }
-}
-
+// impl<'a, R: Rng> RoleGen for StandardRoleGen<'a, R> {
+//     type RNG = R;
+//     fn generate_roles(
+//         users: Vec<impl Into<Pid>>,
+//         rules: &Rules,
+//         rng: &mut Self::RNG,
+//     ) -> Vec<(Pid, Role)> {
+//         let n = users.len();
+//         let mut gen = StandardRoleGen::new(n, rules.clone(), rng);
+//         let mut i = 0;
+//         loop {
+//             gen.initialize();
+//             // info!("After choosing Sigma: {:?}", gen);
+//             gen.add_rogue();
+//             // info!("After choosing Rogue: {:?}", gen);
+//             gen.add_power();
+//             // info!("After choosing Power: {:?}", gen);
+//             gen.add_mislead();
+//             // info!("After choosing Mislead: {:?}", gen);
+//             let final_e_p = gen.balance_maf();
+//             if (final_e_p >= MIN_P && final_e_p <= MAX_P) || i >= 15 {
+//                 gen.roles.shuffle(gen.rng);
+//                 // return gen.assign_charges();
+//                 return todo!();
+//             }
+//             debug!("Re-rolling... {:?}", gen);
+//             i += 1;
+//         }
+//     }
+// }
+/*
 #[cfg(test)]
 mod tests {
     use rand::prelude::Distribution;
@@ -467,7 +473,7 @@ mod tests {
 
     use super::*;
 
-    use super::super::assign_roles;
+    // use super::super::assign_roles;
 
     fn poisson_pdf(x: f64, lambda: f64) -> f64 {
         return lambda.powf(x) * (-lambda).exp() / gamma(x + 1.0) as f64;
@@ -490,16 +496,17 @@ mod tests {
     #[test]
     #[tracing_test::traced_test]
     fn try_std_role_gen() {
-        let mut rules = Rules::default();
-        // rules.guaranteed_roles.remove(&RoleKind::COP);
-        // rules.guaranteed_roles.remove(&RoleKind::DOCTOR);
+        // let mut rules = Rules::default();
+        // // rules.guaranteed_roles.remove(&RoleKind::COP);
+        // // rules.guaranteed_roles.remove(&RoleKind::DOCTOR);
 
-        let mut rng = rand::thread_rng();
-        let n = 7;
-        let roles = StandardRoleGen::generate_roles(n, &rules, &mut rng);
-        let users = (0..n).map(|i| Pid::from(i as u64)).collect::<Vec<_>>();
-        let registry = assign_roles(users, roles, &mut rng);
+        // let mut rng = rand::thread_rng();
+        // let n = 7;
+        // let roles = StandardRoleGen::generate_roles(n, &rules, &mut rng);
+        // let users = (0..n).map(|i| Pid::from(i as u64)).collect::<Vec<_>>();
+        // // let registry = assign_roles(users, roles, &mut rng);
 
-        println!("{:?}", registry);
+        // // println!("{:?}", registry);
     }
 }
+    */

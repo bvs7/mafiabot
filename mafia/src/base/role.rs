@@ -1,6 +1,8 @@
 use crate::prelude::*;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, EnumKind, Serialize, Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, EnumKind, Serialize, Deserialize,
+)]
 #[enum_kind(RoleKind, derive(Hash, Serialize, Deserialize))]
 pub enum Role {
     TOWN,
