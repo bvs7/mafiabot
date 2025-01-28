@@ -31,11 +31,11 @@ pub enum Error {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Member {
-    nickname: String,
-    user_id: UserId,
+    pub nickname: String,
+    pub user_id: UserId,
     /// Membership id, used to kick
     #[serde(skip_serializing, rename = "id")]
-    membership_id: Option<String>,
+    pub membership_id: Option<String>,
 }
 
 impl From<(String, UserId)> for Member {

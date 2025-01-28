@@ -6,3 +6,6 @@ edition = "2021"
 [dependencies]
 mafia = { path = "../mafia" }
 groupme = { path = "../groupme" }
+async-trait = "0.1.85"
+tokio = "1.43.0"
+tracing = "0.1.41"

@@ -500,11 +500,11 @@ mod tests {
         // // rules.guaranteed_roles.remove(&RoleKind::COP);
         // // rules.guaranteed_roles.remove(&RoleKind::DOCTOR);
 
-        // let mut rng = rand::thread_rng();
-        // let n = 7;
-        // let roles = StandardRoleGen::generate_roles(n, &rules, &mut rng);
-        // let users = (0..n).map(|i| Pid::from(i as u64)).collect::<Vec<_>>();
-        // // let registry = assign_roles(users, roles, &mut rng);
+        let mut rng = rand::thread_rng();
+        let n = 11;
+        let roles = StandardRoleGen::generate_roles(n, &rules, &mut rng);
+        let users = (0..n).map(|i| Pid::from(i as u64)).collect::<Vec<_>>();
+        let registry = assign_roles(users, roles, &mut rng);
 
         // // println!("{:?}", registry);
     }

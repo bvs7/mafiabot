@@ -1,6 +1,8 @@
 use crate::prelude::*;
 use std::env;
 
+use mafia::Pid;
+
 pub const MODERATOR_UID: UserId = UserId(43040067);
 pub const BRIAN_UID: UserId = UserId(21642197);
 
@@ -13,6 +15,12 @@ pub const TEST_LOBBY_CHAT_ID: GroupId = GroupId(105412553);
 #[serde(from = "String", into = "String")]
 pub struct UserId(pub u64);
 
+impl Into<Pid> for UserId {
+    fn into(self) -> Pid {
+        Pid::from(self.0)
+    }
+}
+
 impl From<String> for UserId {
     fn from(s: String) -> Self {
         Self(s.parse().unwrap())
@@ -23,6 +31,7 @@ impl From<UserId> for String {
         u.0.to_string()
     }
 }
+
 impl std::fmt::Display for UserId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0)
