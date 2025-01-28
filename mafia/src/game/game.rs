@@ -5,6 +5,7 @@ use tokio::{
     sync::{watch, RwLock},
     time::error::Elapsed,
 };
+use tracing::event;
 
 use crate::{prelude::*, state};
 
@@ -99,7 +100,7 @@ impl Game {
 
     pub async fn run<P: Into<Pid> + Copy + 'static, E, A>(
         mut self,
-        action_handler: A,
+        mut action_handler: A,
         event_handler: E,
     ) where
         A: ActionHandler<PID = P> + Send + 'static,
@@ -108,7 +109,10 @@ impl Game {
         let (event_tx, event_rx) = mpsc::unbounded_channel();
         self.state.event_tx = Some(event_tx);
 
+        self.state.start();
+
         tokio::spawn(Game::event_handler(event_rx, event_handler));
+        tokio::time::sleep(Duration::from_secs(1)).await;
         self.action_handler(action_handler).await;
     }
 

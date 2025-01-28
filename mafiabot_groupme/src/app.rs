@@ -2,6 +2,16 @@ use crate::prelude::*;
 
 use crate::game_handler::action_handler::ActionTx;
 
+/*
+Thoughts on Full App State
+Shared app state seems good, as it allows for easy read access. The only time it needs to be written
+is to add or remove games, groups, or lobbies.
+
+Seems like starting the handlers is a little messy right now.
+
+Status can't get names until the game is started and players are added...
+*/
+
 #[derive(Debug)]
 pub struct GameInfo {
     pub game_id: GameId,
