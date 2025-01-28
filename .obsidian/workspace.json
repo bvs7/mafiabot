@@ -160,6 +160,7 @@
   },
   "active": "c39e65324f7f9df9",
   "lastOpenFiles": [
+    "mafia/src/rolegen/weighted.rs",
     "target/debug/incremental/use_tests-1cjtxw3g83bga/s-h42u40ekev-1pcb472-1d0tw8jeunyxnb1674zntubgy/work-products.bin",
     "target/debug/incremental/use_tests-1cjtxw3g83bga/s-h42u40ekev-1pcb472-1d0tw8jeunyxnb1674zntubgy/query-cache.bin",
     "target/debug/incremental/use_tests-1cjtxw3g83bga/s-h42u40ekev-1pcb472-1d0tw8jeunyxnb1674zntubgy/dep-graph.bin",
@@ -170,7 +171,6 @@
     "target/debug/incremental/use_tests-1cjtxw3g83bga/s-h42u40ekev-1pcb472-1d0tw8jeunyxnb1674zntubgy/18ee6mm8e41hjunf0v4a3czal.o",
     "target/debug/incremental/use_tests-1cjtxw3g83bga/s-h42u40ekev-1pcb472-1d0tw8jeunyxnb1674zntubgy",
     "target/debug/incremental/basic-0d3xxfrxpfjeq/s-h42u40e222-0pwfmq0.lock",
-    "target/debug/incremental/mod-3py8ux8en4hhb/s-h42u40dy5y-17g2yxr.lock",
     "doc/Core Game Notes.md",
     "README.md",
     "Untitled.md"
