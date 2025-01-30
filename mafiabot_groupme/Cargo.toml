@@ -9,3 +9,4 @@ groupme = { path = "../groupme" }
 async-trait = "0.1.85"
 tokio = "1.43.0"
 tracing = "0.1.41"
+rand = "0.9.0"

@@ -4,6 +4,7 @@ mod standard;
 pub use standard::StandardRoleGen;
 
 mod draw;
+pub use draw::DrawRoleGen;
 
 use rand::{rngs::ThreadRng, seq::SliceRandom, Rng};
 

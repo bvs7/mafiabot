@@ -20,10 +20,7 @@ pub struct GroupMeActionHandler {
 pub type ActionTx = mpsc::Sender<(Action<u64>, oneshot::Sender<Result<(), Error>>)>;
 
 impl GroupMeActionHandler {
-    pub async fn new(
-        game: &Game,
-        app_status: Arc<RwLock<AppStatus>>,
-    ) -> (Self, ActionTx, watch::Receiver<Status>) {
+    pub async fn new(game: &Game, app_status: Arc<RwLock<AppStatus>>) -> Self {
         let (action_tx, action_rx) = mpsc::channel(1);
         let (status_tx, status_rx) = watch::channel(Status::default());
 
@@ -46,7 +43,7 @@ impl GroupMeActionHandler {
 
         let handler =
             Self { game_id, main_id, mafia_id, action_rx, last_resp: None, status_tx, app_status };
-        (handler, action_tx, status_rx)
+        handler
     }
 }
 #[async_trait]
