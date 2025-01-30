@@ -1,251 +1,310 @@
-use std::collections::HashSet;
-
-use mafia::state::{status, EventHandler};
-use tokio::sync::TryLockError;
-use tokio::task::{block_in_place, JoinSet};
-
-use crate::app::AppState;
 use crate::prelude::*;
 
-// What do we need here?
+use std::fmt::Write;
+use tokio::sync::broadcast::error::RecvError;
 
-#[derive(Debug, Clone)]
-pub struct GroupMeEventHandler {
+// Needs to know players/roles, right?
+#[derive(Debug)]
+pub struct EventHandler {
     game_id: GameId,
-    main_id: GroupId,
-    mafia_id: GroupId,
+    event_rx: EventRx,
+    main_chat_id: GroupId,
+    mafia_chat_id: GroupId,
+    players: HashMap<Pid, Role>, // Cached players TODO have status just have roles???
+    names: HashMap<UserId, String>,
     app_state: Arc<AppState>,
 }
-
-impl GroupMeEventHandler {
+impl EventHandler {
     pub fn new(
         game_id: GameId,
-        main_id: GroupId,
-        mafia_id: GroupId,
+        event_rx: EventRx,
+        main_chat_id: GroupId,
+        mafia_chat_id: GroupId,
         app_state: Arc<AppState>,
     ) -> Self {
-        Self { game_id, main_id, mafia_id, app_state }
+        Self {
+            game_id,
+            main_chat_id,
+            mafia_chat_id,
+            event_rx,
+            players: HashMap::new(),
+            names: HashMap::new(),
+            app_state,
+        }
     }
-}
 
-impl GroupMeEventHandler {
-    fn name(&self, pid: Pid) -> String {
-        for _ in 0..100 {
-            match self.app_state.groups.try_read() {
-                Ok(r_groups) => {
-                    let Some(group) = r_groups.get(&self.main_id) else {
-                        error!("Group {} not found", self.main_id);
-                        continue;
-                    };
-                    let Some(name) = group.name(u64::from(pid)) else {
-                        warn!("User {} not found in group {}", pid, self.main_id);
-                        continue;
-                    };
-                    return name.to_string();
+    #[tracing::instrument]
+    pub async fn run(mut self) {
+        loop {
+            match self.event_rx.recv().await {
+                Some(event) => match self.handle_event(event).await {
+                    Ok(_) => continue,
+                    Err(e) => error!("Error handling event: {:?}", e),
+                },
+                None => {
+                    info!("Got Closed, closing");
+                    break;
                 }
-                Err(TryLockError) => {}
             }
         }
-        error!("Failed 100 times to get name for {}", pid);
-        format!("User: {}", pid)
     }
-}
 
-fn create_start_msg(role: Role, names: &HashMap<Pid, String>) -> String {
-    let mut msg = format!("Your Role is {}, ", role);
-    msg.push_str(format!("you are {} aligned.\n", role.team()).as_str());
-    msg.push_str(format!("Use /help {} or /help {} for more info", role, role.team()).as_str());
-    match role {
-        Role::GUARD(charge) | Role::AGENT(charge) => {
-            msg.push_str(format!("Your charge is {}", names.get(&charge).unwrap()).as_str());
+    // TODO: every once in a while, update names anyways
+    async fn get_name(&mut self, pid: Pid) -> Result<String, std::fmt::Error> {
+        let user_id = W(pid).into();
+        for _ in 0..3 {
+            if let Some(name) = self.names.get(&user_id) {
+                return Ok(name.clone());
+            } else {
+                self.app_state.update_names(&self.main_chat_id).await;
+                let new_names = self.app_state.get_names(&self.main_chat_id).await;
+                self.names.extend(new_names.into_iter());
+            }
         }
-        _ => {}
+        warn!("Could not get name for pid: {}", pid);
+        Ok(format!("(Player ID {pid})"))
     }
-    msg
-}
 
-fn option_msg(options: Vec<Pid>, names: &HashMap<Pid, String>) -> String {
-    let mut msg = "Choose a target:\n".to_string();
-    for pid in options {
-        let name = names.get(&pid).unwrap();
-        msg.push_str(format!("/vote {} {}\n", pid, name).as_str());
+    async fn create_start_msg(&mut self, role: Role) -> Result<String, std::fmt::Error> {
+        let mut msg = String::new();
+        let m = &mut msg;
+        write!(m, "Your Role is {}, ", role)?;
+        write!(m, "you are {} aligned.\n", role.team())?;
+        write!(m, "Use /help {} or /help {} for more info", role, role.team())?;
+        match role {
+            Role::GUARD(charge) | Role::AGENT(charge) => {
+                write!(m, "Your charge is {}", self.get_name(charge).await?)?;
+            }
+            _ => {}
+        }
+        Ok(msg)
     }
-    msg
-}
 
-impl EventHandler for GroupMeEventHandler {
-    #[tracing::intstrument]
-    fn handle(&mut self, event: Event) {
-        let js = JoinSet::new();
+    async fn option_msg(&mut self) -> Result<String, std::fmt::Error> {
+        let mut msg = String::new();
+        let m = &mut msg;
+        write!(m, "Choose a target:\n")?;
+        let mut c = 'A';
+        let players: Vec<_> = self.players.iter().map(|(pid, _)| *pid).collect();
+        for pid in players {
+            let name = self.get_name(pid).await?;
+            write!(m, "{}: {}\n", c, name)?;
+            c = (c as u8 + 1) as char;
+        }
+        Ok(msg)
+    }
+
+    pub async fn handle_event(&mut self, event: Event) -> Result<(), std::fmt::Error> {
+        let mut msg = String::new();
+        let m = &mut msg;
+        let mut js = tokio::task::JoinSet::new();
+        // TODO: every once in a while, just update players to be sure?
         match event {
             Event::Start { players, rules } => {
-                for (pid, role) in players.iter() {
-                    let user_id = UserId(u64::from(*pid));
-                    let msg = create_start_msg(*role, &names);
-                    api::send_group_message(&self.main_id, &msg);
-                }
-
-                // Send group chat messages
-                let mut main_msg = format!("Game {} begins!\nPlayers:", self.game_id);
+                write!(m, "Game {} begins!\nPlayers:", self.game_id)?;
                 for (pid, _) in players.iter() {
-                    let name = self.name(*pid);
-                    main_msg.push_str(format!("\n  {}", name).as_str());
+                    let name = self.get_name(*pid).await?;
+                    write!(m, "\n  {}", name)?;
                 }
-                let _ = api::send_group_message(&self.main_id, &main_msg).await;
+                for (pid, role) in players.iter() {
+                    js.spawn({
+                        let user_id: UserId = W(*pid).into();
+                        let start_msg = self.create_start_msg(*role).await?;
+                        async move {
+                            let _ = api::send_dm(user_id, &start_msg).await;
+                        }
+                    });
+                }
                 let mafia_msg = format!("Welcome to the Mafia Chat for game {}!", self.game_id);
-                let _ = api::send_group_message(&self.mafia_id, &mafia_msg).await;
+                js.spawn({
+                    let mafia_chat_id = self.mafia_chat_id.clone();
+                    let mafia_msg = mafia_msg.clone();
+                    async move {
+                        let _ = api::send_group_message(&mafia_chat_id, &mafia_msg).await;
+                    }
+                });
             }
             Event::Day { day, counts } => {
-                let mut msg = format!("Day {} proceeds...\n", day);
+                write!(m, "Day {} proceeds...\n", day)?;
                 if let Some(count) = counts.get(&Team::Town) {
-                    msg.push_str(format!(" Town: {}\n", count).as_str());
+                    write!(m, " Town: {}\n", count)?;
                 }
                 if let Some(count) = counts.get(&Team::Mafia) {
-                    msg.push_str(format!(" Mafia: {}\n", count).as_str());
+                    write!(m, " Mafia: {}\n", count)?;
                 }
                 if let Some(count) = counts.get(&Team::Rogue) {
-                    msg.push_str(format!(" Rogue: {}\n", count).as_str());
+                    write!(m, " Rogue: {}\n", count)?;
                 }
-                let _ = api::send_group_message(&self.main_id, &msg).await;
             }
             Event::Night { day, counts } => {
-                let msg = format!("Night {} falls...\n", day);
-                let _ = api::send_group_message(&self.main_id, &msg).await;
-
-                let players = self.status_rx.borrow().players.clone();
-                let names = self.status_rx.borrow().names.clone();
-                let opt_msg = option_msg(players, &names);
-                let _ = api::send_group_message(&self.mafia_id, &opt_msg).await;
-                for targeter in self.targeters.iter() {
-                    let _ = api::send_dm(UserId(u64::from(*targeter)), &opt_msg).await;
+                write!(m, "Night {} falls...\n", day)?;
+                let opt = self.option_msg().await?;
+                for (pid, role) in self.players.iter() {
+                    if role.is_targeting() {
+                        js.spawn({
+                            let pid = pid.clone();
+                            let opt = opt.clone();
+                            async move {
+                                let _ = api::send_dm(W(pid).into(), &opt).await;
+                            }
+                        });
+                    }
                 }
             }
             Event::Eclipse { avenger, hammer, guilty } => {
-                let avenger = self.name(avenger);
-                let msg = format!(
+                let avenger = self.get_name(avenger).await?;
+                write!(
+                    m,
                     "The sky darkens as the moon eclipses the sun... {avenger} \
-                will /vote for one of those who voted, to follow them into the end!\n"
-                );
-                let _ = api::send_group_message(&self.main_id, &msg).await;
+                    will /vote one of their voters to die!\n"
+                )?;
             }
             Event::Vengeance { avenger, victim } => {
-                let avenger = self.name(avenger);
-                let victim = self.name(victim);
-                let msg = format!("{avenger} has chosen {victim} to die with them!\n",);
-                let _ = api::send_group_message(&self.main_id, &msg).await;
+                let avenger = self.get_name(avenger).await?;
+                let victim = self.get_name(victim).await?;
+                write!(m, "{avenger} has chosen {victim} to die with them!\n")?;
             }
             // TODO: add thresh to ballot and former?
             Event::Vote { voter, ballot, former } => {
-                let n = self.status_rx.borrow().players.len();
+                let n = self.players.len();
                 let thresh = n / 2 + 1;
                 let pthresh = (n + 1) / 2;
-                let mut msg = "".to_string();
-                let voter = self.name(voter);
+                let voter = self.get_name(voter).await?;
                 if let Some((choice, count)) = ballot {
                     if let Some(pid) = choice {
-                        let name = self.name(pid);
-                        msg.push_str(
-                            format!("{voter} votes for {name} ({count}/{thresh})").as_str(),
-                        );
+                        let name = self.get_name(pid).await?;
+                        write!(m, "{voter} votes for {name} ({count}/{thresh})")?;
                     } else {
-                        msg.push_str(
-                            format!("{voter} votes for peace.({count}/{pthresh})").as_str(),
-                        );
+                        write!(m, "{voter} votes for peace.({count}/{pthresh})")?;
                     }
                 } else {
-                    msg.push_str(format!("{voter} retracts their vote.").as_str());
+                    write!(m, "{voter} retracts their vote.")?;
                 }
                 if let Some((choice, count)) = former {
                     if let Some(pid) = choice {
-                        let name = self.name(pid);
-                        msg.push_str(format!("\n({name} still has {count}/{thresh})").as_str());
+                        let name = self.get_name(pid).await?;
+                        write!(m, "\n({name} still has {count}/{thresh})")?;
                     } else {
-                        msg.push_str(format!("\n(peace still has {count}/{pthresh})").as_str());
+                        write!(m, "\n(peace still has {count}/{pthresh})")?;
                     }
                 }
-                let _ = api::send_group_message(&self.main_id, &msg).await;
             }
             Event::Reveal { celeb } => {
-                let msg = format!("{celeb} reveals, they are CELEB!\n",);
-                let _ = api::send_group_message(&self.main_id, &msg).await;
+                write!(m, "{celeb} reveals, they are CELEB!\n")?;
             }
             Event::Election { choice, hammer, voters } => {
                 if let Some(pid) = choice {
-                    let name = self.name(pid);
-                    let msg = format!("{name} is elected!",);
-                    let _ = api::send_group_message(&self.main_id, &msg).await;
+                    let name = self.get_name(pid).await?;
+                    write!(m, "{name} is elected!")?;
                 } else {
-                    let msg = "Nobody has been elected.".to_string();
-                    let _ = api::send_group_message(&self.main_id, &msg).await;
+                    write!(m, "Nobody has been elected.")?;
                 }
             }
             Event::Dawn => {
-                let msg = "Dawn breaks...".to_string();
-                let _ = api::send_group_message(&self.main_id, &msg).await;
+                write!(m, "Dawn breaks...")?;
             }
+            // TODO: reveal roles to the dead?
             Event::Eliminate { player, role, context } => {
-                self.targeters.remove(&player);
-                let name = self.name(player);
+                let name = self.get_name(player).await?;
+                self.players.remove(&player);
                 let team = role.team();
-                let msg = format!("{name} was {team}!",);
-                let _ = api::send_group_message(&self.main_id, &msg).await;
+                write!(m, "{name} was {team}!")?;
             }
             Event::Target { actor, choice } => {
-                let mut msg = "".to_string();
+                let mut dm = String::new();
+                let m = &mut dm;
                 if let Some(pid) = choice {
-                    let name = self.name(pid);
-                    msg.push_str(format!("You target {name}...",).as_str());
+                    let name = self.get_name(pid).await?;
+                    write!(m, "You target {name}...")?;
                 } else {
-                    msg.push_str("You target nobody...");
+                    write!(m, "You target nobody...")?;
                 }
-                let _ = api::send_dm(UserId(u64::from(actor)), &msg).await;
+                js.spawn({
+                    let actor = actor.clone();
+                    let dm = dm.clone();
+                    async move {
+                        let _ = api::send_dm(W(actor).into(), &dm).await;
+                    }
+                });
             }
             Event::Scheme { killer, mark } => {
-                let mut msg = "".to_string();
-                let actor = self.name(killer);
+                let mut maf_msg = "".to_string();
+                let m = &mut maf_msg;
+                let actor = self.get_name(killer).await?;
                 if let Some(pid) = mark {
-                    let name = self.name(pid);
-                    msg.push_str(format!("{killer} targets {name}...",).as_str());
+                    let name = self.get_name(pid).await?;
+                    write!(m, "{killer} targets {name}...")?;
                 } else {
-                    msg.push_str(format!("{killer} targets nobody...").as_str());
+                    write!(m, "{killer} targets nobody...")?;
                 }
-                let _ = api::send_group_message(&self.mafia_id, &msg).await;
+                js.spawn({
+                    let maf_chat_id = self.mafia_chat_id.clone();
+                    let maf_msg = maf_msg.clone();
+                    async move {
+                        let _ = api::send_group_message(&maf_chat_id, &maf_msg).await;
+                    }
+                });
             }
             Event::Block { blocked, blockers } => {
                 let msg = "Your action was blocked...".to_string();
-                let _ = api::send_dm(UserId(u64::from(blocked)), &msg).await;
+                js.spawn({
+                    let blocked = W(blocked).into();
+                    let msg = msg.clone();
+                    async move {
+                        let _ = api::send_dm(blocked, &msg).await;
+                    }
+                });
                 for blocker in blockers {
                     let msg = "You blocked an action...".to_string();
-                    let _ = api::send_dm(UserId(u64::from(blocker)), &msg).await;
+                    js.spawn({
+                        let blocker = W(blocker).into();
+                        let msg = msg.clone();
+                        async move {
+                            let _ = api::send_dm(blocker, &msg).await;
+                        }
+                    });
                 }
             }
             Event::Save { saved, saviors } => {}
             Event::NoKill => {
-                let msg = "Nobody was killed...".to_string();
-                let _ = api::send_group_message(&self.main_id, &msg).await;
+                write!(m, "Nobody was killed...")?;
             }
             Event::Kill { killer, mark } => {
-                let mark = self.name(mark);
-                let msg = format!("{mark} was killed in the Night!",);
-                let _ = api::send_group_message(&self.main_id, &msg).await;
+                let mark = self.get_name(mark).await?;
+                write!(m, "{mark} was killed in the Night!")?;
             }
             Event::Investigate { cop, target, appears_mafia } => {
-                let target = self.name(target);
+                let target = self.get_name(target).await?;
                 let align = if appears_mafia { "Mafia Aligned" } else { "Not Mafia Aligned" };
                 let msg = format!("{target} is {}", align);
-                let _ = api::send_dm(UserId(u64::from(cop)), &msg).await;
+                js.spawn({
+                    let cop = W(cop).into();
+                    let msg = msg.clone();
+                    async move {
+                        let _ = api::send_dm(cop, &msg).await;
+                    }
+                });
             }
             Event::Milk { milky, target } => {
-                let target = self.name(target);
-                let msg = format!("{target} received milk",);
-                let _ = api::send_group_message(&self.main_id, &msg).await;
+                let target = self.get_name(target).await?;
+                write!(m, "{target} received milk")?;
             }
             Event::End { winner } => {
-                let msg = format!("{winner} wins!",);
-                let _ = api::send_group_message(&self.main_id, &msg).await;
+                write!(m, "{winner} wins!")?;
                 // TODO: end stuff?
                 // TODO: reveal roles.
             }
         }
+        if !msg.is_empty() {
+            js.spawn({
+                let main_chat_id = self.main_chat_id.clone();
+                let msg = msg.clone();
+                async move {
+                    let _ = api::send_group_message(&main_chat_id, &msg).await;
+                }
+            });
+        }
+        let _ = js.join_all().await;
+        Ok(())
     }
 }

@@ -118,7 +118,7 @@ impl NightAct {
 }
 
 impl State {
-    pub fn apply_night_actions(&mut self, night_actions: Vec<NightAct>, tx: &EventTx) -> Blocks {
+    pub fn apply_night_actions(&mut self, night_actions: Vec<NightAct>) -> Blocks {
         let mut blocks: HashMap<Pid, Vec<Pid>> = HashMap::new();
         let mut kills: HashMap<Pid, Pid> = HashMap::new();
         for na in night_actions {
@@ -128,7 +128,7 @@ impl State {
                 }
                 Act::Save { effective } => {
                     if effective && !na.blockers.is_empty() {
-                        tx.send(Event::Block { blocked: na.actor, blockers: na.blockers.clone() });
+                        self.tx(Event::Block { blocked: na.actor, blockers: na.blockers.clone() });
                     }
                 }
                 Act::Kill { saviors } => {
@@ -137,7 +137,7 @@ impl State {
                         let mark = na.target;
                         kills.insert(mark, killer);
                     } else {
-                        tx.send(Event::Save { saved: na.target, saviors: saviors.clone() });
+                        self.tx(Event::Save { saved: na.target, saviors: saviors.clone() });
                     }
                 }
                 Act::Investigate => {
@@ -147,13 +147,13 @@ impl State {
                     }
                     let role = self.players.get_role(na.target);
                     if na.blockers.is_empty() {
-                        tx.send(Event::Investigate {
+                        self.tx(Event::Investigate {
                             cop: na.actor,
                             target: na.target,
                             appears_mafia: role.is_mafia(),
                         });
                     } else {
-                        tx.send(Event::Block { blocked: na.actor, blockers: na.blockers.clone() });
+                        self.tx(Event::Block { blocked: na.actor, blockers: na.blockers.clone() });
                     }
                 }
                 Act::Milk => {
@@ -162,19 +162,19 @@ impl State {
                         continue;
                     }
                     if na.blockers.is_empty() {
-                        tx.send(Event::Milk { milky: na.actor, target: na.target });
+                        self.tx(Event::Milk { milky: na.actor, target: na.target });
                     } else if !kills.contains_key(&na.actor) {
-                        tx.send(Event::Block { blocked: na.actor, blockers: na.blockers.clone() });
+                        self.tx(Event::Block { blocked: na.actor, blockers: na.blockers.clone() });
                     }
                 }
             }
         }
         if kills.is_empty() {
-            tx.send(Event::NoKill);
+            self.tx(Event::NoKill);
         }
         for (mark, killer) in kills.into_iter() {
-            tx.send(Event::Kill { killer, mark });
-            self.kill(mark, killer, tx);
+            self.tx(Event::Kill { killer, mark });
+            self.kill(mark, killer);
         }
         blocks
     }

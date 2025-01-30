@@ -1,4 +1,5 @@
 use std::{env, path::PathBuf};
+use tokio::task::JoinHandle;
 use tracing::event;
 
 use crate::{prelude::*, state};
@@ -60,20 +61,21 @@ impl std::fmt::Display for GameId {
 type ActionMsg<P> = (Action<P>, oneshot::Sender<Result<(), Error>>);
 type ActionTx<P> = mpsc::Sender<ActionMsg<P>>;
 type ActionRx<P> = mpsc::Receiver<ActionMsg<P>>;
-type EventRx = broadcast::Receiver<Event>;
+pub type EventRx = mpsc::UnboundedReceiver<Event>;
 type StatusRx = watch::Receiver<State>;
 
+#[derive(Debug)]
 pub struct Game<P> {
     id: GameId,
+    run_handle: JoinHandle<State>,
     state_rx: StatusRx,
     action_tx: ActionTx<P>,
-    event_rx: EventRx,
 }
 
 // So the question is... can we have both shared refs to Game handler, and mutable for action recv?
 
 impl<P> Game<P> {
-    pub fn new(players: impl IntoIterator<Item = impl Into<Pid>>, rules: Rules) -> Arc<Self>
+    pub fn new(players: impl IntoIterator<Item = impl Into<Pid>>, rules: Rules) -> (Self, EventRx)
     where
         P: Into<Pid> + Copy + Send + 'static,
     {
@@ -85,19 +87,21 @@ impl<P> Game<P> {
         id: GameId,
         players: impl IntoIterator<Item = impl Into<Pid>>,
         rules: Rules,
-    ) -> Arc<Self>
+    ) -> (Self, EventRx)
     where
         P: Into<Pid> + Copy + Send + 'static,
     {
-        let (action_tx, action_rx) = mpsc::channel(100);
-        let (event_tx, event_rx) = broadcast::channel(100);
-        let state = State::new(players, rules);
+        let (action_tx, action_rx) = mpsc::channel(16);
+        let (event_tx, event_rx) = mpsc::unbounded_channel();
+        let state = State::with_tx(players, rules, Some(event_tx));
         let (state_tx, state_rx) = watch::channel(state.clone());
-        let game = Self { id, state_rx, action_tx, event_rx };
-        let game = Arc::new(game);
-        let g = game.clone();
-        tokio::spawn(async move { g.run(state, action_rx, event_tx, state_tx).await });
-        game
+        let run_handle = tokio::spawn(Self::run(state, action_rx, state_tx));
+        let game = Self { id, run_handle, state_rx, action_tx };
+        (game, event_rx)
+    }
+
+    pub fn id(&self) -> GameId {
+        self.id
     }
 
     fn dur_until(time: Option<DateTime<Local>>) -> Duration {
@@ -109,28 +113,20 @@ impl<P> Game<P> {
         }
     }
 
-    pub async fn run(
-        &self,
-        mut state: State,
-        mut action_rx: ActionRx<P>,
-        event_tx: EventTx,
-        state_tx: StatusTx,
-    ) -> State
+    pub async fn run(mut state: State, mut action_rx: ActionRx<P>, state_tx: StatusTx) -> State
     where
         P: Into<Pid> + Copy,
     {
         if !state.is_started() {
-            state.start(&event_tx);
+            state.start();
         }
-        state.update(&event_tx, &state_tx);
-        let _ = state_tx.send(state.clone());
-        let mut alarm_time = None;
+        let mut alarm_time = state.update();
+        state_tx.send(state.clone()).expect("Game should not drop state_rx");
         loop {
             match tokio::time::timeout(Self::dur_until(alarm_time), action_rx.recv()).await {
                 Ok(Some((action, resp))) => {
                     // Handle action
-                    let result =
-                        state.validate_action(action).map(|va| state.perform_action(va, &event_tx));
+                    let result = state.validate_action(action).map(|va| state.perform_action(va));
                     let _ = resp.send(result);
                 }
                 Ok(None) => {
@@ -141,7 +137,8 @@ impl<P> Game<P> {
                     // Timeout
                 }
             }
-            alarm_time = state.update(&event_tx, &state_tx);
+            alarm_time = state.update();
+            state_tx.send(state.clone()).expect("Game should not drop state_rx");
         }
         state
     }
@@ -157,5 +154,16 @@ impl<P> Game<P> {
 
     pub fn get_state(&self) -> State {
         self.state_rx.borrow().clone()
+    }
+
+    pub async fn stop(self) -> State {
+        drop(self.action_tx);
+        match self.run_handle.await {
+            Ok(state) => state,
+            Err(err) => {
+                error!("Game run_handle couldn't join: {}", err);
+                self.state_rx.borrow().clone()
+            }
+        }
     }
 }

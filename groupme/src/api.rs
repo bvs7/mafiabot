@@ -1,20 +1,24 @@
 use std::sync::OnceLock;
 
-use reqwest::header::CONTENT_TYPE;
-
 use crate::prelude::*;
 
-mod request;
+mod types;
+pub use types::*;
+mod handler;
+use handler::ApiHandler;
 
 const BASE_API_URI: &str = "https://api.groupme.com/v3";
 
-static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
-fn client() -> &'static reqwest::Client {
-    &CLIENT.get_or_init(|| reqwest::Client::new())
+static HANDLER: OnceLock<ApiHandler> = OnceLock::new();
+fn handler() -> &'static ApiHandler {
+    HANDLER.get_or_init(|| ApiHandler::new().expect("Cannot continue without API Handler"))
 }
 
-fn uuid() -> String {
-    uuid::Uuid::new_v4().to_string()
+static TOKEN: OnceLock<String> = OnceLock::new();
+fn token() -> &'static str {
+    TOKEN.get_or_init(|| {
+        std::env::var("GROUPME_TOKEN").expect("Cannot continue without GROUPME_TOKEN")
+    })
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -31,275 +35,58 @@ pub enum Error {
     OtherError(String),
 }
 
-#[tracing::instrument]
 pub async fn add_members(
     group_id: &GroupId,
     members: Vec<impl Into<Member> + std::fmt::Debug>,
 ) -> Result<Vec<Member>, Error> {
-    let uri = format!("{BASE_API_URI}/groups/{group_id}/members/add");
-    let members: Vec<Member> = members.into_iter().map(Into::into).collect();
-    let members = json!({
-        "members": members
-    });
-    let body = serde_json::to_string(&members)?;
-    tracing::debug!(%body);
-    let resp = client()
-        .post(uri)
-        .header(CONTENT_TYPE, "application/json")
-        .query(&[("token", get_token()?)])
-        .body(body)
-        .send()
-        .await?
-        // .error_for_status()?
-        .text()
-        .await?;
-    tracing::debug!(%resp);
-    let value: JsonValue = serde_json::from_str(&resp)?;
-    let result_id: String = json_access(&value, "response.results_id")?;
-    let uri = format!("{BASE_API_URI}/groups/{group_id}/members/results/{result_id}");
-    let resp = client()
-        .get(uri)
-        .query(&[("token", get_token()?)])
-        .send()
-        .await?
-        .error_for_status()?
-        .text()
-        .await?;
-    let value: JsonValue = serde_json::from_str(&resp)?;
-    let members: Vec<Member> = json_access(&value, "response.members")?;
-    debug!(?members);
-    Ok(members)
+    let handler = handler();
+    handler.add_members(group_id, members).await
 }
 
-#[tracing::instrument]
 pub async fn create_group(name: &str, share: bool) -> Result<GroupId, Error> {
-    let uri = format!("{BASE_API_URI}/groups");
-    let body = json!({"name": name, "share": share});
-    let body = serde_json::to_string(&body)?;
-    let resp = client()
-        .post(uri)
-        .header(CONTENT_TYPE, "application/json")
-        .query(&[("token", get_token()?)])
-        .body(body)
-        .send()
-        .await?
-        .error_for_status()?
-        .text()
-        .await?;
-    debug!(?resp);
-    let value: JsonValue = serde_json::from_str(&resp)?;
-    let id: GroupId = json_access::<String>(&value, "response.id")?.into();
-    Ok(id)
+    let handler = handler();
+    handler.create_group(name, share).await
 }
 
-#[tracing::instrument]
 pub async fn delete_group(group_id: &GroupId) -> Result<(), Error> {
-    let uri = format!("{BASE_API_URI}/groups/{group_id}/destroy");
-    let resp =
-        client().post(uri).query(&[("token", get_token()?)]).send().await?.error_for_status()?;
-    debug!(?resp);
-    Ok(())
+    let handler = handler();
+    handler.delete_group(group_id).await
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type")]
-enum Attachment {
-    #[serde(rename = "mentions")]
-    Mentions { user_ids: Vec<UserId> },
-    #[serde(other)]
-    Unknown,
-}
-
-#[derive(Debug, Clone, Serialize)]
-enum Payload {
-    #[serde(rename = "message")]
-    Message { text: String, source_guid: String, attachments: Vec<Attachment> },
-    #[serde(rename = "direct_message")]
-    DirectMsg {
-        text: String,
-        source_guid: String,
-        recipient_id: UserId,
-        attachments: Vec<Attachment>,
-    },
-}
-
-impl Payload {
-    fn new_message(text: String) -> Self {
-        Self::Message { text, attachments: Vec::new(), source_guid: uuid() }
-    }
-    fn new_dm(user_id: &UserId, text: String) -> Self {
-        Self::DirectMsg {
-            text,
-            source_guid: uuid(),
-            recipient_id: *user_id,
-            attachments: Vec::new(),
-        }
-    }
-}
-
-#[tracing::instrument]
 pub async fn send_group_message(group_id: &GroupId, text: &str) -> Result<MessageId, Error> {
-    let uri = format!("{BASE_API_URI}/groups/{group_id}/messages");
-    let body = Payload::new_message(text.to_owned());
-    let body = serde_json::to_string(&body)?;
-    debug!("Sending MessageReq as: {body}");
-    let resp = client()
-        .post(uri)
-        .header(CONTENT_TYPE, "application/json")
-        .query(&[("token", get_token()?)])
-        .body(body)
-        .send()
-        .await?
-        .error_for_status()?
-        .text()
-        .await?;
-
-    debug!(?resp);
-    let value: JsonValue = serde_json::from_str(&resp)?;
-    Ok(json_access(&value, "response.message.id")?)
+    let handler = handler();
+    handler.send_group_message(group_id, text).await
 }
 
-#[derive(Debug, Clone, Deserialize)]
-pub struct GroupResp {
-    pub name: String,
-    pub id: Option<GroupId>,
-    pub members: Vec<Member>,
-}
-
-#[tracing::instrument]
 pub async fn get_group(group_id: &GroupId) -> Result<GroupResp, Error> {
-    let uri = format!("{BASE_API_URI}/groups/{group_id}");
-    let resp = client()
-        .get(uri)
-        .query(&[("token", get_token()?)])
-        .send()
-        .await?
-        .error_for_status()?
-        .text()
-        .await?;
-    debug!(?resp);
-    Ok(serde_json::from_str(&resp)?)
+    let handler = handler();
+    handler.get_group(group_id).await
 }
 
-#[tracing::instrument]
 pub async fn send_dm(user_id: UserId, text: &str) -> Result<MessageId, Error> {
-    let uri = format!("{BASE_API_URI}/direct_messages");
-    let body = Payload::new_dm(&user_id, text.to_string());
-    let body = serde_json::to_string(&body)?;
-    let resp = client()
-        .post(uri)
-        .header(CONTENT_TYPE, "application/json")
-        .query(&[("token", get_token()?)])
-        .body(body)
-        .send()
-        .await?
-        .error_for_status()?
-        .text()
-        .await?;
-
-    debug!(?resp);
-    let value: JsonValue = serde_json::from_str(&resp)?;
-    Ok(json_access(&value, "response.direct_message.id")?)
+    let handler = handler();
+    handler.send_dm(user_id, text).await
 }
 
-#[derive(Debug, Clone, Deserialize)]
-pub struct MessageResp {
-    text: String,
-    attachments: Vec<Attachment>,
-    source_guid: String,
-    id: MessageId,
-    user_id: UserId,
-    group_id: GroupId,
-    favorited_by: Vec<UserId>,
-}
-
-#[tracing::instrument]
 pub async fn get_group_message(
     group_id: &GroupId,
     msg_id: &MessageId,
 ) -> Result<MessageResp, Error> {
-    let uri = format!("{BASE_API_URI}/groups/{group_id}/messages");
-    let resp = client()
-        .get(uri)
-        .query(&[
-            ("token", get_token()?),
-            ("after_id", msg_id.prev()),
-            ("before_id", msg_id.next()),
-            ("limit", "1".to_owned()),
-        ])
-        .send()
-        .await?
-        .error_for_status()?
-        .text()
-        .await?;
-
-    debug!(?resp);
-    let value: JsonValue = serde_json::from_str(&resp)?;
-    let message: MessageResp = json_access(&value, "response.messages.0")?;
-    if msg_id != &message.id {
-        return Err(Error::OtherError(format!(
-            "Expected message id {}, got {}",
-            msg_id, message.id
-        )));
-    }
-    Ok(message)
+    let handler = handler();
+    handler.get_group_message(group_id, msg_id).await
 }
 
-#[tracing::instrument]
 pub async fn like_group_message(group_id: &GroupId, msg_id: &MessageId) -> Result<(), Error> {
-    let uri = format!("{BASE_API_URI}/messages/{group_id}/{msg_id}/like");
-    let resp =
-        client().post(uri).query(&[("token", get_token()?)]).send().await?.error_for_status()?;
-    debug!(?resp);
-    Ok(())
+    let handler = handler();
+    handler.like_group_message(group_id, msg_id).await
 }
 
-#[tracing::instrument]
 pub async fn like_dm_message(user_id: &UserId, msg_id: &MessageId) -> Result<(), Error> {
-    let conv_id = if user_id < &MODERATOR_UID {
-        format!("{user_id}+{MODERATOR_UID}")
-    } else {
-        format!("{MODERATOR_UID}+{user_id}")
-    };
-    let uri = format!("{BASE_API_URI}/messages/{conv_id}/{msg_id}/like");
-    let resp =
-        client().post(uri).query(&[("token", get_token()?)]).send().await?.error_for_status()?;
-    debug!(?resp);
-    Ok(())
+    let handler = handler();
+    handler.like_dm_message(user_id, msg_id).await
 }
 
 pub async fn get_user_id() -> Result<UserId, Error> {
-    let uri = format!("{BASE_API_URI}/users/me");
-    let resp = client()
-        .get(uri)
-        .query(&[("token", get_token()?)])
-        .send()
-        .await?
-        .error_for_status()?
-        .text()
-        .await?;
-
-    let value: JsonValue = serde_json::from_str(&resp)?;
-    let user_id: UserId = json_access(&value, "response.id")?;
-    tracing::info!("Got User Id: {user_id:?}");
-    Ok(user_id)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[tokio::test]
-    #[tracing_test::traced_test]
-    async fn basic() {
-        let text = "Test message";
-
-        let msg_id = send_group_message(&TEST_LOBBY_CHAT_ID, &text).await.unwrap();
-        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-        like_group_message(&TEST_LOBBY_CHAT_ID, &msg_id).await.unwrap();
-        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-        let msg_id = send_dm(BRIAN_UID, &text).await.unwrap();
-        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-        like_dm_message(&BRIAN_UID, &msg_id).await.unwrap();
-    }
+    let handler = handler();
+    handler.get_user_id().await
 }

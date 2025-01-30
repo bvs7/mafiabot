@@ -11,15 +11,6 @@ use reqwest::Client;
 use reqwest_websocket::{Message, RequestBuilderExt, WebSocket};
 use tokio::task::JoinHandle;
 
-// TODO: make a thiserror error for the issues this subscriber can have...
-
-/*
-TODO:
-
-Have the websocket implementation just create a stream? No, we want to upkeep the websocket connection... so we should probably spawn a task that will handle the websocket and push messages to a channel. Then we wrap the channel in a stream, add an adapter to parse commands.
-
-*/
-
 const WEBSOCKET_URI: &str = "https://push.groupme.com/faye";
 
 type FromWebSocketTx = broadcast::Sender<Data>;
@@ -34,10 +25,13 @@ pub struct PushWebSocketServer {
     id: PushId,
 }
 
+// TODO: clean up this interface. Hopefully we could have some kind of
+// new() -> Stream<Data> or something
+
 impl PushWebSocketServer {
     pub fn new() -> Self {
-        let (to_tx, to_rx) = mpsc::channel(100);
-        let from_tx = broadcast::Sender::new(100);
+        let (to_tx, to_rx) = mpsc::channel(32);
+        let from_tx = broadcast::Sender::new(32);
         let to_rx = Some(to_rx);
 
         return Self { to_tx, to_rx, from_tx, id: PushId::new() };

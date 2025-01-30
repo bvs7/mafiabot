@@ -853,6 +853,7 @@ dependencies = [
  "groupme",
  "mafia",
  "rand 0.9.0",
+ "serde",
  "tokio",
  "tokio-stream",
  "tracing",
