@@ -4,7 +4,6 @@
 
 mod app;
 mod prelude;
-mod types;
 
 mod game_handler;
 

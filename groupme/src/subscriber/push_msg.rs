@@ -157,6 +157,16 @@ pub enum Data {
     Unknown,
 }
 
+impl Data {
+    pub fn text(&self) -> &str {
+        match self {
+            Data::GroupMsg { text, .. } => text,
+            Data::DirectMsg { text, .. } => text,
+            _ => "",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(tag = "type")]
 pub enum Attachment {

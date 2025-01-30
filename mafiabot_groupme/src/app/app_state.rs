@@ -1,19 +1,35 @@
 use crate::prelude::*;
 
 #[derive(Debug)]
+struct Lobby {}
+
+impl Lobby {
+    pub async fn parse_cmd(
+        &self,
+        user_id: UserId,
+        words: Vec<String>,
+        attachments: Vec<Attachment>,
+        app_state: &Arc<AppState>,
+    ) {
+    }
+}
+
+#[derive(Debug)]
 pub struct AppState {
-    // pub lobbies: RwLock<HashMap<GroupId, Lobby>>,
+    pub lobbies: RwLock<HashMap<GroupId, Lobby>>,
     pub games: RwLock<HashMap<GameId, GameHandler>>,
     pub groups: RwLock<HashMap<GroupId, groupme::Group>>,
+    pub focus: RwLock<HashMap<UserId, GameId>>,
     // pub api_tx: mpsc::Sender<()>,
 }
 
 impl AppState {
     pub fn new() -> Self {
         Self {
-            // lobbies: RwLock::new(HashMap::new()),
+            lobbies: RwLock::new(HashMap::new()),
             games: RwLock::new(HashMap::new()),
             groups: RwLock::new(HashMap::new()),
+            focus: RwLock::new(HashMap::new()),
         }
     }
 

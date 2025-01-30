@@ -6,7 +6,7 @@ mod push_msg;
 use push_msg::{Advice, Channel, Ext, PushId, PushMessage};
 pub use push_msg::{Attachment, Data};
 
-use futures_util::{SinkExt, StreamExt};
+use futures_util::{SinkExt, Stream, StreamExt};
 use reqwest::Client;
 use reqwest_websocket::{Message, RequestBuilderExt, WebSocket};
 use tokio::task::JoinHandle;
@@ -29,6 +29,12 @@ pub struct PushWebSocketServer {
 // new() -> Stream<Data> or something
 
 impl PushWebSocketServer {
+    pub fn create() -> (JoinHandle<()>, broadcast::Receiver<Data>) {
+        let mut server = PushWebSocketServer::new();
+        let h1 = server.start().unwrap();
+        (h1, server.get_rx())
+    }
+
     pub fn new() -> Self {
         let (to_tx, to_rx) = mpsc::channel(32);
         let from_tx = broadcast::Sender::new(32);

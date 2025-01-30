@@ -1,4 +1,3 @@
-#![allow(unused_imports)]
 use mafia::state::State;
 
 use mafia::game::Action;
