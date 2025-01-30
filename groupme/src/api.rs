@@ -4,6 +4,8 @@ use reqwest::header::CONTENT_TYPE;
 
 use crate::prelude::*;
 
+mod request;
+
 const BASE_API_URI: &str = "https://api.groupme.com/v3";
 
 static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
@@ -27,21 +29,6 @@ pub enum Error {
     TokenError(#[from] std::env::VarError),
     #[error("Unknown error {0}")]
     OtherError(String),
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Member {
-    pub nickname: String,
-    pub user_id: UserId,
-    /// Membership id, used to kick
-    #[serde(skip_serializing, rename = "id")]
-    pub membership_id: Option<String>,
-}
-
-impl From<(String, UserId)> for Member {
-    fn from((nickname, user_id): (String, UserId)) -> Self {
-        Self { nickname, user_id, membership_id: None }
-    }
 }
 
 #[tracing::instrument]
@@ -173,11 +160,10 @@ pub async fn send_group_message(group_id: &GroupId, text: &str) -> Result<Messag
 }
 
 #[derive(Debug, Clone, Deserialize)]
-struct GroupResp {
-    name: String,
-    id: Option<GroupId>,
-    members: Vec<Member>,
-    share_url: Option<String>,
+pub struct GroupResp {
+    pub name: String,
+    pub id: Option<GroupId>,
+    pub members: Vec<Member>,
 }
 
 #[tracing::instrument]

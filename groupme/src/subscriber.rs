@@ -13,6 +13,13 @@ use tokio::task::JoinHandle;
 
 // TODO: make a thiserror error for the issues this subscriber can have...
 
+/*
+TODO:
+
+Have the websocket implementation just create a stream? No, we want to upkeep the websocket connection... so we should probably spawn a task that will handle the websocket and push messages to a channel. Then we wrap the channel in a stream, add an adapter to parse commands.
+
+*/
+
 const WEBSOCKET_URI: &str = "https://push.groupme.com/faye";
 
 type FromWebSocketTx = broadcast::Sender<Data>;

@@ -1,10 +1,5 @@
 use std::{env, future::Future, path::PathBuf, sync::Arc};
 
-use async_trait::async_trait;
-use tokio::{
-    sync::{watch, RwLock},
-    time::error::Elapsed,
-};
 use tracing::event;
 
 use crate::{prelude::*, state};
@@ -65,111 +60,104 @@ impl std::fmt::Display for GameId {
     }
 }
 
-/*
-It might be nice to do start stuff and initialization for the handlers smartly.
-I.e. don't do start event in event handler...
+// TODO: What if there is a resp type for each action?
+// Instead of having so many events, just have a response type for each action.
+// For example, vote response holds ballot, former, counts, etc.
+// Reveal response would need to be an event...
+// scheme, target, eclipse_vote could just be responses as well?
+pub trait ActionResp {
+    fn send(self, result: Result<(), Error>);
+}
 
-What do we need to know for start?
-- Players and lobby nicknames and roles
-- Game Id...
+// TODO: Change trait name to include updating
+pub trait ActionQueue {
+    type PID: Into<Pid> + Copy;
+    type Resp: ActionResp;
+    fn recv(&mut self) -> Option<(Action<Self::PID>, Self::Resp)>;
+    fn update(&mut self, status: Status);
+}
+
+/*
+Game has an action handler?, state has an event handler.
+
 
 */
 
-// Ok, let's think. How is a game created?
-// 1. We have a list of players and a set of rules.
-// 2. Generate and assign roles...
-// 3. Create game chats and add members...
-// 4. Hook up event handler and action handler...
-// 5. Start the game.
-
-// For Action Handler and Event Handler...
-// We want a universal state...
-// That holds watch::Receiver<Status> for games... as well as Game chat ids?
-// We should pass in a ref to the game when creating ActionHandler and EventHandler...
-// So we need to be able to create a game, then pass to handlers, then start handlers
-
-pub struct Game {
-    id: GameId,
-    state: State,
+#[derive(Debug, Clone)]
+pub struct Game<A, E> {
+    pub id: GameId,
+    action_queue: A,
+    state: Arc<RwLock<State<E>>>,
 }
 
-impl Game {
-    // Do Rolegen before here.
-    pub fn new(registry: impl IntoIterator<Item = (impl Into<Pid>, Role)>, rules: Rules) -> Self {
-        let state = State::new(registry, rules);
-        Self { id: GameId::new().unwrap_or_default(), state }
-    }
-
-    pub fn id(&self) -> GameId {
-        self.id
-    }
-
-    pub fn players(&self) -> Vec<(Pid, Role)> {
-        self.state.players.alive()
-    }
-
-    pub async fn run<P: Into<Pid> + Copy + 'static, E, A>(
-        mut self,
-        mut action_handler: A,
+impl<A, E> Game<A, E> {
+    pub fn new(
+        players: impl IntoIterator<Item = impl Into<Pid>>,
+        rules: Rules,
+        action_queue: A,
         event_handler: E,
-    ) where
-        A: ActionHandler<PID = P> + Send + 'static,
-        E: EventHandler + Send + 'static,
+    ) -> Self
+where {
+        let id = GameId::new().unwrap_or_default();
+        Self::with_id(id, players, rules, action_queue, event_handler)
+    }
+
+    pub fn with_id(
+        id: GameId,
+        players: impl IntoIterator<Item = impl Into<Pid>>,
+        rules: Rules,
+        action_queue: A,
+        event_handler: E,
+    ) -> Self {
+        let state = State::new(players, rules, event_handler);
+        let state = Arc::new(RwLock::new(state));
+        let id = GameId::new().unwrap_or_default();
+        Self { id: GameId::new().unwrap_or_default(), action_queue, state }
+    }
+
+    // Blocking fn to run the game
+    pub fn run(mut self) -> Self
+    where
+        A: ActionQueue,
+        E: EventHandler,
     {
-        let (event_tx, event_rx) = mpsc::unbounded_channel();
-        self.state.event_tx = Some(event_tx);
+        let mut w_state = self.state.write().unwrap();
+        // If the game is not started (in phase Init), start it?
+        let status = w_state.status();
+        if status.phase == PhaseKind::Init {
+            w_state.start();
+        }
+        w_state.update();
+        self.action_queue.update(w_state.status());
+        drop(w_state);
 
-        self.state.start();
-
-        tokio::spawn(Game::event_handler(event_rx, event_handler));
-        tokio::time::sleep(Duration::from_secs(1)).await;
-        self.action_handler(action_handler).await;
-    }
-
-    #[instrument(skip_all)]
-    pub async fn event_handler(
-        mut event_rx: mpsc::UnboundedReceiver<Event>,
-        mut handler: impl EventHandler,
-    ) {
         loop {
-            match event_rx.recv().await {
-                Some(event) => handler.handle_event(event).await,
-                None => {
-                    info!("Event channel closed");
-                    break;
+            let Some((action, resp)) = self.action_queue.recv() else {
+                // TODO: handle action queue closed, save game?
+                break;
+            };
+            let r_state = self.state.read().unwrap();
+            let result = r_state.validate_action(action).map(|_| ());
+            drop(r_state);
+            if result.is_err() {
+                resp.send(result);
+                continue;
+            }
+            let mut w_state = self.state.write().unwrap();
+            match w_state.validate_action(action) {
+                Ok(valid) => {
+                    w_state.perform_action(valid);
+                    resp.send(Ok(()));
+                }
+                Err(err) => {
+                    resp.send(Err(err));
+                    continue;
                 }
             }
+
+            w_state.update();
+            drop(w_state);
         }
-    }
-
-    #[instrument(skip_all)]
-    pub async fn action_handler<P: Into<Pid> + Copy>(
-        mut self,
-        mut handler: impl ActionHandler<PID = P>,
-    ) {
-        loop {
-            let timeout = self.state.update();
-            handler.update_status(&self.state).await;
-            let dur = match timeout.map(|t| (t - Local::now()).to_std()) {
-                Some(Ok(dur)) => dur,           // Wait for timeout
-                Some(Err(e)) => Duration::ZERO, // Time already lapsed
-                None => Duration::MAX,          // No timeout to wait for
-            };
-
-            let action = match tokio::time::timeout(dur, handler.recv_action()).await {
-                Err(Elapsed { .. }) => continue,
-                Ok(None) => break,
-                Ok(Some(action)) => action,
-            };
-
-            let result = self.state.validate_action(action);
-            match result {
-                Err(err) => handler.resp_action(Err(err)).await,
-                Ok(action) => {
-                    handler.resp_action(Ok(())).await;
-                    self.state.perform_action(action);
-                }
-            }
-        }
+        self
     }
 }

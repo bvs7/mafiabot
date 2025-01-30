@@ -1,14 +1,39 @@
 use crate::prelude::*;
 
-mod standard;
-pub use standard::StandardRoleGen;
+// mod standard;
+// pub use standard::StandardRoleGen;
 
 mod draw;
+pub use draw::{DrawRoleGen, DrawRoleGenConfig};
 
 use rand::{rngs::ThreadRng, seq::SliceRandom, Rng};
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RoleGenConfig {
+    Draw(DrawRoleGenConfig),
+}
+
+impl Default for RoleGenConfig {
+    fn default() -> Self {
+        Self::Draw(Default::default())
+    }
+}
+
 pub trait RoleGen {
-    fn generate_roles(&mut self, users: Vec<impl Into<Pid>>, rules: &Rules) -> Vec<(Pid, Role)>;
+    fn generate_roles(&self, players: impl IntoIterator<Item = impl Into<Pid>>)
+        -> Vec<(Pid, Role)>;
+}
+
+impl RoleGen for RoleGenConfig {
+    fn generate_roles(
+        &self,
+        players: impl IntoIterator<Item = impl Into<Pid>>,
+    ) -> Vec<(Pid, Role)> {
+        let pids = players.into_iter().map(Into::into).collect::<Vec<_>>();
+        match self {
+            Self::Draw(config) => DrawRoleGen::generate(config, pids),
+        }
+    }
 }
 
 // pub fn assign_roles(

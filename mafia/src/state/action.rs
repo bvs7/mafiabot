@@ -1,8 +1,10 @@
 use crate::prelude::*;
 
+use super::EventHandler;
+
 use super::util::*;
 
-impl State {
+impl<E> State<E> {
     pub fn validate_action<P: Into<Pid> + Copy>(
         &self,
         action: Action<P>,
@@ -126,7 +128,7 @@ impl From<_ValidAction> for ValidAction {
     }
 }
 
-impl State {
+impl<E: EventHandler> State<E> {
     pub fn perform_action(&mut self, action: ValidAction) {
         use _ValidAction::*;
         match action.0 {

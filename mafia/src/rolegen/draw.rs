@@ -43,16 +43,50 @@ const ROGUE_BASE_WEIGHTS: [(Role, f64, f64); 8] = [
     (Role::AGENT(CHARGE_MAFIA), 0.5, 0.5),
     (Role::AGENT(CHARGE_ANY), 0.5, 0.75),
 ];
+// TODO: don't have both config and gen. Just have gen and make it serialize
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DrawRoleGenConfig {
+    allowed_roles: HashSet<RoleKind>,
+    guaranteed_roles: HashMap<RoleKind, usize>,
+    mislead: u64, // percentage
+    kink: u64,    // percentage
+    rogue: u64,   // percentage
+}
 
 // Inputs?
 
-struct DrawRoleGen {
-    rules: Rules,
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct DrawRoleGen {
+    config: DrawRoleGenConfig,
+    #[serde(skip)]
     rng: ThreadRng,
 }
 
-impl RoleGen for DrawRoleGen {
-    fn generate_roles(&mut self, users: Vec<impl Into<Pid>>, rules: &Rules) -> Vec<(Pid, Role)> {
+impl PartialEq for DrawRoleGen {
+    fn eq(&self, other: &Self) -> bool {
+        self.config == other.config
+    }
+}
+
+impl Eq for DrawRoleGen {}
+
+impl From<&DrawRoleGenConfig> for DrawRoleGen {
+    fn from(config: &DrawRoleGenConfig) -> Self {
+        Self { config: config.clone(), rng: thread_rng() }
+    }
+}
+
+impl DrawRoleGen {
+    pub fn generate(config: &DrawRoleGenConfig, users: Vec<Pid>) -> Vec<(Pid, Role)> {
+        let mut gen = Self::from(config);
+        gen.generate_roles(users)
+    }
+
+    fn generate_roles(
+        &mut self,
+        users: impl IntoIterator<Item = impl Into<Pid>>,
+    ) -> Vec<(Pid, Role)> {
+        let users: Vec<Pid> = users.into_iter().map(Into::into).collect();
         let n = users.len();
 
         let rogue_roles = self.draw_rogue(n);
@@ -94,7 +128,7 @@ impl DrawRoleGen {
     fn target_p(&self) -> f64 {
         let mid = (MAX_P + MIN_P) / 2.0;
 
-        self.rules.kink as f64 / 100.0 * (MAX_P - MIN_P) + mid
+        self.config.kink as f64 / 100.0 * (MAX_P - MIN_P) + mid
     }
 }
 
@@ -158,7 +192,7 @@ fn pull_bag(
 
 impl DrawRoleGen {
     fn draw_rogue(&mut self, n: usize) -> Vec<Role> {
-        let n_rogue = get_n_poisson(n as f64 * self.rules.rogue as f64 / 100.0, &mut self.rng);
+        let n_rogue = get_n_poisson(n as f64 * self.config.rogue as f64 / 100.0, &mut self.rng);
         // Ensure we don't have too many rogues
         if n_rogue > n / 3 {
             return Vec::new();
@@ -168,7 +202,7 @@ impl DrawRoleGen {
 
         let dec = |w, g| ((w - 1.0) * g);
 
-        bag.retain(|(role, _, _)| self.rules.allowed_roles.contains(&role.kind()));
+        bag.retain(|(role, _, _)| self.config.allowed_roles.contains(&role.kind()));
 
         // TODO: guaranteed roles are removed first...
         let mut rogue_roles = Vec::new();
@@ -183,13 +217,13 @@ impl DrawRoleGen {
 
     fn draw_town(&mut self, n_town: usize, sigma: f64) -> Vec<Role> {
         let mut bag = TOWN_BASE_WEIGHTS.to_vec();
-        bag.retain(|(role, _, _)| self.rules.allowed_roles.contains(&role.kind()));
+        bag.retain(|(role, _, _)| self.config.allowed_roles.contains(&role.kind()));
 
         let dec = |w, g| ((w - 1.0) * g);
 
         // Rate we want is... Kink / 100.0 * n_tot around there. sigma is about 1/5 n_tot...
 
-        let rate = (self.rules.kink as f64 / 100.0) * 5.0 * sigma;
+        let rate = (self.config.kink as f64 / 100.0) * 5.0 * sigma;
         let mut n_pick = sq_get_n_poisson(rate, &mut self.rng);
         if n_pick > n_town - 3 {
             n_pick = n_town - 3;
@@ -199,7 +233,7 @@ impl DrawRoleGen {
         let mut town_roles = Vec::new();
 
         for (r, w, g) in bag.iter_mut() {
-            if let Some(k) = self.rules.guaranteed_roles.get(&r.kind()) {
+            if let Some(k) = self.config.guaranteed_roles.get(&r.kind()) {
                 for _ in 0..*k {
                     town_roles.push(r.clone());
                     *w = dec(*w, *g);
@@ -220,18 +254,18 @@ impl DrawRoleGen {
 
     fn draw_mafia(&mut self, n_maf: usize) -> Vec<Role> {
         let mut bag = MAFIA_BASE_WEIGHTS.to_vec();
-        bag.retain(|(role, _, _)| self.rules.allowed_roles.contains(&role.kind()));
+        bag.retain(|(role, _, _)| self.config.allowed_roles.contains(&role.kind()));
 
         let dec = |w, g| ((w - 1.0) * g);
 
-        let rate = (self.rules.kink as f64 / 100.0) * n_maf as f64;
+        let rate = (self.config.kink as f64 / 100.0) * n_maf as f64;
 
         let n_pick = get_n_poisson(rate, &mut self.rng);
 
         let mut mafia_roles = Vec::new();
 
         for (r, w, g) in bag.iter_mut() {
-            if let Some(k) = self.rules.guaranteed_roles.get(&r.kind()) {
+            if let Some(k) = self.config.guaranteed_roles.get(&r.kind()) {
                 for _ in 0..*k {
                     mafia_roles.push(r.clone());
                     *w = dec(*w, *g);
@@ -267,7 +301,7 @@ impl DrawRoleGen {
         let mut x: f64;
         for _ in 0..n / 3 {
             x = self.rng.sample(Open01);
-            if x < self.rules.mislead as f64 / 100.0 {
+            if x < self.config.mislead as f64 / 100.0 {
                 self.add_mislead(roles);
             } else {
                 break;
@@ -314,7 +348,7 @@ impl DrawRoleGen {
         }
     }
 
-    fn assign_roles(&mut self, users: Vec<impl Into<Pid>>, roles: Vec<Role>) -> Vec<(Pid, Role)> {
+    fn assign_roles(&mut self, users: Vec<Pid>, roles: Vec<Role>) -> Vec<(Pid, Role)> {
         let mut users = users.into_iter().map(Into::into).collect::<Vec<_>>();
         users.shuffle(&mut self.rng);
         let mut registry: Vec<(Pid, Role)> = users.into_iter().zip(roles.into_iter()).collect();
@@ -337,17 +371,11 @@ mod tests {
     #[test]
     #[tracing_test::traced_test]
     fn test_draw() {
-        let mut rng = thread_rng();
-        let mut rules = Rules::default();
-        rules.guaranteed_roles.drain();
-        let mut rg = DrawRoleGen { rules: Rules::default(), rng: rng.clone() };
+        let mut rg = DrawRoleGen::default();
         let users = (0..=7).map(Pid).collect::<Vec<_>>();
         for _ in 0..10 {
-            let mut roles = rg
-                .generate_roles(users.clone(), &Rules::default())
-                .into_iter()
-                .map(|(_, r)| r)
-                .collect::<Vec<_>>();
+            let mut roles =
+                rg.generate_roles(users.clone()).into_iter().map(|(_, r)| r).collect::<Vec<_>>();
             roles.sort();
             println!("{:?}", roles);
         }

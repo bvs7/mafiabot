@@ -1,47 +1,53 @@
 use std::collections::HashSet;
 
-use api::Member;
-use mafia::{
-    game::{self, EventHandler},
-    state::status,
-};
+use mafia::state::{status, EventHandler};
+use tokio::sync::TryLockError;
+use tokio::task::{block_in_place, JoinSet};
 
+use crate::app::AppState;
 use crate::prelude::*;
 
-use async_trait::async_trait;
+// What do we need here?
 
-// When can status_rx be trusted?
-
+#[derive(Debug, Clone)]
 pub struct GroupMeEventHandler {
     game_id: GameId,
-    lobby_id: GroupId,
     main_id: GroupId,
     mafia_id: GroupId,
-    targeters: HashSet<Pid>,
-    status_rx: watch::Receiver<Status>,
-    app_status: Arc<RwLock<AppStatus>>,
+    app_state: Arc<AppState>,
 }
 
 impl GroupMeEventHandler {
-    pub async fn new(game: &Game, lobby_id: GroupId, app_status: Arc<RwLock<AppStatus>>) -> Self {
-        let game_id = game.id();
-        let r_app_status = app_status.read().await;
-        let game_info = r_app_status.games.get(&game_id).expect("Game not found");
-        let status_rx = game_info.status.clone();
-        let main_id = game_info.main_id.clone();
-        let mafia_id = game_info.mafia_id.clone();
-        drop(r_app_status);
-        let targeters = game
-            .players()
-            .into_iter()
-            .filter_map(|(pid, role)| role.is_targeting().then(|| pid))
-            .collect();
-        Self { game_id, lobby_id, main_id, mafia_id, status_rx, app_status, targeters }
+    pub fn new(
+        game_id: GameId,
+        main_id: GroupId,
+        mafia_id: GroupId,
+        app_state: Arc<AppState>,
+    ) -> Self {
+        Self { game_id, main_id, mafia_id, app_state }
     }
+}
 
+impl GroupMeEventHandler {
     fn name(&self, pid: Pid) -> String {
-        let status = self.status_rx.borrow();
-        status.names.get(&pid).cloned().unwrap_or_else(|| format!("Player {}", pid))
+        for _ in 0..100 {
+            match self.app_state.groups.try_read() {
+                Ok(r_groups) => {
+                    let Some(group) = r_groups.get(&self.main_id) else {
+                        error!("Group {} not found", self.main_id);
+                        continue;
+                    };
+                    let Some(name) = group.name(u64::from(pid)) else {
+                        warn!("User {} not found in group {}", pid, self.main_id);
+                        continue;
+                    };
+                    return name.to_string();
+                }
+                Err(TryLockError) => {}
+            }
+        }
+        error!("Failed 100 times to get name for {}", pid);
+        format!("User: {}", pid)
     }
 }
 
@@ -67,51 +73,16 @@ fn option_msg(options: Vec<Pid>, names: &HashMap<Pid, String>) -> String {
     msg
 }
 
-#[async_trait]
 impl EventHandler for GroupMeEventHandler {
-    async fn handle_event(&mut self, event: Event) {
+    #[tracing::intstrument]
+    fn handle(&mut self, event: Event) {
+        let js = JoinSet::new();
         match event {
             Event::Start { players, rules } => {
-                // Add players to chats, send start messages
-                let r_app_status = self.app_status.read().await;
-                let lobby = r_app_status.lobbies.get(&self.lobby_id).expect("Lobby not found");
-                let names = lobby.chat.names.clone();
-                drop(r_app_status);
-                let mut new_main_members = Vec::new();
-                let mut new_mafia_members = Vec::new();
-                for (pid, role) in players.iter() {
-                    let pid = *pid;
-                    let user_id = UserId(u64::from(pid));
-                    // Send start message
-
-                    let nickname =
-                        names.get(&user_id).cloned().unwrap_or_else(|| format!("Player {}", pid));
-                    let member: Member = (nickname, user_id).into();
-                    if role.is_mafia() {
-                        new_mafia_members.push(member.clone());
-                    }
-                    new_main_members.push(member);
-                }
-                // Add members to chats
-                let mut w_app_status = self.app_status.write().await;
-
-                let main_chat =
-                    w_app_status.groups.get_mut(&self.main_id).expect("Main chat not found");
-                main_chat.add_members(new_main_members).await;
-                let names = main_chat.names.clone();
-
-                let mafia_chat =
-                    w_app_status.groups.get_mut(&self.mafia_id).expect("Mafia chat not found");
-                mafia_chat.add_members(new_mafia_members).await;
-
-                drop(w_app_status);
-
-                // Send start messages
-                let names = names.into_iter().map(|(u, n)| (Pid::from(u.0), n)).collect();
                 for (pid, role) in players.iter() {
                     let user_id = UserId(u64::from(*pid));
                     let msg = create_start_msg(*role, &names);
-                    let _ = api::send_group_message(&self.main_id, &msg).await;
+                    api::send_group_message(&self.main_id, &msg);
                 }
 
                 // Send group chat messages

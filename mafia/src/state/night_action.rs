@@ -66,7 +66,7 @@ impl NightAct {
         }
     }
 
-    pub fn from_state(state: &State) -> Vec<Self> {
+    pub fn from_state<E>(state: &State<E>) -> Vec<Self> {
         let players = &state.players;
         let Phase::Night { targets, scheme, .. } = &state.phase else {
             panic!("To night actions during not night");
@@ -115,7 +115,7 @@ impl NightAct {
     }
 }
 
-impl State {
+impl<E: EventHandler> State<E> {
     pub fn apply_night_actions(&mut self, night_actions: Vec<NightAct>) -> Blocks {
         let mut blocks: HashMap<Pid, Vec<Pid>> = HashMap::new();
         let mut kills: HashMap<Pid, Pid> = HashMap::new();

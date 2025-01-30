@@ -5,7 +5,7 @@ use super::util::{count_votes, thresh};
 
 enum ElectionResult {}
 
-impl State {
+impl<E: EventHandler> State<E> {
     pub fn update(&mut self) -> Option<DateTime<Local>> {
         match &self.phase {
             Phase::Day { elect: Some((_, _, time)), .. } if time < &Local::now() => {

@@ -9,3 +9,5 @@ groupme = { path = "../groupme" }
 async-trait = "0.1.85"
 tokio = "1.43.0"
 tracing = "0.1.41"
+async-stream = "0.3.6"
+tokio-stream = "0.1.17"
