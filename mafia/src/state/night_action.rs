@@ -1,6 +1,8 @@
 use crate::prelude::*;
 use rand::seq::SliceRandom;
 
+use super::EventTx;
+
 #[derive(Debug, Clone)]
 pub enum Act {
     Block,
@@ -66,7 +68,7 @@ impl NightAct {
         }
     }
 
-    pub fn from_state<E>(state: &State<E>) -> Vec<Self> {
+    pub fn from_state(state: &State) -> Vec<Self> {
         let players = &state.players;
         let Phase::Night { targets, scheme, .. } = &state.phase else {
             panic!("To night actions during not night");
@@ -115,8 +117,8 @@ impl NightAct {
     }
 }
 
-impl<E: EventHandler> State<E> {
-    pub fn apply_night_actions(&mut self, night_actions: Vec<NightAct>) -> Blocks {
+impl State {
+    pub fn apply_night_actions(&mut self, night_actions: Vec<NightAct>, tx: &EventTx) -> Blocks {
         let mut blocks: HashMap<Pid, Vec<Pid>> = HashMap::new();
         let mut kills: HashMap<Pid, Pid> = HashMap::new();
         for na in night_actions {
@@ -126,7 +128,7 @@ impl<E: EventHandler> State<E> {
                 }
                 Act::Save { effective } => {
                     if effective && !na.blockers.is_empty() {
-                        self.tx(Event::Block { blocked: na.actor, blockers: na.blockers.clone() });
+                        tx.send(Event::Block { blocked: na.actor, blockers: na.blockers.clone() });
                     }
                 }
                 Act::Kill { saviors } => {
@@ -135,7 +137,7 @@ impl<E: EventHandler> State<E> {
                         let mark = na.target;
                         kills.insert(mark, killer);
                     } else {
-                        self.tx(Event::Save { saved: na.target, saviors: saviors.clone() });
+                        tx.send(Event::Save { saved: na.target, saviors: saviors.clone() });
                     }
                 }
                 Act::Investigate => {
@@ -145,13 +147,13 @@ impl<E: EventHandler> State<E> {
                     }
                     let role = self.players.get_role(na.target);
                     if na.blockers.is_empty() {
-                        self.tx(Event::Investigate {
+                        tx.send(Event::Investigate {
                             cop: na.actor,
                             target: na.target,
                             appears_mafia: role.is_mafia(),
                         });
                     } else {
-                        self.tx(Event::Block { blocked: na.actor, blockers: na.blockers.clone() });
+                        tx.send(Event::Block { blocked: na.actor, blockers: na.blockers.clone() });
                     }
                 }
                 Act::Milk => {
@@ -160,19 +162,19 @@ impl<E: EventHandler> State<E> {
                         continue;
                     }
                     if na.blockers.is_empty() {
-                        self.tx(Event::Milk { milky: na.actor, target: na.target });
+                        tx.send(Event::Milk { milky: na.actor, target: na.target });
                     } else if !kills.contains_key(&na.actor) {
-                        self.tx(Event::Block { blocked: na.actor, blockers: na.blockers.clone() });
+                        tx.send(Event::Block { blocked: na.actor, blockers: na.blockers.clone() });
                     }
                 }
             }
         }
         if kills.is_empty() {
-            self.tx(Event::NoKill);
+            tx.send(Event::NoKill);
         }
         for (mark, killer) in kills.into_iter() {
-            self.tx(Event::Kill { killer, mark });
-            self.kill(mark, killer);
+            tx.send(Event::Kill { killer, mark });
+            self.kill(mark, killer, tx);
         }
         blocks
     }

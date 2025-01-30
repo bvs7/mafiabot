@@ -9,6 +9,6 @@ pub use mafia::{
     game::{Action, ActionQueue, ActionResp, Error as GameError, Event, GameId},
     rolegen::RoleGen,
     rules::Rules,
-    state::{phase::PhaseKind, status::Status, EventHandler, State},
+    state::{phase::PhaseKind, status::Status, EventSender, State},
     Pid, Role, RoleKind, Team,
 };

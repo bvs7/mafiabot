@@ -384,18 +384,8 @@ mod tests {
     #[test]
     #[tracing_test::traced_test]
     fn test_draw() {
-<<<<<<< HEAD
         let mut rg = DrawRoleGen::default();
         let users = (0..=7).map(Pid).collect::<Vec<_>>();
-=======
-        let mut rng = thread_rng();
-        let mut rules = Rules::default();
-        rules.guaranteed_roles.drain();
-        rules.allowed_roles.remove(&RoleKind::GOON);
-        rules.allowed_roles.remove(&RoleKind::MILKY);
-        let mut rg = DrawRoleGen { rules, rng: rng.clone() };
-        let users = (1..=3).map(Pid).collect::<Vec<_>>();
->>>>>>> 08e3739c045b00dd4227b8176a57a1d7d2b3a843
         for _ in 0..10 {
             let mut roles =
                 rg.generate_roles(users.clone()).into_iter().map(|(_, r)| r).collect::<Vec<_>>();

@@ -1,10 +1,9 @@
 use crate::prelude::*;
 
-use super::EventHandler;
-
 use super::util::*;
+use super::EventTx;
 
-impl<E> State<E> {
+impl State {
     pub fn validate_action<P: Into<Pid> + Copy>(
         &self,
         action: Action<P>,
@@ -128,19 +127,19 @@ impl From<_ValidAction> for ValidAction {
     }
 }
 
-impl<E: EventHandler> State<E> {
-    pub fn perform_action(&mut self, action: ValidAction) {
+impl State {
+    pub fn perform_action(&mut self, action: ValidAction, tx: &EventTx) {
         use _ValidAction::*;
         match action.0 {
-            Vote(voter, ballot) => self.vote(voter, ballot),
-            Target(actor, choice) => self.target(actor, choice),
-            Scheme(killer, mark) => self.scheme(killer, mark),
-            Reveal(celeb) => self.reveal(celeb),
-            EclipseVote(victim) => self.eclipse_vote(victim),
+            Vote(voter, ballot) => self.vote(voter, ballot, tx),
+            Target(actor, choice) => self.target(actor, choice, tx),
+            Scheme(killer, mark) => self.scheme(killer, mark, tx),
+            Reveal(celeb) => self.reveal(celeb, tx),
+            EclipseVote(victim) => self.eclipse_vote(victim, tx),
         }
     }
 
-    fn vote(&mut self, voter: Pid, ballot: Ballot) {
+    fn vote(&mut self, voter: Pid, ballot: Ballot, tx: &EventTx) {
         let Phase::Day { votes, .. } = &mut self.phase else {
             panic!("Expected Day phase");
         };
@@ -154,18 +153,18 @@ impl<E: EventHandler> State<E> {
         let ballot_check = ballot.clone().map(|c| (c, vote_list.get(&c).unwrap().len()));
         let former_check = former.clone().map(|c| (c, vote_list.get(&c).unwrap().len()));
 
-        self.tx(Event::Vote { voter: voter.clone(), ballot: ballot_check, former: former_check });
+        tx.send(Event::Vote { voter: voter.clone(), ballot: ballot_check, former: former_check });
         self.check_election(voter, ballot, vote_list);
     }
 
-    fn reveal(&mut self, celeb: Pid) {
+    fn reveal(&mut self, celeb: Pid, tx: &EventTx) {
         let Phase::Day { blocks, .. } = &self.phase else {
             panic!("Expected Day phase");
         };
         if let Some(blockers) = blocks.get(&celeb) {
-            self.tx(Event::Block { blocked: celeb, blockers: blockers.clone() });
+            tx.send(Event::Block { blocked: celeb, blockers: blockers.clone() });
         } else {
-            self.tx(Event::Reveal { celeb });
+            tx.send(Event::Reveal { celeb });
         }
     }
 
@@ -191,21 +190,21 @@ impl<E: EventHandler> State<E> {
         }
     }
 
-    fn target(&mut self, actor: Pid, choice: Choice) {
+    fn target(&mut self, actor: Pid, choice: Choice, tx: &EventTx) {
         let Phase::Night { targets, .. } = &mut self.phase else {
             panic!("Expected Night phase");
         };
         targets.insert(actor, choice);
-        self.tx(Event::Target { actor, choice });
+        tx.send(Event::Target { actor, choice });
         self.check_dawn();
     }
 
-    fn scheme(&mut self, killer: Pid, mark: Choice) {
+    fn scheme(&mut self, killer: Pid, mark: Choice, tx: &EventTx) {
         let Phase::Night { scheme, .. } = &mut self.phase else {
             panic!("Expected Night phase");
         };
         *scheme = Some((killer, mark));
-        self.tx(Event::Scheme { killer, mark });
+        tx.send(Event::Scheme { killer, mark });
         self.check_dawn();
     }
 
@@ -231,13 +230,13 @@ impl<E: EventHandler> State<E> {
         }
     }
 
-    fn eclipse_vote(&mut self, victim: Pid) {
+    fn eclipse_vote(&mut self, victim: Pid, tx: &EventTx) {
         let Phase::Eclipse { avenger, hammer, .. } = &self.phase else {
             panic!("Expected Eclipse phase");
         };
         let avenger = *avenger;
         let hammer = *hammer;
-        self.tx(Event::Vengeance { avenger, victim });
-        self.vengeance(victim, avenger, hammer);
+        tx.send(Event::Vengeance { avenger, victim });
+        self.vengeance(victim, avenger, hammer, tx);
     }
 }

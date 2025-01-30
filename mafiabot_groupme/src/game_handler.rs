@@ -42,7 +42,7 @@ impl ActionQueue for ActionMpsc {
 struct EventSender {
     event_tx: mpsc::UnboundedSender<Event>,
 }
-impl mafia::state::EventHandler for EventSender {
+impl mafia::state::EventSender for EventSender {
     fn handle(&mut self, event: Event) {
         match self.event_tx.send(event) {
             Ok(_) => (),
