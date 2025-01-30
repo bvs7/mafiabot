@@ -4,6 +4,7 @@ use rand::{
     distributions::Open01, prelude::Distribution, rngs::ThreadRng, seq::SliceRandom, thread_rng,
     Rng,
 };
+use serde::de;
 use statrs::distribution::Poisson;
 
 use crate::prelude::*;
@@ -88,6 +89,12 @@ impl DrawRoleGen {
     ) -> Vec<(Pid, Role)> {
         let users: Vec<Pid> = users.into_iter().map(Into::into).collect();
         let n = users.len();
+        debug!("N: {n}");
+
+        // if n == 3 {
+        //     let roles = vec![Role::COP, Role::DOCTOR, Role::MAFIA];
+        //     return self.assign_roles(users, roles);
+        // }
 
         let rogue_roles = self.draw_rogue(n);
         let n_rogue = rogue_roles.len();
@@ -95,6 +102,7 @@ impl DrawRoleGen {
         let sigma_rogue: f64 = rogue_roles.iter().map(|r| r.sigma_adj()).sum();
         // Generate sigma for remaining n players
         let n_left = n - n_rogue;
+        debug!("N left: {n_left}");
         let x_0 = self.target_p() / 2.0 * (n_left as f64 + 1.0) - sigma_rogue;
         let sigma_maf = sigmoid_rv(x_0, &mut self.rng);
         let sigma = sigma_rogue + sigma_maf;
@@ -103,6 +111,7 @@ impl DrawRoleGen {
             n_maf = 1;
         }
         let n_town = n_left - n_maf;
+        debug!("N town: {n_town}");
         debug!("N mafia: {n_maf}");
         let mut town_roles = self.draw_town(n_town, sigma);
         while town_roles.len() < n_town {
@@ -112,6 +121,7 @@ impl DrawRoleGen {
         while mafia_roles.len() < n_maf {
             mafia_roles.push(Role::MAFIA);
         }
+        debug!("Lens: {}, {}, {}", rogue_roles.len(), town_roles.len(), mafia_roles.len());
         let mut roles = rogue_roles
             .into_iter()
             .chain(town_roles.into_iter())
@@ -225,8 +235,11 @@ impl DrawRoleGen {
 
         let rate = (self.config.kink as f64 / 100.0) * 5.0 * sigma;
         let mut n_pick = sq_get_n_poisson(rate, &mut self.rng);
-        if n_pick > n_town - 3 {
-            n_pick = n_town - 3;
+        while n_pick + 2 > n_town {
+            if n_pick == 0 {
+                return Vec::new();
+            }
+            n_pick -= 1;
         }
         debug!("N power roles: {n_pick}");
 
@@ -371,8 +384,18 @@ mod tests {
     #[test]
     #[tracing_test::traced_test]
     fn test_draw() {
+<<<<<<< HEAD
         let mut rg = DrawRoleGen::default();
         let users = (0..=7).map(Pid).collect::<Vec<_>>();
+=======
+        let mut rng = thread_rng();
+        let mut rules = Rules::default();
+        rules.guaranteed_roles.drain();
+        rules.allowed_roles.remove(&RoleKind::GOON);
+        rules.allowed_roles.remove(&RoleKind::MILKY);
+        let mut rg = DrawRoleGen { rules, rng: rng.clone() };
+        let users = (1..=3).map(Pid).collect::<Vec<_>>();
+>>>>>>> 08e3739c045b00dd4227b8176a57a1d7d2b3a843
         for _ in 0..10 {
             let mut roles =
                 rg.generate_roles(users.clone()).into_iter().map(|(_, r)| r).collect::<Vec<_>>();
