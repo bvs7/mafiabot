@@ -96,20 +96,18 @@ async fn parse_group_cmd(
         return;
     }
     // Not a lobby, check if it's a game
-
-    // for game in r_app_status.games.values() {
-    //     if game.main_id == group_id {
-    //         let id = game.game_id;
-    //         drop(r_app_status);
-    //         parse_main_chat_cmd(id, user_id, text, attachments, app_state).await;
-    //         return;
-    //     } else if game.mafia_id == group_id {
-    //         let id = game.game_id;
-    //         parse_mafia_chat_cmd(id, user_id, text, attachments, app_state).await;
-    //         drop(r_app_status);
-    //         return;
-    //     }
-    // }
+    let games = app_state.games.read().await;
+    for game in games.values() {
+        if game.main_chat_id == group_id {
+            game.parse_main_chat_cmd(user_id, words, attachments, app_state).await;
+            return;
+        } else if game.mafia_id == group_id {
+            let id = game.game_id;
+            parse_mafia_chat_cmd(id, user_id, text, attachments, app_state).await;
+            drop(r_app_status);
+            return;
+        }
+    }
 }
 
 // async fn parse_main_chat_cmd(
@@ -138,10 +136,6 @@ async fn parse_group_cmd(
 //     todo!()
 // }
 
-// async fn parse_dm_cmd(
-//     user_id: UserId,
-//     text: String,
-//     app_status: Arc<RwLock<AppStatus>>,
-// ) -> Option<(Cmd, Response)> {
-//     todo!()
-// }
+async fn parse_dm_cmd(user_id: UserId, text: String, app_status: &Arc<AppState>) -> bool {
+    todo!()
+}

@@ -8,6 +8,7 @@ use tokio::sync::broadcast::error::RecvError;
 pub struct EventHandler {
     game_id: GameId,
     event_rx: EventRx,
+    lobby_id: GroupId,
     main_chat_id: GroupId,
     mafia_chat_id: GroupId,
     players: HashMap<Pid, Role>, // Cached players TODO have status just have roles???
@@ -18,12 +19,14 @@ impl EventHandler {
     pub fn new(
         game_id: GameId,
         event_rx: EventRx,
+        lobby_id: GroupId,
         main_chat_id: GroupId,
         mafia_chat_id: GroupId,
         app_state: Arc<AppState>,
     ) -> Self {
         Self {
             game_id,
+            lobby_id,
             main_chat_id,
             mafia_chat_id,
             event_rx,

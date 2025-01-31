@@ -53,5 +53,5 @@ pub struct MessageResp {
     pub id: MessageId,
     user_id: UserId,
     group_id: GroupId,
-    favorited_by: Vec<UserId>,
+    pub favorited_by: Vec<UserId>,
 }
