@@ -32,11 +32,99 @@ pub enum Response {
 }
 
 /*
-Command parsing...
-If possible, handle parsing in game handler and in lobby handler.
-So test if a message applies to various games or lobbies, then forward them.
-Have a return type of parsers that represents if the command was handled or not.
-If not, then check for a total app command.
+Thoughts about parsing. Parsing commands can all be read only.
+
+How to structure this?
+
+RwLock on the Hashmap of these things seems awkward. Unless we use the Appstate more as an address
+book for sending messages. If anything, then, it might be best to make the RwLocks accessed by some
+kind of getter. Then the main app controller can be the only thing that ever gets write access.
+
+Messages:
+- To the Controller:
+    - Create Group
+    - Destroy Group
+    - Create Game
+    - End Game
+    - Create Lobby
+    - End Lobby
+
+- To the Game:
+    - Action
+    - Status?
+
+- To the Lobby:
+    - Start
+    - Status
+
+One problem with the RwLock structure is that we can run into deadlocks. We need all reads to be
+non-blocking, including if they were to wait on something that requires a write lock.
+Alternatively, the reads could all copy out immediately...
+
+What kinds of read accesses do we need?
+- Get group id of a lobby, main chat, or mafia chat...
+- Get the focus Game Id of a player.
+- Get the names of members of a group.
+- Send an action to a game.
+- Get the status of a game.
+- Update the start_message of a lobby.
+
+And then for write accesses...
+- Just adding new groups or games or lobbies...
+
+So first note: everything needs to be doable with just shared references.
+Second, adding new groups or games needs to be careful about blocking when writing...
+
+So, LobbyHandler
+
+We could imagine, similar to GameHandler, everything LobbyHandler does can be done from a shared ref.
+
+What does a lobby need to do?
+
+- Send a start message.
+    - Need to write the `start_msg` field of lobby. This could be a watch. Then the lobby task coul
+    wake up when it is written
+- Start a game
+    - Need to collect users, send a start game request to the controller
+    - Can this be done without holding the lobby read lock? Seems like no.
+    - In that case, will there ever be a case where something holds a games read lock then wants to
+    write lobbies? No. In fact, we can assume a hierarchy, Lobby, then game, then group, for the
+    locks.
+    - So, we need to start the game, but then the followup of "add the game to our list of games"
+    can happen later, right? How would that work? Maybe there is another Hashmap??
+
+I don't like all of these locks.
+How could we do this with pure message passing?
+Messages with responses could be awkward? Might cause deadlocks?
+
+First off, routing. We need to be able to route messages to all of their various destinations.
+- Controller needs to talk to everything
+- Lobbies need to talk to their games (and their group)
+- Games need to talk to their lobby and their group.
+- Groups just handle input messages.
+
+So we could imagine actors for each of these. And each actor could or could not be async.
+Could Groups just be owned? When do we need to get names? Games need names, Lobbies need names to
+start games. Yeah, let's just have groups be owned.
+
+For now, let's outline all of the input messages we will need for each actor type
+
+Controller:
+- Create Game (resp: GameId)
+- Destroy Game
+- Create Lobby
+- Destroy Lobby
+
+Lobby:
+- Create Start Message
+- Status (resp: Status)
+- Game Ended
+
+Game:
+- Action (resp: Result)
+- Status (resp: Status)
+- GetTarget (resp: UserId)
+
 
 */
 

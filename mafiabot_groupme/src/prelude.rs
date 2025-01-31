@@ -19,6 +19,7 @@ pub use mafia::{
     Pid, Role, RoleKind, Team,
 };
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct W<T>(pub T);
 
 impl From<W<UserId>> for Pid {
