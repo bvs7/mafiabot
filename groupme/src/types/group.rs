@@ -16,8 +16,8 @@ impl Group {
         Self { id, members: Vec::new(), names: HashMap::new() }
     }
 
-    pub fn id(&self) -> &GroupId {
-        &self.id
+    pub fn id(&self) -> GroupId {
+        self.id
     }
 
     pub fn name(&self, user_id: &UserId) -> Option<String> {
