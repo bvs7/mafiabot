@@ -58,3 +58,43 @@ impl State {
         &self.players
     }
 }
+
+impl std::fmt::Display for State {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} {}", self.phase.kind(), self.day)?;
+        todo!();
+        Ok(())
+    }
+}
+
+pub struct Brief {
+    day: u32,
+    phase: PhaseKind,
+    counts: HashMap<Team, usize>,
+}
+
+impl From<State> for Brief {
+    fn from(state: State) -> Self {
+        let mut counts = HashMap::new();
+        for (_, role) in state.players.alive() {
+            *counts.entry(role.team()).or_default() += 1;
+        }
+        Self { day: state.day, phase: state.phase.kind(), counts }
+    }
+}
+
+impl std::fmt::Display for Brief {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} {}", self.phase, self.day)?;
+        if let Some(count) = self.counts.get(&Team::Town) {
+            write!(f, " Town:{}", count)?;
+        }
+        if let Some(count) = self.counts.get(&Team::Mafia) {
+            write!(f, " Mafia:{}", count)?;
+        }
+        if let Some(count) = self.counts.get(&Team::Rogue) {
+            write!(f, " Rogue:{}", count)?;
+        }
+        Ok(())
+    }
+}
