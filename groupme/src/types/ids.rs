@@ -17,13 +17,11 @@ impl From<UserId> for u64 {
         u.0
     }
 }
-
 impl From<u64> for UserId {
     fn from(u: u64) -> Self {
         Self(u)
     }
 }
-
 impl From<String> for UserId {
     fn from(s: String) -> Self {
         Self(s.parse().unwrap())
@@ -34,7 +32,6 @@ impl From<UserId> for String {
         u.0.to_string()
     }
 }
-
 impl std::fmt::Display for UserId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0)
@@ -61,7 +58,7 @@ impl std::fmt::Display for GroupId {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(from = "String", into = "String")]
 pub struct MessageId(pub u128);
 

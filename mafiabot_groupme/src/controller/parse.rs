@@ -1,6 +1,8 @@
 use crate::prelude::*;
 
-impl ControllerHandle {
+use std::fmt::Write;
+
+impl Controller {
     async fn perform_cmd(&mut self, cmd: Command, resp: RespContext) {
         match cmd {
             Command::Lobby(group_id, cmd) => {
@@ -21,38 +23,83 @@ impl ControllerHandle {
                     todo!()
                 }
             },
+            Command::Admin(user_id, cmd) => {
+                if self.admins.contains(&user_id) {
+                    self.perform_admin_cmd(cmd, resp).await;
+                } else {
+                    let msg = "You are not an admin".to_string();
+                }
+            }
+        }
+    }
+
+    async fn perform_admin_cmd(&self, cmd: AdminCommand, resp: RespContext) {
+        use AdminCommand::*;
+        let cmd_result = match cmd {
+            Echo { text } => Some(text),
+            Status => {
+                let mut msg = String::new();
+                let lobbies = self.lobbies.borrow();
+                for lobby in lobbies.values() {
+                    write!(&mut msg, "{:?}\n", lobby).unwrap();
+                }
+                let games = self.games.borrow();
+                for game in games.values() {
+                    write!(&mut msg, "{:?}\n", game).unwrap();
+                }
+                Some(msg)
+            }
+        };
+        match cmd_result {
+            Some(text) => match resp {
+                RespContext::Group(group_id, msg_id) => {
+                    let _ = api::send_group_message(&group_id, &text).await;
+                }
+                RespContext::User(user_id, msg_id) => {
+                    let _ = api::send_dm(user_id, &text).await;
+                }
+            },
+            None => {}
         }
     }
 
     async fn parse_cmd(&self, data: Data) -> Option<(Parse<Command>, RespContext)> {
+        if matches!(data, Data::Unknown) {
+            return None;
+        }
         let text = data.text();
         let mut chars = text.chars();
         let Some('/') = chars.next() else {
             return None;
         };
+        let user_id = data.user_id();
+        let id = data.msg_id();
         let text: String = chars.collect();
         match data {
-            Data::GroupMsg { group_id, user_id, attachments, id, .. } => {
-                if let Some(cmd) = self.parse_group_cmd(&group_id, user_id, text, attachments).await
+            Data::GroupMsg { group_id, attachments, .. } => {
+                if let Some(cmd) =
+                    self.parse_group_cmd(&group_id, user_id, &text, attachments).await
                 {
                     return Some((cmd, RespContext::Group(group_id, id)));
                 }
             }
-            Data::DirectMsg { attachments, name, text, user_id, id, .. } => {
+            Data::DirectMsg { attachments, .. } => {
                 todo!()
             }
             Data::Unknown => {
                 todo!()
             }
         }
-        None
+        self.parse_admin_cmd(user_id, id, &text)
+            .await
+            .map(|p| (p.map(|cmd| Command::Admin(user_id, cmd)), RespContext::User(user_id, id)))
     }
 
     async fn parse_group_cmd(
         &self,
         group_id: &GroupId,
         user_id: UserId,
-        text: String,
+        text: &String,
         attachments: Vec<Attachment>,
     ) -> Option<Parse<Command>> {
         // Check for a lobby
@@ -80,11 +127,45 @@ impl ControllerHandle {
         todo!("Parse an app command")
     }
 
+    async fn parse_admin_cmd(
+        &self,
+        user_id: UserId,
+        msg_id: MessageId,
+        text: &String,
+    ) -> Option<Parse<AdminCommand>> {
+        let mut words = text.split_whitespace();
+        let Some("admin") = words.next() else {
+            return None;
+        };
+        if !self.admins.contains(&user_id) {
+            return Some(Err("You are not an admin".to_string()));
+        }
+        let cmd = match (words.next(), words.next()) {
+            (Some("echo"), _) => {
+                let rest = text.strip_prefix("admin echo ").unwrap();
+                AdminCommand::Echo { text: rest.to_string() }
+            }
+            (Some("status"), _) => AdminCommand::Status,
+            _ => return None,
+        };
+        Some(Ok(cmd))
+    }
+
+    async fn parse_app_group_cmd(
+        &self,
+        group_id: &GroupId,
+        user_id: UserId,
+        text: &String,
+        attachments: Vec<Attachment>,
+    ) -> Option<Parse<AppCommand>> {
+        None
+    }
+
     async fn parse_lobby_cmd(
         &self,
         lobby: &LobbyHandle,
         user_id: UserId,
-        text: String,
+        text: &String,
         attachments: Vec<Attachment>,
     ) -> Option<Parse<LobbyCommand>> {
         use LobbyCommand::*;

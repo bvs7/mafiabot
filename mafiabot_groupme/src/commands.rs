@@ -5,6 +5,7 @@ pub enum Command {
     Lobby(GroupId, LobbyCommand),
     Game(GameId, GameCommand),
     App(UserId, AppCommand),
+    Admin(UserId, AdminCommand),
 }
 
 #[derive(Debug, Clone)]
@@ -27,6 +28,12 @@ pub enum GameCommand {
 pub enum AppCommand {
     GetFocus,
     Focus { game_id: GameId },
+}
+
+#[derive(Debug, Clone)]
+pub enum AdminCommand {
+    Echo { text: String },
+    Status,
 }
 
 pub enum RespContext {

@@ -72,7 +72,7 @@ pub struct Game<P> {
     action_tx: ActionTx<P>,
 }
 
-// So the question is... can we have both shared refs to Game handler, and mutable for action recv?
+// So the question is... can we have both shared refs to Game handler, and mutable for action recv
 
 impl<P> Game<P> {
     pub fn new(players: impl IntoIterator<Item = impl Into<Pid>>, rules: Rules) -> (Self, EventRx)

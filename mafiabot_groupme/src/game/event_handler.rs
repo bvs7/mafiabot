@@ -1,45 +1,38 @@
 use crate::prelude::*;
 
-use std::fmt::Write;
+use groupme::Group;
+use std::{fmt::Write, time::Duration};
 use tokio::sync::broadcast::error::RecvError;
+use tracing::event;
 
 // Needs to know players/roles, right?
 #[derive(Debug)]
 pub struct EventHandler {
     game_id: GameId,
-    event_rx: EventRx,
     lobby_id: GroupId,
-    main_chat_id: GroupId,
-    mafia_chat_id: GroupId,
-    players: HashMap<Pid, Role>, // Cached players TODO have status just have roles???
-    names: HashMap<UserId, String>,
-    app_state: Arc<AppState>,
+    main_chat: groupme::Group,
+    mafia_chat: groupme::Group,
+    players: HashMap<Pid, Role>,
 }
 impl EventHandler {
     pub fn new(
         game_id: GameId,
-        event_rx: EventRx,
         lobby_id: GroupId,
-        main_chat_id: GroupId,
-        mafia_chat_id: GroupId,
-        app_state: Arc<AppState>,
+        main_chat: groupme::Group,
+        mafia_chat: groupme::Group,
+        players: HashMap<Pid, Role>,
     ) -> Self {
-        Self {
-            game_id,
-            lobby_id,
-            main_chat_id,
-            mafia_chat_id,
-            event_rx,
-            players: HashMap::new(),
-            names: HashMap::new(),
-            app_state,
-        }
+        Self { game_id, lobby_id, main_chat, mafia_chat, players }
+    }
+
+    pub fn start(self, event_rx: EventRx) -> JoinHandle<()> {
+        tokio::spawn(self.run(event_rx))
     }
 
     #[tracing::instrument]
-    pub async fn run(mut self) {
+    pub async fn run(mut self, mut event_rx: EventRx) {
         loop {
-            match self.event_rx.recv().await {
+            match event_rx.recv().await {
                 Some(event) => match self.handle_event(event).await {
                     Ok(_) => continue,
                     Err(e) => error!("Error handling event: {:?}", e),
@@ -55,13 +48,12 @@ impl EventHandler {
     // TODO: every once in a while, update names anyways
     async fn get_name(&mut self, pid: Pid) -> Result<String, std::fmt::Error> {
         let user_id = W(pid).into();
-        for _ in 0..3 {
-            if let Some(name) = self.names.get(&user_id) {
+        for i in 0..3 {
+            if let Some(name) = self.main_chat.name(&user_id) {
                 return Ok(name.clone());
             } else {
-                self.app_state.update_names(&self.main_chat_id).await;
-                let new_names = self.app_state.get_names(&self.main_chat_id).await;
-                self.names.extend(new_names.into_iter());
+                self.main_chat.update_names().await;
+                tokio::time::sleep(Duration::from_secs(1 << i)).await;
             }
         }
         warn!("Could not get name for pid: {}", pid);
@@ -120,7 +112,7 @@ impl EventHandler {
                 }
                 let mafia_msg = format!("Welcome to the Mafia Chat for game {}!", self.game_id);
                 js.spawn({
-                    let mafia_chat_id = self.mafia_chat_id.clone();
+                    let mafia_chat_id = self.mafia_chat.id();
                     let mafia_msg = mafia_msg.clone();
                     async move {
                         let _ = api::send_group_message(&mafia_chat_id, &mafia_msg).await;
@@ -241,7 +233,7 @@ impl EventHandler {
                     write!(m, "{killer} targets nobody...")?;
                 }
                 js.spawn({
-                    let maf_chat_id = self.mafia_chat_id.clone();
+                    let maf_chat_id = self.mafia_chat.id();
                     let maf_msg = maf_msg.clone();
                     async move {
                         let _ = api::send_group_message(&maf_chat_id, &maf_msg).await;
@@ -300,7 +292,7 @@ impl EventHandler {
         }
         if !msg.is_empty() {
             js.spawn({
-                let main_chat_id = self.main_chat_id.clone();
+                let main_chat_id = self.main_chat.id();
                 let msg = msg.clone();
                 async move {
                     let _ = api::send_group_message(&main_chat_id, &msg).await;

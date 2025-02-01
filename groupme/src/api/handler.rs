@@ -36,7 +36,7 @@ impl ApiHandler {
     }
 
     async fn get(&self, uri: &str, queries: &[(&str, &str)]) -> Result<String, Error> {
-        Ok(self
+        match self
             .client()
             .await
             .get(uri)
@@ -44,13 +44,20 @@ impl ApiHandler {
             .query(queries)
             .send()
             .await?
-            .error_for_status()?
-            .text()
-            .await?)
+        {
+            resp if resp.status().is_success() => Ok(resp.text().await?),
+            resp => {
+                let status = resp.status();
+                let text = resp.text().await?;
+                Err(Error::OtherError(format!(
+                    "GET request to {uri} failed with status {status}: {text}"
+                )))
+            }
+        }
     }
 
     async fn post(&self, uri: &str, body: String) -> Result<String, Error> {
-        Ok(self
+        match self
             .client()
             .await
             .post(uri)
@@ -59,12 +66,19 @@ impl ApiHandler {
             .body(body)
             .send()
             .await?
-            .error_for_status()?
-            .text()
-            .await?)
+        {
+            resp if resp.status().is_success() => Ok(resp.text().await?),
+            resp => {
+                let status = resp.status();
+                let text = resp.text().await?;
+                Err(Error::OtherError(format!(
+                    "POST request to {uri} failed with status {status}: {text}"
+                )))
+            }
+        }
     }
 
-    #[tracing::instrument]
+    #[tracing::instrument(skip(self))]
     pub async fn add_members(
         &self,
         group_id: &GroupId,
@@ -88,7 +102,7 @@ impl ApiHandler {
         Ok(members)
     }
 
-    #[tracing::instrument]
+    #[tracing::instrument(skip(self))]
     pub async fn create_group(&self, name: &str, share: bool) -> Result<GroupId, Error> {
         let uri = format!("{BASE_API_URI}/groups");
         let body = json!({"name": name, "share": share});
@@ -100,7 +114,7 @@ impl ApiHandler {
         Ok(id)
     }
 
-    #[tracing::instrument]
+    #[tracing::instrument(skip(self))]
     pub async fn delete_group(&self, group_id: &GroupId) -> Result<(), Error> {
         let uri = format!("{BASE_API_URI}/groups/{group_id}/destroy");
         let resp = self.post(&uri, "".to_owned()).await?;
@@ -108,7 +122,7 @@ impl ApiHandler {
         Ok(())
     }
 
-    #[tracing::instrument]
+    #[tracing::instrument(skip(self))]
     pub async fn send_group_message(
         &self,
         group_id: &GroupId,
@@ -124,15 +138,16 @@ impl ApiHandler {
         Ok(json_access(&value, "response.message.id")?)
     }
 
-    #[tracing::instrument]
+    #[tracing::instrument(skip(self))]
     pub async fn get_group(&self, group_id: &GroupId) -> Result<GroupResp, Error> {
         let uri = format!("{BASE_API_URI}/groups/{group_id}");
-        let resp = self.post(&uri, "".to_owned()).await?;
+        let resp = self.get(&uri, &[]).await?;
         debug!(?resp);
-        Ok(serde_json::from_str(&resp)?)
+        let value: JsonValue = serde_json::from_str(&resp)?;
+        Ok(serde_json::from_value(json_access(&value, "response")?)?)
     }
 
-    #[tracing::instrument]
+    #[tracing::instrument(skip(self))]
     pub async fn send_dm(&self, user_id: UserId, text: &str) -> Result<MessageId, Error> {
         let uri = format!("{BASE_API_URI}/direct_messages");
         let body = Payload::new_dm(&user_id, text.to_string());
@@ -143,7 +158,7 @@ impl ApiHandler {
         Ok(json_access(&value, "response.direct_message.id")?)
     }
 
-    #[tracing::instrument]
+    #[tracing::instrument(skip(self))]
     pub async fn get_group_message(
         &self,
         group_id: &GroupId,
@@ -168,7 +183,7 @@ impl ApiHandler {
         Ok(message)
     }
 
-    #[tracing::instrument]
+    #[tracing::instrument(skip(self))]
     pub async fn like_group_message(
         &self,
         group_id: &GroupId,
@@ -180,7 +195,7 @@ impl ApiHandler {
         Ok(())
     }
 
-    #[tracing::instrument]
+    #[tracing::instrument(skip(self))]
     pub async fn like_dm_message(&self, user_id: &UserId, msg_id: &MessageId) -> Result<(), Error> {
         let conv_id = if user_id < &MODERATOR_UID {
             format!("{user_id}+{MODERATOR_UID}")

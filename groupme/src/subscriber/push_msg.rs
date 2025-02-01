@@ -1,3 +1,5 @@
+use core::panic;
+
 use crate::prelude::*;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -165,6 +167,22 @@ impl Data {
             _ => "",
         }
     }
+
+    pub fn user_id(&self) -> UserId {
+        match self {
+            Data::GroupMsg { user_id, .. } => *user_id,
+            Data::DirectMsg { user_id, .. } => *user_id,
+            _ => panic!("Unknown message does not have a user_id"),
+        }
+    }
+
+    pub fn msg_id(&self) -> MessageId {
+        match self {
+            Data::GroupMsg { id, .. } => *id,
+            Data::DirectMsg { id, .. } => *id,
+            _ => panic!("Unknown message does not have a message_id"),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -181,7 +199,6 @@ mod tests {
     use super::*;
 
     #[test]
-    #[tracing_test::traced_test]
     fn test_channels() {
         let channels = vec![
             super::Channel::Handshake,
@@ -314,7 +331,6 @@ mod tests {
     }
 
     #[test]
-    #[tracing_test::traced_test]
     fn test_msg() {
         let msg = test1();
         let msgs: Vec<PushMessage> = serde_json::from_value(msg).unwrap();

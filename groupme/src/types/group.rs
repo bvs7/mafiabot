@@ -16,6 +16,15 @@ impl Group {
         Self { id, members: Vec::new(), names: HashMap::new() }
     }
 
+    pub async fn from_id(id: GroupId) -> Self {
+        let group_resp = api::get_group(&id).await.unwrap();
+        let mut group = Self { id, members: group_resp.members, names: HashMap::new() };
+        for member in group.members.iter() {
+            group.names.insert(member.user_id, member.nickname.clone());
+        }
+        group
+    }
+
     pub fn id(&self) -> GroupId {
         self.id
     }
@@ -46,6 +55,6 @@ impl Group {
             self.names.insert(member.user_id, member.nickname);
             ids.insert(member.user_id);
         }
-        self.names.retain(|k, _| ids.contains(k));
+        // self.names.retain(|k, _| ids.contains(k));
     }
 }

@@ -1,40 +1,42 @@
 use std::time::Duration;
 
 use groupme::Member;
-use tokio::{
-    task::JoinHandle,
-    time::{error::Elapsed, Instant},
-};
+use tokio::time::{error::Elapsed, Instant};
 
 use crate::prelude::*;
 
 pub struct Lobby {
     lobby_chat: groupme::Group,
-    games: watch::Sender<HashMap<GameId, GameHandle>>,
-    start_msg: watch::Receiver<Option<(MessageId, usize, Instant)>>,
+    games_tx: watch::Sender<HashMap<GameId, GameHandle>>,
+    start_msg_rx: watch::Receiver<Option<(MessageId, usize, Instant)>>,
     rules: Rules,
     ctrl_handle: ControllerHandle,
 }
 
 impl Lobby {
-    pub fn new() -> Self {
-        todo!()
-    }
-    pub fn from_group(group: groupme::Group) -> Self {
-        todo!()
+    pub async fn create(lobby_chat_id: GroupId, ctrl_handle: ControllerHandle) -> LobbyHandle {
+        let (start_msg_tx, start_msg_rx) = watch::channel(None);
+        let (games_tx, games_rx) = watch::channel(HashMap::new());
+        let rules = Rules::default();
+        let lobby_chat = groupme::Group::from_id(lobby_chat_id).await;
+        let lobby = Self { lobby_chat, games_tx, start_msg_rx, rules, ctrl_handle };
+        let handle = tokio::spawn(lobby.run());
+        let lobby_abort = handle.abort_handle();
+        LobbyHandle { lobby_chat_id, games_rx, start_msg_tx, lobby_abort }
     }
 
     async fn run(mut self) -> JoinHandle<()> {
         loop {
-            let start_msg = self.start_msg.borrow_and_update().clone();
+            let start_msg = self.start_msg_rx.borrow_and_update().clone();
             if let Some((msg_id, min_players, start_time)) = start_msg {
-                match tokio::time::timeout_at(start_time, self.start_msg.changed()).await {
+                match tokio::time::timeout_at(start_time, self.start_msg_rx.changed()).await {
                     Err(elapsed) => {
                         self.start_game(msg_id, min_players).await;
                     }
                     Ok(_) => continue,
                 }
             }
+            tokio::task::yield_now().await;
         }
     }
 
@@ -50,8 +52,8 @@ impl Lobby {
                 Member::new(name, u_id)
             })
             .collect();
-        let game_handle = self.ctrl_handle.start_game(members, self.rules.clone()).await;
-        self.games.send_modify(|games| {
+        let game_handle = self.ctrl_handle.start_game(lobby_id, members, self.rules.clone()).await;
+        self.games_tx.send_modify(|games| {
             games.insert(game_handle.id(), game_handle);
         });
     }
@@ -60,8 +62,9 @@ impl Lobby {
 #[derive(Debug, Clone)]
 pub struct LobbyHandle {
     lobby_chat_id: GroupId,
-    games: watch::Receiver<HashMap<GameId, GameHandle>>, // TODO should this be internal? A watch?
-    start_msg: watch::Sender<Option<(MessageId, usize, Instant)>>,
+    games_rx: watch::Receiver<HashMap<GameId, GameHandle>>, // TODO should this be internal? A watch?
+    start_msg_tx: watch::Sender<Option<(MessageId, usize, Instant)>>,
+    lobby_abort: AbortHandle,
 }
 
 impl LobbyHandle {
@@ -71,7 +74,9 @@ impl LobbyHandle {
         let msg_id =
             api::send_group_message(&self.lobby_chat_id, &msg).await.expect("Message should send");
         let start_time = Instant::now() + Duration::from_secs(minutes * 60);
-        self.start_msg.send(Some((msg_id, min_players, start_time))).expect("Lobby should receive");
+        self.start_msg_tx
+            .send(Some((msg_id, min_players, start_time)))
+            .expect("Lobby should receive");
     }
 
     pub async fn perform_lobby_cmd(&self, cmd: LobbyCommand, resp: RespContext) {
@@ -80,7 +85,7 @@ impl LobbyHandle {
             Start { minutes, min_players } => self.send_start_msg(minutes, min_players).await,
             Status => {
                 let mut msg = String::new();
-                let games = self.games.borrow();
+                let games = self.games_rx.borrow();
                 if games.is_empty() {
                     msg.push_str("No games in lobby");
                 } else {
@@ -93,7 +98,7 @@ impl LobbyHandle {
                 let _ = api::send_group_message(&self.lobby_chat_id, &msg).await;
             }
             StatusOf { game_id } => {
-                let games = self.games.borrow();
+                let games = self.games_rx.borrow();
                 let Some(game) = games.get(&game_id) else {
                     let _ = api::send_group_message(&self.lobby_chat_id, "Game not found").await;
                     return;

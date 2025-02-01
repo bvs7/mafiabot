@@ -17,7 +17,7 @@ pub struct State {
     players: Players,
     rules: Rules,
     #[serde(skip)]
-    tx: Option<EventTx>,
+    pub event_tx: Option<EventTx>,
     // #[serde(skip)]
     // action_rx: mpsc::Receiver<(Action, oneshot::Sender<Result<(), Error>>)>,
 }
@@ -32,7 +32,13 @@ impl State {
         tx: Option<EventTx>,
     ) -> Self {
         let registry = rules.rolegen_config.generate_roles(players);
-        Self { day: 0, phase: Phase::Init, players: Players::from_registry(registry), rules, tx }
+        Self {
+            day: 0,
+            phase: Phase::Init,
+            players: Players::from_registry(registry),
+            rules,
+            event_tx: tx,
+        }
     }
     pub fn is_started(&self) -> bool {
         !matches!(self.phase, Phase::Init)
@@ -49,7 +55,7 @@ impl State {
     }
 
     fn tx(&self, event: Event) {
-        if let Some(event_tx) = &self.tx {
+        if let Some(event_tx) = &self.event_tx {
             let _ = event_tx.send(event);
         }
     }
@@ -62,7 +68,7 @@ impl State {
 impl std::fmt::Display for State {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{} {}", self.phase.kind(), self.day)?;
-        todo!();
+        //TODO: Display players, phase, etc...
         Ok(())
     }
 }
