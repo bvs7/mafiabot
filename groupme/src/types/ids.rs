@@ -8,6 +8,8 @@ pub const MAIN_CHAT_ID: GroupId = GroupId(105362524);
 pub const MAFIA_CHAT_ID: GroupId = GroupId(105362533);
 pub const TEST_LOBBY_CHAT_ID: GroupId = GroupId(105412553);
 
+pub const SYSTEM: UserId = UserId(0);
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(from = "String", into = "String")]
 pub struct UserId(pub u64);
@@ -24,7 +26,10 @@ impl From<u64> for UserId {
 }
 impl From<String> for UserId {
     fn from(s: String) -> Self {
-        Self(s.parse().unwrap())
+        match s.parse() {
+            Ok(u) => Self(u),
+            Err(_) => SYSTEM,
+        }
     }
 }
 impl From<UserId> for String {
