@@ -3,6 +3,7 @@ use std::collections::HashSet;
 use crate::prelude::*;
 
 use groupme::Member;
+use tokio::sync::broadcast::error::RecvError;
 
 mod parse;
 
@@ -84,11 +85,16 @@ impl Controller {
                     Some(msg) => self.handle_msg(msg).await,
                     None => break,
                 },
-                data = push_rx.recv() => {
-                    debug!("Got data from push: {:?}", data);
-                    if let Ok(data) = data {
-                        self.handle_data(data).await;
+                data = push_rx.recv() => match data{
+                    Ok(data) => {
+                    self.handle_data(data).await;
                     }
+                    Err(RecvError::Closed) => {
+                        error!("Push channel closed...");
+                        let (h1, p) = groupme::subscriber::PushWebSocketServer::create();
+                        push_rx = p;
+                    }
+                    _ => {}
                 }
             }
         }

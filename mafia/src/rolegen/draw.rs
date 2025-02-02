@@ -91,10 +91,13 @@ impl DrawRoleGen {
         let n = users.len();
         debug!("N: {n}");
 
-        // if n == 3 {
-        //     let roles = vec![Role::COP, Role::DOCTOR, Role::MAFIA];
-        //     return self.assign_roles(users, roles);
-        // }
+        if n == 3 {
+            let roles = vec![Role::COP, Role::DOCTOR, Role::MAFIA];
+            return self.assign_roles(users, roles);
+        } else if n == 4 {
+            let roles = vec![Role::COP, Role::DOCTOR, Role::STRIPPER, Role::CELEB];
+            return self.assign_roles(users, roles);
+        }
 
         let rogue_roles = self.draw_rogue(n);
         let n_rogue = rogue_roles.len();
@@ -160,6 +163,9 @@ impl Role {
 }
 
 fn get_n_poisson(rate: f64, rng: &mut impl Rng) -> usize {
+    if rate < 0.0 {
+        return 0;
+    }
     let poisson = Poisson::new(rate).unwrap();
     let x: u64 = poisson.sample(rng);
     return x as usize;
