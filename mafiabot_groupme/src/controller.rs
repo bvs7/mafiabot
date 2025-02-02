@@ -50,10 +50,11 @@ impl Controller {
         lobby_ids: Vec<GroupId>,
         admins: HashSet<UserId>,
     ) -> (JoinHandle<()>, ControllerHandle) {
-        let (message_tx, message_rx) = mpsc::channel(32);
         let (lobbies, lobbies_rx) = watch::channel(HashMap::new());
         let (games, games_rx) = watch::channel(HashMap::new());
         let (focus, focus_rx) = watch::channel(HashMap::new());
+        let (message_tx, message_rx) = mpsc::channel(32);
+        let (h1, push_rx) = groupme::subscriber::PushWebSocketServer::create();
         let handle = ControllerHandle {
             tx: message_tx,
             lobbies: lobbies_rx,
@@ -61,7 +62,7 @@ impl Controller {
             focus: focus_rx,
         };
         let controller = Self { handle: handle.clone(), lobbies, games, focus, admins };
-        let task = tokio::spawn(controller.run(message_rx));
+        let task = tokio::spawn(controller.run(message_rx, push_rx));
         for group_id in lobby_ids {
             handle
                 .tx
@@ -72,11 +73,23 @@ impl Controller {
         (task, handle)
     }
 
-    async fn run(mut self, mut rx: mpsc::Receiver<ControllerMessge>) {
+    async fn run(
+        mut self,
+        mut message_rx: mpsc::Receiver<ControllerMessge>,
+        mut push_rx: broadcast::Receiver<Data>,
+    ) {
         loop {
-            match rx.recv().await {
-                Some(msg) => self.handle_msg(msg).await,
-                None => break,
+            tokio::select! {
+                    msg = message_rx.recv() =>  match msg{
+                    Some(msg) => self.handle_msg(msg).await,
+                    None => break,
+                },
+                data = push_rx.recv() => {
+                    debug!("Got data from push: {:?}", data);
+                    if let Ok(data) = data {
+                        self.handle_data(data).await;
+                    }
+                }
             }
         }
     }
@@ -118,6 +131,19 @@ impl Controller {
                     lobbies.insert(group_id, lobby);
                 });
             }
+        }
+    }
+
+    async fn handle_data(&mut self, data: Data) {
+        match self.parse_cmd(data).await {
+            Some((Ok(cmd), resp)) => {
+                debug!("Got command: {:?}", cmd);
+                self.perform_cmd(cmd, resp).await;
+            }
+            Some((Err(err), resp)) => {
+                let _ = resp.send(&err).await;
+            }
+            None => {}
         }
     }
 }

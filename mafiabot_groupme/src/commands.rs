@@ -36,9 +36,19 @@ pub enum AdminCommand {
     Status,
 }
 
+#[derive(Debug, Clone)]
 pub enum RespContext {
     Group(GroupId, MessageId),
     User(UserId, MessageId),
+}
+
+impl RespContext {
+    pub async fn send(&self, text: &str) -> Result<MessageId, groupme::api::Error> {
+        match self {
+            Self::Group(group_id, msg_id) => api::send_group_message(group_id, text).await,
+            Self::User(user_id, msg_id) => api::send_dm(*user_id, text).await,
+        }
+    }
 }
 
 pub type Parse<T> = Result<T, String>;

@@ -1,7 +1,7 @@
 pub use serde::{Deserialize, Serialize};
 pub use std::{collections::HashMap, sync::Arc};
 pub use tokio::{
-    sync::{broadcast, mpsc, oneshot, watch, RwLock},
+    sync::{broadcast, mpsc, oneshot, watch},
     task::{AbortHandle, JoinHandle},
 };
 pub use tracing::{debug, error, info, trace, warn};

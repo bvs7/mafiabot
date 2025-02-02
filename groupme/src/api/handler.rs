@@ -31,7 +31,7 @@ impl ApiHandler {
     }
 
     async fn client(&self) -> &reqwest::Client {
-        self.notify.notified().await;
+        // self.notify.notified().await;
         &self.client
     }
 
@@ -165,12 +165,7 @@ impl ApiHandler {
         msg_id: &MessageId,
     ) -> Result<MessageResp, Error> {
         let uri = format!("{BASE_API_URI}/groups/{group_id}/messages");
-        let resp = self
-            .get(
-                &uri,
-                &[("after_id", &msg_id.prev()), ("before_id", &msg_id.next()), ("limit", "1")],
-            )
-            .await?;
+        let resp = self.get(&uri, &[("after_id", &msg_id.prev()), ("limit", "1")]).await?;
         debug!(?resp);
         let value: JsonValue = serde_json::from_str(&resp)?;
         let message: MessageResp = json_access(&value, "response.messages.0")?;

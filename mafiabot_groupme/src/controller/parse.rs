@@ -1,18 +1,20 @@
+use tracing_subscriber::field::debug;
+
 use crate::prelude::*;
 
 use std::fmt::Write;
 
 impl Controller {
-    async fn perform_cmd(&mut self, cmd: Command, resp: RespContext) {
+    pub async fn perform_cmd(&mut self, cmd: Command, resp: RespContext) {
         match cmd {
             Command::Lobby(group_id, cmd) => {
-                let lobbies = self.lobbies.borrow();
-                let lobby = lobbies.get(&group_id).expect("Lobby should exist");
+                let lobbies = self.lobbies.borrow().clone();
+                let lobby = lobbies.get(&group_id).expect("Lobby should exist").clone();
                 lobby.perform_lobby_cmd(cmd, resp).await;
             }
             Command::Game(game_id, cmd) => {
-                let games = self.games.borrow();
-                let game = games.get(&game_id).expect("Game should exist");
+                let games = self.games.borrow().clone();
+                let game = games.get(&game_id).expect("Game should exist").clone();
                 game.perform_game_cmd(cmd, resp).await;
             }
             Command::App(user_id, cmd) => match cmd {
@@ -24,11 +26,8 @@ impl Controller {
                 }
             },
             Command::Admin(user_id, cmd) => {
-                if self.admins.contains(&user_id) {
-                    self.perform_admin_cmd(cmd, resp).await;
-                } else {
-                    let msg = "You are not an admin".to_string();
-                }
+                debug!("Performing admin command: {:?}", cmd);
+                self.perform_admin_cmd(cmd, resp).await;
             }
         }
     }
@@ -39,6 +38,7 @@ impl Controller {
             Echo { text } => Some(text),
             Status => {
                 let mut msg = String::new();
+                write!(&mut msg, ">").unwrap();
                 let lobbies = self.lobbies.borrow();
                 for lobby in lobbies.values() {
                     write!(&mut msg, "{:?}\n", lobby).unwrap();
@@ -50,6 +50,7 @@ impl Controller {
                 Some(msg)
             }
         };
+        debug!("Admin command result: {cmd_result:?}, {resp:?}");
         match cmd_result {
             Some(text) => match resp {
                 RespContext::Group(group_id, msg_id) => {
@@ -63,7 +64,8 @@ impl Controller {
         }
     }
 
-    async fn parse_cmd(&self, data: Data) -> Option<(Parse<Command>, RespContext)> {
+    pub async fn parse_cmd(&self, data: Data) -> Option<(Parse<Command>, RespContext)> {
+        debug!("Parsing data: {:?}", data);
         if matches!(data, Data::Unknown) {
             return None;
         }
@@ -76,35 +78,37 @@ impl Controller {
         let id = data.msg_id();
         let text: String = chars.collect();
         match data {
-            Data::GroupMsg { group_id, attachments, .. } => {
+            Data::GroupMsg { group_id, id, attachments, .. } => {
                 if let Some(cmd) =
-                    self.parse_group_cmd(&group_id, user_id, &text, attachments).await
+                    self.parse_group_cmd(&group_id, user_id, id, &text, attachments).await
                 {
                     return Some((cmd, RespContext::Group(group_id, id)));
                 }
             }
             Data::DirectMsg { attachments, .. } => {
-                todo!()
+                if let Some(cmd) = self.parse_dm_cmd(user_id, &text).await {
+                    return Some((cmd, RespContext::User(user_id, id)));
+                }
             }
             Data::Unknown => {
-                todo!()
+                warn!("Unknown push message data type");
             }
         }
-        self.parse_admin_cmd(user_id, id, &text)
-            .await
-            .map(|p| (p.map(|cmd| Command::Admin(user_id, cmd)), RespContext::User(user_id, id)))
+        None
     }
 
     async fn parse_group_cmd(
         &self,
         group_id: &GroupId,
         user_id: UserId,
+        id: MessageId,
         text: &String,
         attachments: Vec<Attachment>,
     ) -> Option<Parse<Command>> {
+        debug!("Parsing group cmd: {:?}, {}", group_id, text);
         // Check for a lobby
-        let lobbies = self.lobbies.borrow();
-        let games = self.games.borrow();
+        let lobbies = self.lobbies.borrow().clone();
+        let games = self.games.borrow().clone();
         let cmd = if let Some(lobby) = lobbies.get(group_id) {
             self.parse_lobby_cmd(lobby, user_id, text, attachments)
                 .await
@@ -124,20 +128,23 @@ impl Controller {
         } else {
             None
         };
-        todo!("Parse an app command")
+        if let Some(cmd) = cmd {
+            return Some(cmd);
+        }
+        self.parse_admin_cmd(user_id, &text)
+            .await
+            .map(|p| p.map(|cmd| Command::Admin(user_id, cmd)))
     }
 
-    async fn parse_admin_cmd(
-        &self,
-        user_id: UserId,
-        msg_id: MessageId,
-        text: &String,
-    ) -> Option<Parse<AdminCommand>> {
+    async fn parse_admin_cmd(&self, user_id: UserId, text: &String) -> Option<Parse<AdminCommand>> {
+        debug!("Parsing admin cmd: {:?}", text);
         let mut words = text.split_whitespace();
         let Some("admin") = words.next() else {
+            debug!("Not an admin command");
             return None;
         };
         if !self.admins.contains(&user_id) {
+            warn!("User {:?} is not an admin", user_id);
             return Some(Err("You are not an admin".to_string()));
         }
         let cmd = match (words.next(), words.next()) {
@@ -168,10 +175,13 @@ impl Controller {
         text: &String,
         attachments: Vec<Attachment>,
     ) -> Option<Parse<LobbyCommand>> {
+        debug!("Parsing lobby cmd: {:?}", lobby);
         use LobbyCommand::*;
         let user_id = W(user_id);
         let mut words = text.split_whitespace();
-        let cmd = match (words.next(), words.next(), words.next()) {
+        let (_0, _1, _2) = (words.next(), words.next(), words.next());
+        debug!("Words: {:?}, {:?}, {:?}", _0, _1, _2);
+        let cmd = match (_0, _1, _2) {
             (Some("start"), mins, min_ps) => {
                 let mut minutes = 10;
                 if let Some(Ok(m)) = mins.map(|s| s.parse::<u64>()) {
@@ -255,8 +265,8 @@ impl Controller {
         Some(Ok(cmd))
     }
 
-    async fn parse_dm_cmd(&self, user_id: UserId, text: String) -> Option<Parse<Command>> {
-        let focus = self.focus.borrow();
+    async fn parse_dm_cmd(&self, user_id: UserId, text: &String) -> Option<Parse<Command>> {
+        let focus = self.focus.borrow().clone();
         let focus = focus.get(&user_id).copied();
         let words = text.split_whitespace().collect::<Vec<&str>>();
         let cmd = match words[..] {
@@ -264,9 +274,9 @@ impl Controller {
                 let Some(game_id) = game_id.parse::<u64>().ok().map(GameId::from) else {
                     return Some(Err(format!("Could not parse game id: {}", game_id)));
                 };
-                Command::App(user_id, AppCommand::Focus { game_id })
+                Some(Command::App(user_id, AppCommand::Focus { game_id }))
             }
-            ["focus"] => Command::App(user_id, AppCommand::GetFocus),
+            ["focus"] => Some(Command::App(user_id, AppCommand::GetFocus)),
             ["target", target, ..] => {
                 let user_id = W(user_id);
                 let Some(game_id) = focus else {
@@ -274,7 +284,7 @@ impl Controller {
                         "You have no focused game in which you can target".to_string()
                     ));
                 };
-                let games = self.games.borrow();
+                let games = self.games.borrow().clone();
                 let Some(game) = games.get(&game_id) else {
                     error!("Could not find focused game {}", game_id);
                     return Some(Err(format!(
@@ -289,7 +299,7 @@ impl Controller {
                     return Some(Err(format!("Could not find target {}", target)));
                 };
                 let target = target_id.map(|t| W(UserId(t)));
-                Command::Game(game_id, GameCommand::Target { user_id, target })
+                Some(Command::Game(game_id, GameCommand::Target { user_id, target }))
             }
             ["reveal", ..] => {
                 let user_id = W(user_id);
@@ -298,10 +308,15 @@ impl Controller {
                         "You have no focused game in which you can reveal".to_string()
                     ));
                 };
-                Command::Game(game_id, GameCommand::Reveal { user_id })
+                Some(Command::Game(game_id, GameCommand::Reveal { user_id }))
             }
-            _ => return None,
+            _ => None,
         };
-        Some(Ok(cmd))
+        if let Some(cmd) = cmd {
+            return Some(Ok(cmd));
+        }
+        self.parse_admin_cmd(user_id, &text)
+            .await
+            .map(|p| p.map(|cmd| Command::Admin(user_id, cmd)))
     }
 }

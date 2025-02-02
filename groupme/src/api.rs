@@ -54,6 +54,7 @@ pub async fn delete_group(group_id: &GroupId) -> Result<(), Error> {
 }
 
 pub async fn send_group_message(group_id: &GroupId, text: &str) -> Result<MessageId, Error> {
+    debug!("Sending message to group {}: {}", group_id, text);
     let handler = handler();
     handler.send_group_message(group_id, text).await
 }

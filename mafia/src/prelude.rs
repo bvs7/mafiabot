@@ -1,7 +1,7 @@
 pub use std::{
     collections::{HashMap, HashSet},
     hash::Hash,
-    sync::{Arc, RwLock},
+    sync::Arc,
     time::Duration,
 };
 
