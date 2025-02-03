@@ -5,6 +5,8 @@ pub mod players;
 mod update;
 mod util;
 
+use std::path::Path;
+
 use tokio::fs::File;
 use tokio::io::{AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
@@ -109,12 +111,14 @@ impl std::fmt::Display for Brief {
 }
 
 impl State {
-    pub async fn save(&self, f: &mut tokio::fs::File) -> std::io::Result<()> {
+    pub async fn save(&self, path: impl AsRef<Path>) -> std::io::Result<()> {
+        let mut f = File::create(path.as_ref()).await?;
         let state_str = serde_json::to_vec(self)?;
         f.write_all(&state_str).await
     }
 
-    pub async fn load(f: &mut tokio::fs::File) -> std::io::Result<Self> {
+    pub async fn load(path: impl AsRef<Path>) -> std::io::Result<Self> {
+        let mut f = File::open(path.as_ref()).await?;
         let mut buf = Vec::new();
         f.read_to_end(&mut buf).await?;
         let state: Self = serde_json::from_slice(&buf)?;
