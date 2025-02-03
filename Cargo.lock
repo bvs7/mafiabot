@@ -42,6 +42,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "anyhow"
+version = "1.0.95"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "34ac096ce696dc2fcabef30516bb13c0a68a11d30131d3df6f04711467681b04"
+
+[[package]]
 name = "approx"
 version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -837,6 +843,7 @@ dependencies = [
  "enum-kinds",
  "rand 0.8.5",
  "serde",
+ "serde_json",
  "statrs",
  "thiserror 2.0.11",
  "tokio",
@@ -848,6 +855,7 @@ dependencies = [
 name = "mafiabot_groupme"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "async-stream",
  "async-trait",
  "chrono",
@@ -855,6 +863,7 @@ dependencies = [
  "mafia",
  "rand 0.9.0",
  "serde",
+ "serde_json",
  "tokio",
  "tokio-stream",
  "tracing",
@@ -1489,9 +1498,9 @@ dependencies = [
 
 [[package]]
 name = "serde_json"
-version = "1.0.137"
+version = "1.0.138"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "930cfb6e6abf99298aaad7d29abbef7a9999a9a8806a40088f55f0dcec03146b"
+checksum = "d434192e7da787e94a6ea7e9670b26a036d0ca41e0b7efb2676dd32bae872949"
 dependencies = [
  "itoa",
  "memchr",

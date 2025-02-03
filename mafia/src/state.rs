@@ -5,6 +5,9 @@ pub mod players;
 mod update;
 mod util;
 
+use tokio::fs::File;
+use tokio::io::{AsyncReadExt, AsyncWrite, AsyncWriteExt};
+
 use crate::{prelude::*, rolegen::RoleGen};
 
 pub type EventTx = mpsc::UnboundedSender<Event>;
@@ -102,5 +105,19 @@ impl std::fmt::Display for Brief {
             write!(f, " Rogue:{}", count)?;
         }
         Ok(())
+    }
+}
+
+impl State {
+    pub async fn save(&self, f: &mut tokio::fs::File) -> std::io::Result<()> {
+        let state_str = serde_json::to_vec(self)?;
+        f.write_all(&state_str).await
+    }
+
+    pub async fn load(f: &mut tokio::fs::File) -> std::io::Result<Self> {
+        let mut buf = Vec::new();
+        f.read_to_end(&mut buf).await?;
+        let state: Self = serde_json::from_slice(&buf)?;
+        Ok(state)
     }
 }

@@ -12,6 +12,8 @@ mod game;
 mod lobby;
 mod prelude;
 
+mod persistent_state;
+
 const TEST_LOBBY_CHAT_ID: groupme::GroupId = groupme::GroupId(105412553);
 const BRIAN_UID: groupme::UserId = groupme::UserId(21642197);
 
