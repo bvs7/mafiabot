@@ -138,3 +138,27 @@ impl GameHandle {
         }
     }
 }
+
+type ActionMsg = (Action<W<UserId>>, Resp<Result<(), GameError>>);
+type ActionTx = mpsc::Sender<ActionMsg>;
+type ActionRx = mpsc::Receiver<ActionMsg>;
+type EventRx = mpsc::Receiver<Event>;
+
+struct GameHandle2 {
+    game_id: GameId,
+    main_chat_id: GroupId,
+    mafia_chat_id: GroupId,
+    lobby_chat_id: GroupId,
+    handler: Option<ActionTx>,
+}
+
+struct Game2 {
+    game_id: GameId,
+    main_chat_id: GroupId,
+    mafia_chat_id: GroupId,
+    lobby_chat_id: GroupId,
+    action_tx: ActionTx,
+    action_rx: ActionRx,
+    event_rx: EventRx,
+    state: State,
+}

@@ -79,3 +79,24 @@ pub enum Event {
         winner: Team,
     },
 }
+
+pub enum NightAction {}
+
+pub enum Event2 {
+    Start { players: Vec<(Pid, Role)>, rules: Rules },
+    Day { day: u32, players: Vec<(Pid, Role)> },
+    Night { day: u32, players: Vec<(Pid, Role)> },
+    Eclipse { avenger: Pid, hammer: Pid, guilty: Vec<Pid> },
+    Election { choice: Choice, hammer: Pid, vote_list: HashMap<Choice, Vec<Pid>> },
+    Eliminate { player: Pid, role: Role },
+    Dawn { night_actions: Vec<NightAction> },
+    Block { blocked: Pid, blockers: Vec<Pid> },
+    Save { saved: Pid, saviors: Vec<Pid> },
+    NoKill,
+    Kill { actor: Pid, target: Pid },
+    Investigate { cop: Pid, target: Pid, appears_mafia: bool },
+    Milk { milky: Pid, target: Pid },
+    End { winner: Team },
+}
+
+pub enum ActionResp {}
