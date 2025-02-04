@@ -7,6 +7,8 @@ pub use types::*;
 mod handler;
 use handler::ApiHandler;
 
+mod api2;
+
 const BASE_API_URI: &str = "https://api.groupme.com/v3";
 
 static HANDLER: OnceLock<ApiHandler> = OnceLock::new();
