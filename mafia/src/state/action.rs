@@ -128,7 +128,7 @@ impl From<_ValidAction> for ValidAction {
 }
 
 impl State {
-    pub fn perform_action(&mut self, action: ValidAction) {
+    pub fn perform_action(&mut self, action: ValidAction) -> ActionResp {
         use _ValidAction::*;
         match action.0 {
             Vote(voter, ballot) => self.vote(voter, ballot),
@@ -139,7 +139,7 @@ impl State {
         }
     }
 
-    fn vote(&mut self, voter: Pid, ballot: Ballot) {
+    fn vote(&mut self, voter: Pid, ballot: Ballot) -> ActionResp {
         let Phase::Day { votes, .. } = &mut self.phase else {
             panic!("Expected Day phase");
         };
@@ -153,11 +153,12 @@ impl State {
         let ballot_check = ballot.clone().map(|c| (c, vote_list.get(&c).unwrap().len()));
         let former_check = former.clone().map(|c| (c, vote_list.get(&c).unwrap().len()));
 
-        self.tx(Event::Vote { voter: voter.clone(), ballot: ballot_check, former: former_check });
+        // self.tx(Event::Vote { voter: voter.clone(), ballot: ballot_check, former: former_check });
         self.check_election(voter, ballot, vote_list);
+        ActionResp::Vote { voter, ballot: ballot_check, former: former_check }
     }
 
-    fn reveal(&mut self, celeb: Pid) {
+    fn reveal(&mut self, celeb: Pid) -> ActionResp {
         let Phase::Day { blocks, .. } = &self.phase else {
             panic!("Expected Day phase");
         };
@@ -166,6 +167,7 @@ impl State {
         } else {
             self.tx(Event::Reveal { celeb });
         }
+        ActionResp::Ok
     }
 
     fn check_election(&mut self, voter: Pid, ballot: Ballot, vote_list: HashMap<Choice, Vec<Pid>>) {
@@ -190,22 +192,24 @@ impl State {
         }
     }
 
-    fn target(&mut self, actor: Pid, choice: Choice) {
+    fn target(&mut self, actor: Pid, choice: Choice) -> ActionResp {
         let Phase::Night { targets, .. } = &mut self.phase else {
             panic!("Expected Night phase");
         };
         targets.insert(actor, choice);
         self.tx(Event::Target { actor, choice });
         self.check_dawn();
+        ActionResp::Ok
     }
 
-    fn scheme(&mut self, killer: Pid, mark: Choice) {
+    fn scheme(&mut self, killer: Pid, mark: Choice) -> ActionResp {
         let Phase::Night { scheme, .. } = &mut self.phase else {
             panic!("Expected Night phase");
         };
         *scheme = Some((killer, mark));
         self.tx(Event::Scheme { killer, mark });
         self.check_dawn();
+        ActionResp::Ok
     }
 
     fn check_dawn(&mut self) {
@@ -230,13 +234,13 @@ impl State {
         }
     }
 
-    fn eclipse_vote(&mut self, victim: Pid) {
+    fn eclipse_vote(&mut self, victim: Pid) -> ActionResp {
         let Phase::Eclipse { avenger, hammer, .. } = &self.phase else {
             panic!("Expected Eclipse phase");
         };
         let avenger = *avenger;
         let hammer = *hammer;
-        self.tx(Event::Vengeance { avenger, victim });
         self.vengeance(victim, avenger, hammer);
+        ActionResp::Vengeance { avenger, victim }
     }
 }

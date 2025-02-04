@@ -70,6 +70,7 @@ impl State {
         let _ = self.tx(Event::Eclipse { avenger, hammer, guilty });
     }
 
+    // TODO: just set a variable for this, don't execute until update
     pub fn vengeance(&mut self, victim: Pid, avenger: Pid, hammer: Pid) {
         self.eliminate(victim, avenger, self.context());
         self.eliminate(avenger, hammer, self.context());

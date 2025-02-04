@@ -1,13 +1,13 @@
 use std::{
     collections::{HashMap, HashSet},
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{mpsc::TryRecvError, Arc},
     time::Duration,
 };
 
-use chrono::DateTime;
+use chrono::{DateTime, Local};
 use mafia::{
-    game::{self, GameId},
+    game::{self, ActionResp, Event2, GameId},
     state::players,
 };
 
@@ -15,22 +15,34 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
 use tokio::{
-    fs::File,
+    fs::{File, OpenOptions},
     io::{AsyncReadExt, AsyncWrite, AsyncWriteExt},
 };
 
 use crate::prelude::*;
 
-type GameResp = Resp<Result<(), GameError>>;
-type GameHandle = mpsc::Sender<(GameCommand, GameResp)>;
+// TODO: flesh out Game and GameHandle?
+/*
+// Creating or loading a game should return a GameInfo with a running Game under the hood
+// Games can be created either...
+// A new game, from Members, rules, lobby_id, and base_path. Maybe this should be done from Controller?
+// Automatically starting the game seems fine... but let's just not for now.
+
+// Or from a dir. Which has state.json and game_group_ids.json, (and later event.log and other things?)
+// Does state need rules? If not that could be another file maybe...
+
+*/
+
+type GameResp = Resp<Result<ActionResp, GameError>>;
+
+type GameTx = mpsc::Sender<(GameCommand, GameResp)>;
 type GameRx = mpsc::Receiver<(GameCommand, GameResp)>;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct GameInfo {
-    game_id: GameId,
+#[derive(Debug, Clone)]
+struct GameHandle {
+    id: GameId,
     group_ids: GameGroupIds,
-    #[serde(skip)]
-    game_handle: GameHandle,
+    game_tx: GameTx,
 }
 
 struct Game {
@@ -43,19 +55,60 @@ struct Game {
 }
 
 impl Game {
-    pub fn create(id: GameId, path: PathBuf, group_ids: GameGroupIds, state: State) -> GameHandle {
-        let (game_handle, game_rx) = mpsc::channel(1);
+    // How are games created?
+    // New game creates a new state from members, rules...
+
+    /// Assumes members are already a part of groups...
+    pub fn create(
+        id: GameId,
+        path: impl AsRef<Path>,
+        group_ids: GameGroupIds,
+        state: State,
+    ) -> GameHandle {
+        let (game_tx, game_rx) = mpsc::channel(1);
         let (event_tx, event_rx) = mpsc::unbounded_channel();
-        let game = Game { id, path, group_ids, game_rx, state, event_rx };
+        let path = path.as_ref().to_owned();
+        let game = Game { id, path, group_ids: group_ids.clone(), game_rx, state, event_rx };
         game.start();
-        game_handle
+        GameHandle { id, group_ids, game_tx }
+    }
+
+    pub async fn load(game_id: GameId, path: impl AsRef<Path>) -> Result<GameHandle> {
+        let path = path.as_ref();
+        let mut group_ids: Option<GameGroupIds> = None;
+        let mut state: Option<State> = None;
+        for entry in path.read_dir()? {
+            let entry = entry?;
+            let file_name = entry.file_name();
+            match file_name.to_string_lossy().as_ref() {
+                "group_ids.json" => {
+                    let mut file = File::open(entry.path()).await?;
+                    let mut buf = Vec::new();
+                    file.read_to_end(&mut buf);
+                    group_ids = Some(serde_json::from_slice(&buf)?);
+                }
+                "state.json" => {
+                    let mut file = File::open(entry.path()).await?;
+                    let mut buf = Vec::new();
+                    file.read_to_end(&mut buf);
+                    state = Some(serde_json::from_slice(&buf)?);
+                }
+                _ => {}
+            }
+        }
+        match (group_ids, state) {
+            (Some(group_ids), Some(state)) => {
+                return Ok(Self::create(game_id, path, group_ids, state));
+            }
+            _ => anyhow::bail!("Game directory is missing required files"),
+        }
     }
 
     fn start(self) {
         tokio::spawn(self.run());
     }
 
-    async fn run(self) {
+    async fn run(mut self) {
         if !self.state.is_started() {
             self.state.start();
         }
@@ -75,20 +128,60 @@ impl Game {
         }
     }
 
-    fn dur_until(deadline: Duration) -> Duration {
-        let now = tokio::time::Instant::now();
-        if now < deadline {
-            deadline - now
-        } else {
-            Duration::from_secs(0)
+    fn dur_until(deadline: Option<DateTime<Local>>) -> Duration {
+        match deadline.map(|d| (d - Local::now()).to_std()) {
+            Some(Ok(dur)) => dur,
+            Some(Err(_)) => Duration::ZERO,
+            None => Duration::MAX,
         }
     }
     async fn handle_events(&mut self) {
-        todo!()
+        while let Ok(event) = self.event_rx.try_recv() {
+            let event = Event2::Debug(0);
+            let _ = self.log_event(&event);
+            match event {
+                Event2::Start { players, rules } => {}
+                Event2::Day { day, players } => {}
+                Event2::Reveal { celeb } => {}
+                Event2::Night { day, players } => {}
+                Event2::Eclipse { avenger, hammer, guilty } => {}
+                Event2::Election { choice, hammer, vote_list } => {}
+                Event2::Eliminate { player, role } => {}
+                Event2::Dawn { night_actions } => {}
+                Event2::Block { blocked, blockers } => {}
+                Event2::Save { saved, saviors } => {}
+                Event2::NoKill => {}
+                Event2::Kill { actor, target } => {}
+                Event2::Investigate { cop, target, appears_mafia } => {}
+                Event2::Milk { milky, target } => {}
+                Event2::End { winner } => {}
+                Event2::Debug(n) => {}
+            }
+        }
+    }
+    async fn log_event(&mut self, event: &Event2) -> Result<()> {
+        let event_path = self.path.join("event.log");
+        let mut file = OpenOptions::new().append(true).create(true).open(event_path).await?;
+        let s = format!("{:?}\n", event);
+        file.write_all(s.as_bytes());
+        Ok(())
     }
 
     async fn handle_cmd(&mut self, cmd: GameCommand, tx: GameResp) {
-        todo!()
+        match cmd {
+            GameCommand::Action(action) => {
+                let resp = match self.state.validate_action(action) {
+                    Ok(va) => self.state.perform_action(va),
+                    Err(err) => Err(err),
+                };
+                let _ = tx.send(resp);
+            }
+            GameCommand::Status => {
+                // TODO more complicated responses!
+                let resp = Ok(ActionResp::Ok);
+                let _ = tx.send(resp);
+            }
+        }
     }
 
     async fn save_state(&self) -> Result<()> {
@@ -106,87 +199,17 @@ struct GameGroupIds {
     lobby: GroupId,
 }
 
-impl GameInfo {
-    async fn create_game(
-        members: Vec<groupme::Member>,
-        rules: Rules,
-        lobby_id: GroupId,
-    ) -> Result<Self> {
-        let players = members.iter().map(|m| W(m.user_id)).collect::<Vec<_>>();
-        let state = State::new(players, rules);
-        let game_id = GameId::new();
-        let (game_handle, game_rx) = mpsc::channel(1);
-        let (event_tx, event_rx) = mpsc::unbounded_channel();
-
-        // Create groups
-        let main = api::create_group(&format!("Game {}", game_id), false).await?;
-        let mafia = api::create_group(&format!("Mafia {}", game_id), false).await?;
-        let group_ids = GameGroupIds { main: main.id, mafia: mafia.id, lobby: lobby_id };
-
-        api::add_members(&main, members.clone()).await?;
-        members.retain(|m| state.players().get_role(&W(m.user_id).into()).is_mafia());
-        api::add_members(&mafia, members).await?;
-
-        /// Hmm need base path
-        state.event_tx = Some(event_tx);
-        todo!()
-        // let game_info = GameInfo { game_id, group_ids, game_handle };
-    }
-
+impl GameHandle {
     async fn send(&self, cmd: GameCommand) -> GameResp {
         let (tx, mut rx) = oneshot::channel();
         self.game_handle.send((cmd, tx)).await.unwrap();
         rx.await.unwrap()
     }
-
-    /// Load a game from a directory, and spawn its handler
-    async fn from_path(path: impl AsRef<Path>) -> Result<Self> {
-        let path = path.as_ref();
-        let mut group_ids: Option<GameGroupIds> = None;
-        let mut state: Option<State> = None;
-        for entry in path.read_dir()? {
-            let entry = entry?;
-            let file_name = entry.file_name();
-            match file_name.to_string_lossy() {
-                "group_ids.json" => {
-                    let file = File::open(entry.path()).await?;
-                    group_ids = Some(serde_json::from_reader(file)?);
-                }
-                "state.json" => {
-                    let file = File::open(entry.path()).await?;
-                    state = Some(serde_json::from_reader(file)?);
-                }
-                _ => {}
-            }
-        }
-
-        match (group_ids, state) {
-            (Some(group_ids), Some(mut state)) => {
-                let game_id = path.file_name().unwrap().to_string_lossy().to_owned().into();
-                let (game_handle, game_rx) = mpsc::channel(1);
-                let (event_tx, event_rx) = mpsc::unbounded_channel();
-                state.event_tx = Some(event_tx);
-                let game = Game {
-                    id: game_id,
-                    path: path.to_owned(),
-                    group_ids: group_ids.clone(),
-                    game_rx,
-                    state,
-                    event_rx,
-                };
-                let game_handle = game.start();
-            }
-            _ => bail!("Game directory is missing required files"),
-        }
-    }
 }
 
 #[derive(Debug, Clone)]
 pub enum GameCommand {
-    Vote { user_id: W<UserId>, ballot: Option<Option<W<UserId>>> },
-    Reveal { user_id: W<UserId> },
-    Target { user_id: W<UserId>, target: Option<W<UserId>> },
-    Scheme { user_id: W<UserId>, target: Option<W<UserId>> },
+    Action(Action<W<UserId>>),
     Status,
 }
 
@@ -199,7 +222,7 @@ impl RespContext {
     }
 }
 
-type Games = HashMap<GameId, GameInfo>;
+type Games = HashMap<GameId, GameHandle>;
 type Lobbies = HashSet<GroupId>;
 type Foci = HashMap<GroupId, GameId>;
 
@@ -212,7 +235,7 @@ struct Controller {
 }
 
 impl Controller {
-    pub async fn find_games(&self) -> Result<Vec<GameInfo>> {
+    pub async fn find_games(&self) -> Result<Vec<GameHandle>> {
         let mut games = Vec::new();
         let games_path = self.base_path.join("games");
         for path in self.games_path.read_dir()? {
@@ -221,7 +244,7 @@ impl Controller {
                     let game_id = dir.file_name().to_string_lossy().into_owned().into();
                     let game_path = self.base_path.join(&game_id);
                     // Load game from dir
-                    let game_info = GameInfo::from_path(game_path).await?;
+                    let game_info = GameHandle::from_path(game_path).await?;
                 }
                 _ => {
                     panic!("Controller base path is not a directory!")

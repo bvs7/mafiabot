@@ -80,8 +80,10 @@ pub enum Event {
     },
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum NightAction {}
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Event2 {
     Start { players: Vec<(Pid, Role)>, rules: Rules },
     Day { day: u32, players: Vec<(Pid, Role)> },
@@ -97,6 +99,13 @@ pub enum Event2 {
     Investigate { cop: Pid, target: Pid, appears_mafia: bool },
     Milk { milky: Pid, target: Pid },
     End { winner: Team },
+    Reveal { celeb: Pid },
+    Debug(usize),
 }
 
-pub enum ActionResp {}
+pub enum ActionResp {
+    Vote { voter: Pid, ballot: Option<(Choice, usize)>, former: Option<(Choice, usize)> },}
+    Target { actor: Pid, choice: Choice },
+    Scheme { killer: Pid, mark: Choice },
+    Ok,
+}

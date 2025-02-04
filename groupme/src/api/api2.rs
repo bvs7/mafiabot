@@ -21,6 +21,11 @@ pub enum Error {
 
 static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
 static NOTIFY: OnceLock<Notify> = OnceLock::new();
+static TOKEN: OnceLock<String> = OnceLock::new();
+
+fn token() -> &'static str {
+    &TOKEN.get_or_init(|| std::env::var("GROUPME_TOKEN").expect("GROUPME_TOKEN not set"))
+}
 
 fn client() -> &'static reqwest::Client {
     &CLIENT.get_or_init(|| {
@@ -42,13 +47,28 @@ async fn run_notify() {
 }
 
 async fn get(uri: &str, queries: &[(&str, &str)]) -> Result<String, Error> {
-    match client().await.get(uri).query(&[("token", &self.token)]).query(queries).send().await? {
+    notify().notified().await;
+    match client().get(uri).query(&[("token", token())]).query(queries).send().await? {
         resp if resp.status().is_success() => Ok(resp.text().await?),
         resp => {
             let status = resp.status();
             let text = resp.text().await?;
             Err(Error::OtherError(format!(
                 "GET request to {uri} failed with status {status}: {text}"
+            )))
+        }
+    }
+}
+
+async fn post(uri: &str, body: &str) -> Result<String, Error> {
+    notify().notified().await;
+    match client().post(uri).query(&[("token", token())]).body(body.to_string()).send().await? {
+        resp if resp.status().is_success() => Ok(resp.text().await?),
+        resp => {
+            let status = resp.status();
+            let text = resp.text().await?;
+            Err(Error::OtherError(format!(
+                "POST request to {uri} failed with status {status}: {text}"
             )))
         }
     }
