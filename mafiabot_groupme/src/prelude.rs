@@ -14,7 +14,7 @@ pub use groupme::{
     GroupId, MessageId, UserId,
 };
 pub use mafia::{
-    game::{Action, Error as GameError, Event, EventRx, Game, GameId},
+    game::{Action, Error as GameError, Event, EventRx, GameId},
     rolegen::RoleGen,
     rules::Rules,
     state::{phase::PhaseKind, Brief, State},

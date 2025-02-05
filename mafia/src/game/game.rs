@@ -60,81 +60,81 @@ impl std::fmt::Display for GameId {
 type ActionMsg<P> = (Action<P>, oneshot::Sender<Result<(), Error>>);
 pub type ActionTx<P> = mpsc::Sender<ActionMsg<P>>;
 type ActionRx<P> = mpsc::Receiver<ActionMsg<P>>;
-pub type EventRx = mpsc::UnboundedReceiver<Event>;
+pub type EventRx = mpsc::UnboundedReceiver<Event2>;
 type StatusTx = watch::Sender<State>;
 pub type StatusRx = watch::Receiver<State>;
 
-#[derive(Debug, Clone)]
-pub struct Game {
-    id: GameId,
-    state: State,
-}
+// #[derive(Debug, Clone)]
+// pub struct Game {
+//     id: GameId,
+//     state: State,
+// }
 
-impl Game {
-    pub fn new(players: impl IntoIterator<Item = impl Into<Pid>>, rules: Rules) -> Self {
-        let id = GameId::new().unwrap_or_default();
-        let state = State::new(players, rules);
-        Self { id, state }
-    }
+// impl Game {
+//     pub fn new(players: impl IntoIterator<Item = impl Into<Pid>>, rules: Rules) -> Self {
+//         let id = GameId::new().unwrap_or_default();
+//         let state = State::new(players, rules);
+//         Self { id, state }
+//     }
 
-    pub fn start<P: Into<Pid> + Copy + Send + 'static>(
-        self,
-    ) -> (JoinHandle<Game>, ActionTx<P>, StatusRx, EventRx) {
-        let (action_tx, action_rx) = mpsc::channel(16);
-        let (state_tx, state_rx) = watch::channel(self.state.clone());
-        let (event_tx, event_rx) = mpsc::unbounded_channel();
-        let h = tokio::spawn(self.run(action_rx, state_tx, event_tx));
-        (h, action_tx, state_rx, event_rx)
-    }
+//     pub fn start<P: Into<Pid> + Copy + Send + 'static>(
+//         self,
+//     ) -> (JoinHandle<Game>, ActionTx<P>, StatusRx, EventRx) {
+//         let (action_tx, action_rx) = mpsc::channel(16);
+//         let (state_tx, state_rx) = watch::channel(self.state.clone());
+//         let (event_tx, event_rx) = mpsc::unbounded_channel();
+//         let h = tokio::spawn(self.run(action_rx, state_tx, event_tx));
+//         (h, action_tx, state_rx, event_rx)
+//     }
 
-    pub async fn run<P: Into<Pid> + Copy>(
-        mut self,
-        mut action_rx: ActionRx<P>,
-        state_tx: StatusTx,
-        event_tx: EventTx,
-    ) -> Self {
-        self.state.event_tx = Some(event_tx);
-        if !self.state.is_started() {
-            self.state.start();
-        }
-        let mut time = self.state.update();
-        let _ = state_tx.send(self.state.clone());
-        loop {
-            let dur = Self::dur_until(time);
-            match tokio::time::timeout(dur, action_rx.recv()).await {
-                Ok(Some((action, resp))) => {
-                    let result =
-                        self.state.validate_action(action).map(|va| self.state.perform_action(va));
+//     pub async fn run<P: Into<Pid> + Copy>(
+//         mut self,
+//         mut action_rx: ActionRx<P>,
+//         state_tx: StatusTx,
+//         event_tx: EventTx,
+//     ) -> Self {
+//         self.state.event_tx = Some(event_tx);
+//         if !self.state.is_started() {
+//             self.state.start();
+//         }
+//         let mut time = self.state.update();
+//         let _ = state_tx.send(self.state.clone());
+//         loop {
+//             let dur = Self::dur_until(time);
+//             match tokio::time::timeout(dur, action_rx.recv()).await {
+//                 Ok(Some((action, resp))) => {
+//                     let result =
+//                         self.state.validate_action(action).map(|va| self.state.perform_action(va));
 
-                    resp.send(result).unwrap();
-                }
-                Ok(None) => {
-                    break;
-                }
-                Err(_) => {
-                    //timeout
-                }
-            }
-            time = self.state.update();
-            let _ = state_tx.send(self.state.clone());
-        }
-        self
-    }
+//                     // resp.send(result).unwrap();
+//                 }
+//                 Ok(None) => {
+//                     break;
+//                 }
+//                 Err(_) => {
+//                     //timeout
+//                 }
+//             }
+//             time = self.state.update();
+//             let _ = state_tx.send(self.state.clone());
+//         }
+//         self
+//     }
 
-    pub fn id(&self) -> GameId {
-        self.id
-    }
+//     pub fn id(&self) -> GameId {
+//         self.id
+//     }
 
-    pub fn players(&self) -> HashMap<Pid, Role> {
-        self.state.players().alive().into_iter().collect()
-    }
+//     pub fn players(&self) -> HashMap<Pid, Role> {
+//         self.state.players().alive().into_iter().collect()
+//     }
 
-    fn dur_until(time: Option<DateTime<Local>>) -> Duration {
-        let time = time.map(|t| (t - Local::now()).to_std());
-        match time {
-            Some(Ok(dur)) => dur,
-            Some(Err(_)) => Duration::ZERO,
-            None => Duration::MAX,
-        }
-    }
-}
+//     fn dur_until(time: Option<DateTime<Local>>) -> Duration {
+//         let time = time.map(|t| (t - Local::now()).to_std());
+//         match time {
+//             Some(Ok(dur)) => dur,
+//             Some(Err(_)) => Duration::ZERO,
+//             None => Duration::MAX,
+//         }
+//     }
+// }

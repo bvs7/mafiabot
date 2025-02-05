@@ -31,7 +31,8 @@ impl State {
             }
             return self.phase.expected(PhaseKind::Day);
         };
-        if votes.get(&voter) == ballot.as_ref() {
+        let former = votes.iter().find(|(v, _)| v == &voter).map(|(_, c)| c.clone());
+        if former == ballot {
             return Err(Error::IneffectiveAction);
         }
         Ok(_ValidAction::Vote(voter, ballot))
@@ -126,51 +127,55 @@ impl From<_ValidAction> for ValidAction {
         Self(value)
     }
 }
-
 impl State {
-    pub fn perform_action(&mut self, action: ValidAction) -> ActionResp {
+    pub fn perform_action(&mut self, action: ValidAction, tx: &EventTx) -> ActionResp {
         use _ValidAction::*;
         match action.0 {
-            Vote(voter, ballot) => self.vote(voter, ballot),
-            Target(actor, choice) => self.target(actor, choice),
-            Scheme(killer, mark) => self.scheme(killer, mark),
-            Reveal(celeb) => self.reveal(celeb),
-            EclipseVote(victim) => self.eclipse_vote(victim),
+            Vote(voter, ballot) => self.vote(voter, ballot, tx),
+            Target(actor, choice) => self.target(actor, choice, tx),
+            Scheme(killer, mark) => self.scheme(killer, mark, tx),
+            Reveal(celeb) => self.reveal(celeb, tx),
+            EclipseVote(victim) => self.eclipse_vote(victim, tx),
         }
     }
 
-    fn vote(&mut self, voter: Pid, ballot: Ballot) -> ActionResp {
+    fn vote(&mut self, voter: Pid, ballot: Ballot, tx: &EventTx) -> ActionResp {
         let Phase::Day { votes, .. } = &mut self.phase else {
             panic!("Expected Day phase");
         };
-        let former = if let Some(choice) = ballot {
-            votes.insert(voter, choice)
-        } else {
-            votes.remove(&voter)
-        };
-        let vote_list = count_votes(votes, &self.players);
+        let former_idx = votes.iter().position(|(v, _)| v == &voter);
+        let former = former_idx.map(|i| votes.remove(i).1);
+        if let Some(choice) = ballot {
+            votes.push((voter, choice));
+        }
+        let vote_list = count_votes(&votes, &self.players);
 
         let ballot_check = ballot.clone().map(|c| (c, vote_list.get(&c).unwrap().len()));
         let former_check = former.clone().map(|c| (c, vote_list.get(&c).unwrap().len()));
 
-        // self.tx(Event::Vote { voter: voter.clone(), ballot: ballot_check, former: former_check });
-        self.check_election(voter, ballot, vote_list);
+        self.check_election(voter, ballot, vote_list, tx);
         ActionResp::Vote { voter, ballot: ballot_check, former: former_check }
     }
 
-    fn reveal(&mut self, celeb: Pid) -> ActionResp {
+    fn reveal(&mut self, celeb: Pid, tx: &EventTx) -> ActionResp {
         let Phase::Day { blocks, .. } = &self.phase else {
             panic!("Expected Day phase");
         };
         if let Some(blockers) = blocks.get(&celeb) {
-            self.tx(Event::Block { blocked: celeb, blockers: blockers.clone() });
+            let _ = tx.send(Event2::Block { blocked: celeb, blockers: blockers.clone() });
         } else {
-            self.tx(Event::Reveal { celeb });
+            let _ = tx.send(Event2::Reveal { player: celeb, role: Role::CELEB.kind() });
         }
         ActionResp::Ok
     }
 
-    fn check_election(&mut self, voter: Pid, ballot: Ballot, vote_list: HashMap<Choice, Vec<Pid>>) {
+    fn check_election(
+        &mut self,
+        voter: Pid,
+        ballot: Ballot,
+        vote_list: HashMap<Choice, Vec<Pid>>,
+        tx: &EventTx,
+    ) {
         let Phase::Day { elect, .. } = &mut self.phase else {
             panic!("Expected Day phase");
         };
@@ -192,27 +197,25 @@ impl State {
         }
     }
 
-    fn target(&mut self, actor: Pid, choice: Choice) -> ActionResp {
+    fn target(&mut self, actor: Pid, choice: Choice, tx: &EventTx) -> ActionResp {
         let Phase::Night { targets, .. } = &mut self.phase else {
             panic!("Expected Night phase");
         };
         targets.insert(actor, choice);
-        self.tx(Event::Target { actor, choice });
-        self.check_dawn();
-        ActionResp::Ok
+        self.check_dawn(tx);
+        ActionResp::Target { actor, choice }
     }
 
-    fn scheme(&mut self, killer: Pid, mark: Choice) -> ActionResp {
+    fn scheme(&mut self, killer: Pid, mark: Choice, tx: &EventTx) -> ActionResp {
         let Phase::Night { scheme, .. } = &mut self.phase else {
             panic!("Expected Night phase");
         };
         *scheme = Some((killer, mark));
-        self.tx(Event::Scheme { killer, mark });
-        self.check_dawn();
-        ActionResp::Ok
+        self.check_dawn(tx);
+        ActionResp::Scheme { killer, mark }
     }
 
-    fn check_dawn(&mut self) {
+    fn check_dawn(&mut self, tx: &EventTx) {
         let Phase::Night { targets, scheme, dawn } = &mut self.phase else {
             panic!("Expected Night phase");
         };
@@ -234,13 +237,13 @@ impl State {
         }
     }
 
-    fn eclipse_vote(&mut self, victim: Pid) -> ActionResp {
-        let Phase::Eclipse { avenger, hammer, .. } = &self.phase else {
+    fn eclipse_vote(&mut self, victim: Pid, tx: &EventTx) -> ActionResp {
+        let Phase::Eclipse { avenger, hammer, vengeance, .. } = &mut self.phase else {
             panic!("Expected Eclipse phase");
         };
         let avenger = *avenger;
         let hammer = *hammer;
-        self.vengeance(victim, avenger, hammer);
+        *vengeance = Some(victim);
         ActionResp::Vengeance { avenger, victim }
     }
 }

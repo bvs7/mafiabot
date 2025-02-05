@@ -83,29 +83,32 @@ pub enum Event {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum NightAction {}
 
+use crate::state::night_action::NightAct;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Event2 {
-    Start { players: Vec<(Pid, Role)>, rules: Rules },
+    Start { players: Vec<(Pid, Role)> },
     Day { day: u32, players: Vec<(Pid, Role)> },
     Night { day: u32, players: Vec<(Pid, Role)> },
     Eclipse { avenger: Pid, hammer: Pid, guilty: Vec<Pid> },
     Election { choice: Choice, hammer: Pid, vote_list: HashMap<Choice, Vec<Pid>> },
-    Eliminate { player: Pid, role: Role },
-    Dawn { night_actions: Vec<NightAction> },
+    Eliminate { player: Pid, role: RoleKind },
+    Dawn { night_actions: Vec<NightAct> },
     Block { blocked: Pid, blockers: Vec<Pid> },
     Save { saved: Pid, saviors: Vec<Pid> },
     NoKill,
-    Kill { actor: Pid, target: Pid },
+    Kill { killer: Pid, mark: Pid },
     Investigate { cop: Pid, target: Pid, appears_mafia: bool },
     Milk { milky: Pid, target: Pid },
     End { winner: Team },
-    Reveal { celeb: Pid },
+    Reveal { player: Pid, role: RoleKind },
     Debug(usize),
 }
 
 pub enum ActionResp {
-    Vote { voter: Pid, ballot: Option<(Choice, usize)>, former: Option<(Choice, usize)> },}
+    Vote { voter: Pid, ballot: Option<(Choice, usize)>, former: Option<(Choice, usize)> },
     Target { actor: Pid, choice: Choice },
     Scheme { killer: Pid, mark: Choice },
+    Vengeance { avenger: Pid, victim: Pid },
     Ok,
 }

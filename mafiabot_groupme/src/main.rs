@@ -19,10 +19,10 @@ const BRIAN_UID: groupme::UserId = groupme::UserId(21642197);
 
 #[tokio::main]
 async fn main() {
-    tracing_subscriber::fmt::init();
-    let lobbies = Vec::from([TEST_LOBBY_CHAT_ID]);
-    let admins = HashSet::from_iter([BRIAN_UID]);
-    let (controller_task, controller_handle) =
-        controller::Controller::create(lobbies, admins).await;
-    controller_task.await.expect("Controller should run");
+    // tracing_subscriber::fmt::init();
+    // let lobbies = Vec::from([TEST_LOBBY_CHAT_ID]);
+    // let admins = HashSet::from_iter([BRIAN_UID]);
+    // let (controller_task, controller_handle) =
+    //     controller::Controller::create(lobbies, admins).await;
+    // controller_task.await.expect("Controller should run");
 }

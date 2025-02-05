@@ -1,9 +1,15 @@
 use crate::prelude::*;
 
-pub type Votes = HashMap<Pid, Option<Pid>>; // voter -> ballot
+use super::night_action::{Act, NightAct};
+
+// pub type Votes = HashMap<Pid, Option<Pid>>; // voter -> ballot
+pub type Votes = Vec<(Pid, Option<Pid>)>; // voter -> ballot
 pub type Blocks = HashMap<Pid, Vec<Pid>>; // blocked -> blockers
-pub type Targets = HashMap<Pid, Option<Pid>>; // actor -> target
-pub type Scheme = (Pid, Option<Pid>); // killer -> mark
+
+pub type Targets = Vec<(Pid, Option<Pid>)>; // actor -> target
+
+// pub type Targets = Vec<Target>;
+// pub type Scheme = (Pid, Option<Pid>); // killer -> mark
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, EnumKind)]
 #[enum_kind(PhaseKind, derive(Serialize, Deserialize))]
@@ -18,7 +24,6 @@ pub enum Phase {
     },
     Night {
         targets: Targets, // actor -> target
-        scheme: Option<Scheme>,
         #[serde(skip_serializing_if = "Option::is_none")]
         dawn: Option<DateTime<Local>>,
     },
@@ -26,6 +31,8 @@ pub enum Phase {
         avenger: Pid,
         hammer: Pid,
         guilty: Vec<Pid>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        vengeance: Option<Pid>,
     },
     End {
         winner: Team,
