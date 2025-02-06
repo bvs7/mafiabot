@@ -1,13 +1,5 @@
 use crate::prelude::*;
 
-#[derive(Debug, Clone, Copy, Deserialize)]
-pub enum Action<P> {
-    Vote { voter: P, ballot: Option<Option<P>> },
-    Target { actor: P, choice: Option<P> },
-    Scheme { killer: P, mark: Option<P> },
-    Reveal { actor: P },
-}
-
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
     #[error("Invalid Player id {pid}")]

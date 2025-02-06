@@ -3,26 +3,64 @@ use crate::prelude::*;
 use super::util::*;
 use super::EventTx;
 
+#[derive(Debug, Clone)]
+pub enum Command<P> {
+    Vote { voter: P, ballot: Option<Option<P>> },
+    Reveal { actor: P },
+    Target { actor: P, choice: Option<P> },
+    Scheme { killer: P, mark: Option<P> },
+    Status,
+}
+
+#[derive(Debug, Clone)]
+pub enum Validated {
+    Action(Action),
+    Resp(ActionResp),
+}
+
+impl From<Action> for Validated {
+    fn from(action: Action) -> Self {
+        Validated::Action(action)
+    }
+}
+
+impl From<ActionResp> for Validated {
+    fn from(resp: ActionResp) -> Self {
+        Validated::Resp(resp)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum ActionResp {
+    Vote { voter: Pid, ballot: Option<(Choice, usize)>, former: Option<(Choice, usize)> },
+    Target { actor: Pid, choice: Choice },
+    Scheme { killer: Pid, mark: Choice },
+    Vengeance { avenger: Pid, victim: Pid },
+    Status(State),
+    Ok,
+}
+
 impl State {
-    pub fn validate_action<P: Into<Pid> + Copy>(
+    pub fn validate_command<P: Into<Pid> + Copy + std::fmt::Debug>(
         &self,
-        action: Action<P>,
-    ) -> Result<ValidAction, Error> {
-        use Action::*;
-        let result = match action {
-            Vote { voter, ballot } => self.validate_vote(voter, ballot),
-            Target { actor, choice } => self.validate_target(actor, choice),
-            Scheme { killer, mark } => self.validate_scheme(killer, mark),
-            Reveal { actor } => self.validate_reveal(actor),
+        cmd: Command<P>,
+    ) -> Result<Validated, Error> {
+        use Command::*;
+        let result = match cmd {
+            Vote { voter, ballot } => self.validate_vote(voter, ballot)?.into(),
+            Target { actor, choice } => self.validate_target(actor, choice)?.into(),
+            Scheme { killer, mark } => self.validate_scheme(killer, mark)?.into(),
+            Reveal { actor } => self.validate_reveal(actor)?.into(),
+            Status => ActionResp::Status(self.clone()).into(),
         };
-        result.map(|v| v.into())
+        Ok(result)
     }
 
     fn validate_vote(
         &self,
         voter: impl Into<Pid> + Copy,
         ballot: Option<Option<impl Into<Pid> + Copy>>,
-    ) -> Result<_ValidAction, Error> {
+    ) -> Result<Action, Error> {
         let voter = self.players.validate(voter)?;
         let ballot = self.players.validate_ballot(ballot)?;
         let Phase::Day { votes, .. } = &self.phase else {
@@ -35,10 +73,10 @@ impl State {
         if former == ballot {
             return Err(Error::IneffectiveAction);
         }
-        Ok(_ValidAction::Vote(voter, ballot))
+        Ok(Action::Vote(voter, ballot))
     }
 
-    fn validate_reveal(&self, celeb: impl Into<Pid> + Copy) -> Result<_ValidAction, Error> {
+    fn validate_reveal(&self, celeb: impl Into<Pid> + Copy) -> Result<Action, Error> {
         let celeb = self.players.validate(celeb)?;
         let role = self.players.get_role(celeb);
         if role != Role::CELEB {
@@ -47,14 +85,14 @@ impl State {
         if !matches!(self.phase, Phase::Day { .. }) {
             return self.phase.expected(PhaseKind::Day);
         }
-        Ok(_ValidAction::Reveal(celeb))
+        Ok(Action::Reveal(celeb))
     }
     // TODO: check stripper
     fn validate_target(
         &self,
         actor: impl Into<Pid> + Copy,
         choice: Option<impl Into<Pid> + Copy>,
-    ) -> Result<_ValidAction, Error> {
+    ) -> Result<Action, Error> {
         let actor = self.players.validate(actor)?;
         let choice = self.players.validate_choice(choice)?;
         let role = self.players.get_role(actor);
@@ -67,14 +105,14 @@ impl State {
         if targets.get(&actor).is_some() {
             return Err(Error::IneffectiveAction);
         }
-        Ok(_ValidAction::Target(actor, choice))
+        Ok(Action::Target(actor, choice))
     }
 
     fn validate_scheme(
         &self,
         killer: impl Into<Pid> + Copy,
         mark: Option<impl Into<Pid> + Copy>,
-    ) -> Result<_ValidAction, Error> {
+    ) -> Result<Action, Error> {
         let killer = self.players.validate(killer)?;
         let mark = self.players.validate_choice(mark)?;
         let role = self.players.get_role(killer);
@@ -87,10 +125,10 @@ impl State {
         if scheme.is_some() {
             return Err(Error::IneffectiveAction);
         }
-        Ok(_ValidAction::Scheme(killer, mark))
+        Ok(Action::Scheme(killer, mark))
     }
 
-    fn validate_eclipse_vote(&self, voter: Pid, ballot: Ballot) -> Result<_ValidAction, Error> {
+    fn validate_eclipse_vote(&self, voter: Pid, ballot: Ballot) -> Result<Action, Error> {
         let Phase::Eclipse { avenger, guilty, .. } = &self.phase else {
             return self.phase.expected(PhaseKind::Eclipse);
         };
@@ -105,7 +143,7 @@ impl State {
                 if !guilty.contains(&victim) {
                     return Err(Error::IneffectiveAction);
                 }
-                return Ok(_ValidAction::EclipseVote(victim));
+                return Ok(Action::EclipseVote(victim));
             }
             Some(None) => return Err(Error::IneffectiveAction),
             None => return Err(Error::IneffectiveAction),
@@ -113,8 +151,8 @@ impl State {
     }
 }
 
-pub struct ValidAction(_ValidAction);
-enum _ValidAction {
+#[derive(Debug, Clone)]
+pub enum Action {
     Vote(Pid, Ballot),
     Reveal(Pid),
     Target(Pid, Choice),
@@ -122,15 +160,42 @@ enum _ValidAction {
     EclipseVote(Pid),
 }
 
-impl From<_ValidAction> for ValidAction {
-    fn from(value: _ValidAction) -> Self {
-        Self(value)
+impl std::fmt::Display for Action {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        use Action::*;
+        match self {
+            Vote(voter, ballot) => {
+                let b = match ballot {
+                    Some(Some(pid)) => pid.to_string(),
+                    Some(None) => "Nokill".to_string(),
+                    None => "None".to_string(),
+                };
+                write!(f, "Vote: {} -> {}", voter, b)
+            }
+            Reveal(actor) => write!(f, "Reveal: {}", actor),
+            Target(actor, choice) => {
+                let c = match choice {
+                    Some(pid) => pid.to_string(),
+                    None => "None".to_string(),
+                };
+                write!(f, "Target: {} -> {}", actor, c)
+            }
+            Scheme(killer, mark) => {
+                let c = match mark {
+                    Some(pid) => pid.to_string(),
+                    None => "None".to_string(),
+                };
+                write!(f, "Scheme: {} -> {}", killer, c)
+            }
+            EclipseVote(victim) => write!(f, "EclipseVote: {}", victim),
+        }
     }
 }
+
 impl State {
-    pub fn perform_action(&mut self, action: ValidAction, tx: &EventTx) -> ActionResp {
-        use _ValidAction::*;
-        match action.0 {
+    pub fn perform_action(&mut self, action: Action, tx: &EventTx) -> ActionResp {
+        use Action::*;
+        match action {
             Vote(voter, ballot) => self.vote(voter, ballot, tx),
             Target(actor, choice) => self.target(actor, choice, tx),
             Scheme(killer, mark) => self.scheme(killer, mark, tx),
@@ -179,7 +244,6 @@ impl State {
         let Phase::Day { elect, .. } = &mut self.phase else {
             panic!("Expected Day phase");
         };
-
         let n = self.players.n();
         if let Some((choice, hammer, time)) = elect {
             if vote_list.get(&choice).unwrap().len() < thresh(n, &choice) {
@@ -189,6 +253,7 @@ impl State {
         }
         if let Some(choice) = ballot {
             let voters = vote_list.get(&choice).unwrap();
+            println!("Checking election, {:?}, {:?}, {:?}", n, thresh(n, &choice), voters.len());
             if voters.len() >= thresh(n, &choice) {
                 let hammer = voter;
                 let time = Local::now() + ELECTION_DELAY;

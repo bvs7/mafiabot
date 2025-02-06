@@ -1,9 +1,8 @@
 use super::{phase::Votes, players::Players};
 use crate::prelude::*;
 
-pub const ELECTION_DELAY: Duration = Duration::from_secs(10);
-pub const DAWN_DELAY: Duration = Duration::from_secs(10);
-pub const TICK_DELAY: Duration = Duration::from_secs(1);
+pub const ELECTION_DELAY: Duration = Duration::from_secs(1);
+pub const DAWN_DELAY: Duration = Duration::from_secs(1);
 
 pub fn count_votes(votes: &Votes, players: &Players) -> HashMap<Choice, Vec<Pid>> {
     let mut vote_list: HashMap<Choice, Vec<Pid>> = HashMap::new();

@@ -1,4 +1,4 @@
-mod action;
+pub mod action;
 pub mod night_action;
 pub mod phase;
 pub mod players;
@@ -39,17 +39,13 @@ impl State {
     pub fn is_started(&self) -> bool {
         !matches!(self.phase, Phase::Init)
     }
+    pub fn is_ended(&self) -> bool {
+        matches!(self.phase, Phase::End { .. })
+    }
 
     pub fn players(&self) -> &Players {
         &self.players
     }
-}
-
-impl State {
-    // pub fn new(rules: Rules, event_tx: EventTx) -> Self {
-    //     Self { rules, event_tx }
-    // }
-
     pub fn start(&mut self, tx: &EventTx) {
         let _ = tx.send(Event2::Start { players: self.players.alive() });
         let n = self.players.n();

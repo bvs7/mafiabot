@@ -57,9 +57,9 @@ impl std::fmt::Display for GameId {
     }
 }
 
-type ActionMsg<P> = (Action<P>, oneshot::Sender<Result<(), Error>>);
-pub type ActionTx<P> = mpsc::Sender<ActionMsg<P>>;
-type ActionRx<P> = mpsc::Receiver<ActionMsg<P>>;
+// type ActionMsg<P> = (Action<P>, oneshot::Sender<Result<(), Error>>);
+// pub type ActionTx<P> = mpsc::Sender<ActionMsg<P>>;
+// type ActionRx<P> = mpsc::Receiver<ActionMsg<P>>;
 pub type EventRx = mpsc::UnboundedReceiver<Event2>;
 type StatusTx = watch::Sender<State>;
 pub type StatusRx = watch::Receiver<State>;

@@ -18,6 +18,7 @@ pub enum Act {
 }
 
 impl Act {
+    /// Higher priority is earlier
     fn priority(&self) -> i32 {
         use Act::*;
         match self {
@@ -80,7 +81,8 @@ impl NightAct {
 
         // Compare enums, prioritized by order of NightAction
         // (shuffle before to ensure no ordering to things like milking)
-        night_actions.shuffle(&mut rand::thread_rng());
+        // night_actions.shuffle(&mut rand::thread_rng()); Now that targets are a vec, no need to shuffle
+        // It will just be done in the order people got here...
         night_actions.sort_by(|a, b| b.act.priority().cmp(&a.act.priority()));
 
         for i in 0..night_actions.len() {

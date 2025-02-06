@@ -3,13 +3,11 @@ use crate::prelude::*;
 use super::night_action::{Act, NightAct};
 
 // pub type Votes = HashMap<Pid, Option<Pid>>; // voter -> ballot
-pub type Votes = Vec<(Pid, Option<Pid>)>; // voter -> ballot
+pub type Votes = Vec<(Pid, Choice)>; // voter -> ballot
 pub type Blocks = HashMap<Pid, Vec<Pid>>; // blocked -> blockers
 
-pub type Targets = Vec<(Pid, Option<Pid>)>; // actor -> target
-
-// pub type Targets = Vec<Target>;
-// pub type Scheme = (Pid, Option<Pid>); // killer -> mark
+pub type Targets = HashMap<Pid, Choice>; // actor -> target
+pub type Scheme = Option<(Pid, Choice)>; // killer -> mark
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, EnumKind)]
 #[enum_kind(PhaseKind, derive(Serialize, Deserialize))]
@@ -24,6 +22,7 @@ pub enum Phase {
     },
     Night {
         targets: Targets, // actor -> target
+        scheme: Scheme,
         #[serde(skip_serializing_if = "Option::is_none")]
         dawn: Option<DateTime<Local>>,
     },

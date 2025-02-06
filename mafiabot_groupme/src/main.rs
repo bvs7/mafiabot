@@ -6,7 +6,7 @@ use std::collections::HashSet;
 
 use groupme::api;
 
-mod commands;
+// mod commands;
 mod controller;
 mod game;
 mod lobby;

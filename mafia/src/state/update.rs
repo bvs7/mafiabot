@@ -8,7 +8,7 @@ enum ElectionResult {}
 
 impl State {
     pub fn update(&mut self, tx: &EventTx) -> Option<DateTime<Local>> {
-        let result = match &self.phase {
+        match &self.phase {
             Phase::Day { elect: Some((_, _, time)), .. } if time < &Local::now() => {
                 self.election(tx);
                 None
@@ -20,8 +20,7 @@ impl State {
             Phase::Day { elect: Some((_, _, time)), .. }
             | Phase::Night { dawn: Some(time), .. } => Some(*time),
             _ => None,
-        };
-        return None;
+        }
     }
 
     pub fn context(&self) -> Context {
@@ -90,7 +89,7 @@ impl State {
 
     pub fn day(&mut self, blocks: Blocks, tx: &EventTx) {
         self.day += 1;
-        self.phase = Phase::Day { votes: HashMap::new(), blocks, elect: None };
+        self.phase = Phase::Day { votes: Vec::new(), blocks, elect: None };
         let players = self.players.alive();
         let _ = tx.send(Event2::Day { day: self.day, players });
     }
@@ -105,13 +104,17 @@ impl State {
         let counts = self.players.counts(Team::from);
         let n = self.players.alive().len();
         let n_maf = counts.get(&Team::Mafia).copied().unwrap_or(0);
-        if n_maf == 0 {
-            self.phase = Phase::End { winner: Team::Town };
-            return true;
+        let result = if n_maf == 0 {
+            Some(Team::Town)
         } else if n - n_maf <= n_maf {
-            self.phase = Phase::End { winner: Team::Mafia };
-            return true;
+            Some(Team::Mafia)
+        } else {
+            None
+        };
+        if let Some(winner) = result {
+            self.phase = Phase::End { winner };
+            let _ = tx.send(Event2::End { winner });
         }
-        false
+        result.is_some()
     }
 }
