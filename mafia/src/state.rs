@@ -43,10 +43,6 @@ impl State {
         matches!(self.phase, Phase::End { .. })
     }
 
-    pub fn phase(&self) -> &Phase {
-        &self.phase
-    }
-
     pub fn players(&self) -> &Players {
         &self.players
     }
