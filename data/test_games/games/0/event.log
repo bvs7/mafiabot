@@ -1,0 +1,32 @@
+Start: [(Pid(1), TOWN), (Pid(2), TOWN), (Pid(3), MAFIA)]
+Day 1: [(Pid(1), TOWN), (Pid(2), TOWN), (Pid(3), MAFIA)]
+Start: [(Pid(1), TOWN), (Pid(2), TOWN), (Pid(3), MAFIA)]
+Day 1: [(Pid(1), TOWN), (Pid(2), TOWN), (Pid(3), MAFIA)]
+Election: None 2 {Some(Pid(2)): [], Some(Pid(1)): [], Some(Pid(3)): [], None: [Pid(1), Pid(2)]}
+Night 1: [(Pid(1), TOWN), (Pid(2), TOWN), (Pid(3), MAFIA)]
+Dawn: []
+NoKill
+Day 2: [(Pid(1), TOWN), (Pid(2), TOWN), (Pid(3), MAFIA)]
+Election: 3 2 {Some(Pid(1)): [], Some(Pid(3)): [Pid(1), Pid(2)], Some(Pid(2)): [], None: []}
+Eliminate: 3 MAFIA
+End: Town
+Start: [(Pid(1), TOWN), (Pid(2), TOWN), (Pid(3), MAFIA)]
+Day 1: [(Pid(1), TOWN), (Pid(2), TOWN), (Pid(3), MAFIA)]
+Election: None 2 {None: [Pid(1), Pid(2)], Some(Pid(2)): [], Some(Pid(3)): [], Some(Pid(1)): []}
+Night 1: [(Pid(1), TOWN), (Pid(2), TOWN), (Pid(3), MAFIA)]
+Dawn: []
+NoKill
+Day 2: [(Pid(1), TOWN), (Pid(2), TOWN), (Pid(3), MAFIA)]
+Election: 3 2 {Some(Pid(2)): [], Some(Pid(3)): [Pid(1), Pid(2)], Some(Pid(1)): [], None: []}
+Eliminate: 3 MAFIA
+End: Town
+Start: [(Pid(1), TOWN), (Pid(2), TOWN), (Pid(3), MAFIA)]
+Day 1: [(Pid(1), TOWN), (Pid(2), TOWN), (Pid(3), MAFIA)]
+Election: None 2 {Some(Pid(2)): [], Some(Pid(3)): [], Some(Pid(1)): [], None: [Pid(1), Pid(2)]}
+Night 1: [(Pid(1), TOWN), (Pid(2), TOWN), (Pid(3), MAFIA)]
+Dawn: []
+NoKill
+Day 2: [(Pid(1), TOWN), (Pid(2), TOWN), (Pid(3), MAFIA)]
+Election: 3 2 {None: [], Some(Pid(3)): [Pid(1), Pid(2)], Some(Pid(2)): [], Some(Pid(1)): []}
+Eliminate: 3 MAFIA
+End: Town

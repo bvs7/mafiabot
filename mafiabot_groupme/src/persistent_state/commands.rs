@@ -1,11 +1,12 @@
-use mafia::state::action::Command as GameCommand;
+// use mafia::state::action::Command as GameCommand;
+use super::controller::Command as GameCommand;
 
 use crate::prelude::*;
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub enum Command {
     Lobby(GroupId, LobbyCommand),
-    Game(GameId, GameCommand<W<UserId>>),
+    Game(GameId, GameCommand),
     App(UserId, AppCommand),
     Admin(UserId, AdminCommand),
 }

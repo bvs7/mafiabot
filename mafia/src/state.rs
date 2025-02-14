@@ -24,8 +24,8 @@ pub struct StateProc {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct State {
-    day: u32,
-    phase: Phase,
+    pub day: u32,
+    pub phase: Phase,
     players: Players,
     // #[serde(skip)]
     // action_rx: mpsc::Receiver<(Action, oneshot::Sender<Result<(), Error>>)>,
@@ -41,6 +41,10 @@ impl State {
     }
     pub fn is_ended(&self) -> bool {
         matches!(self.phase, Phase::End { .. })
+    }
+
+    pub fn phase(&self) -> &Phase {
+        &self.phase
     }
 
     pub fn players(&self) -> &Players {

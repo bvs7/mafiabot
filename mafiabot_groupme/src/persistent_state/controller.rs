@@ -7,9 +7,9 @@ use std::{
 
 use chrono::{DateTime, Local};
 use mafia::{
-    game::{self, Event2, GameId},
+    game::{self, Error as GameError, Event2, GameId},
     state::{
-        action::{Action, ActionResp, Validated},
+        action::{ActionResp, ValidAction, Validated},
         players, StateProc,
     },
 };
@@ -24,19 +24,14 @@ use tokio::{
 
 use crate::prelude::*;
 
-use mafia::state::action::Command as GameCommand;
+use mafia::state::action::Action;
 
-// TODO: flesh out Game and GameHandle?
-/*
-// Creating or loading a game should return a GameInfo with a running Game under the hood
-// Games can be created either...
-// A new game, from Members, rules, lobby_id, and base_path. Maybe this should be done from Controller?
-// Automatically starting the game seems fine... but let's just not for now.
+#[derive(Debug)]
+pub enum Command {
+    Action(Action<W<UserId>>, Resp<Result<ActionResp, GameError>>),
+    Status(Resp<State>),
+}
 
-// Or from a dir. Which has state.json and game_group_ids.json, (and later event.log and other things?)
-// Does state need rules? If not that could be another file maybe...
-
-*/
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct GameGroupIds {
     main: GroupId,
@@ -44,10 +39,8 @@ struct GameGroupIds {
     lobby: GroupId,
 }
 
-type GameResp = Resp<Result<ActionResp, GameError>>;
-
-type GameTx = mpsc::Sender<(GameCommand<W<UserId>>, GameResp)>;
-type GameRx = mpsc::Receiver<(GameCommand<W<UserId>>, GameResp)>;
+type GameTx = mpsc::Sender<Command>;
+type GameRx = mpsc::Receiver<Command>;
 
 #[derive(Debug)]
 struct GameHandle {
@@ -180,28 +173,27 @@ impl Game {
         let mut deadline = self.state.update(&event_tx);
         self.save_state(&base_path).await.unwrap();
         self.handle_events(&mut event_rx, &base_path).await;
-        while !self.state.is_ended() {
+        loop {
             let dur = Self::dur_until(deadline);
             match tokio::time::timeout(dur, game_rx.recv()).await {
-                Ok(Some((cmd, tx))) => {
-                    let resp = match self.state.validate_command(cmd) {
-                        Ok(Validated::Action(action)) => {
-                            self.log_action(&action, &base_path).await.unwrap();
-                            Ok(self.state.perform_action(action, &event_tx))
+                Ok(Some(Command::Action(action, resp))) => {
+                    let _ = resp.send(match self.state.validate_action(action) {
+                        Ok(va) => {
+                            self.log_action(&va, &base_path).await.unwrap();
+                            Ok(self.state.perform_action(va, &event_tx))
                         }
-                        Ok(Validated::Resp(resp)) => Ok(resp),
-                        Err(err) => {
-                            let _ = tx.send(Err(err));
-                            continue;
-                        }
-                    };
-                    let _ = tx.send(resp);
+                        Err(err) => Err(err),
+                    });
+                }
+                Ok(Some(Command::Status(resp))) => {
+                    let status = self.state.clone();
+                    let _ = resp.send(status);
                 }
                 Ok(None) => break, // Channel closed, end game
                 Err(_) => {
                     // Timeout, continue to update
                     info!("Timeout");
-                } // Timeout, continue to update
+                }
             }
 
             deadline = self.state.update(&event_tx);
@@ -219,10 +211,11 @@ impl Game {
         }
     }
 
-    async fn log_action(&self, action: &Action, base_path: impl AsRef<Path>) -> Result<()> {
+    async fn log_action(&self, action: &ValidAction, base_path: impl AsRef<Path>) -> Result<()> {
         let action_path = self.game_dir(base_path).join("action.log");
         let mut file = OpenOptions::new().append(true).create(true).open(action_path).await?;
-        let s = format!("{}\n", action);
+        // let s = format!("{}\n", action);
+        let s = serde_json::to_string(action)?;
         file.write_all(s.as_bytes()).await?;
         Ok(())
     }
@@ -262,9 +255,17 @@ impl Game {
 }
 
 impl GameHandle {
-    pub async fn send(&self, cmd: GameCommand<W<UserId>>) -> Result<ActionResp, GameError> {
+    pub async fn send_action(&self, action: Action<W<UserId>>) -> Result<ActionResp, GameError> {
         let (tx, rx) = oneshot::channel();
-        self.game_tx.send((cmd, tx)).await.unwrap();
+        let cmd = Command::Action(action, tx);
+        self.game_tx.send(cmd).await.unwrap();
+        rx.await.unwrap()
+    }
+
+    pub async fn get_status(&self) -> State {
+        let (tx, rx) = oneshot::channel();
+        let cmd = Command::Status(tx);
+        self.game_tx.send(cmd).await.unwrap();
         rx.await.unwrap()
     }
 }
@@ -306,9 +307,16 @@ impl Controller {
 #[cfg(test)]
 mod tests {
 
-    use mafia::rolegen::RoleGenConfig;
+    use mafia::{
+        rolegen::{self, DebugRoleGenConfig, RoleGenConfig},
+        state::phase::Phase,
+    };
 
     use super::*;
+
+    fn base_path() -> PathBuf {
+        PathBuf::from("../data/test_games")
+    }
 
     #[tokio::test]
     async fn save_and_load() {
@@ -341,20 +349,79 @@ mod tests {
         let game_path = base_path.join("games").join("0");
         let game = Game::load(&game_path).await.unwrap();
         let game_handle = Game::start(game, base_path.clone());
-        let r = game_handle
-            .send(GameCommand::Vote { voter: W(UserId(1)), ballot: Some(Some(W(UserId(2)))) })
-            .await;
-
-        let r = game_handle
-            .send(GameCommand::Vote { voter: W(UserId(3)), ballot: Some(Some(W(UserId(2)))) })
-            .await;
+        let v1 = Action::Vote { voter: W(UserId(1)), ballot: Some(Some(W(UserId(2)))) };
+        let v2 = Action::Vote { voter: W(UserId(3)), ballot: Some(Some(W(UserId(2)))) };
+        game_handle.send_action(v1).await.unwrap();
+        game_handle.send_action(v2).await.unwrap();
 
         tokio::time::sleep(Duration::from_millis(2000)).await;
-
-        game_handle.handle.abort();
 
         // let game = Game::load(&game_path).await.unwrap();
         // let game_handle = Game::start(game, base_path.clone());
         // tokio::time::sleep(Duration::from_millis(2000)).await;
+    }
+
+    #[tokio::test]
+    async fn basic_game() {
+        let game_group_ids =
+            GameGroupIds { main: GroupId(0), mafia: GroupId(1), lobby: GroupId(2) };
+        let rolegen = RoleGenConfig::Debug(DebugRoleGenConfig::new(vec![
+            Role::TOWN,
+            Role::TOWN,
+            Role::MAFIA,
+        ]));
+        let mut rules = Rules::default();
+        rules.debug = Some(10);
+        let state = State::new([1, 2, 3], rolegen);
+        let game = Game::new(GameId::from(0), game_group_ids, state, rules);
+
+        let handle = game.start(base_path());
+
+        handle
+            .send_action(Action::Vote { voter: W(UserId(1)), ballot: Some(Some(W(UserId(2)))) })
+            .await
+            .unwrap();
+        handle.send_action(Action::Vote { voter: W(UserId(1)), ballot: Some(None) }).await.unwrap();
+        handle.send_action(Action::Vote { voter: W(UserId(2)), ballot: Some(None) }).await.unwrap();
+
+        let state = handle.get_status().await;
+        assert!(matches!(state.phase, Phase::Day { .. }));
+        tokio::time::sleep(Duration::from_secs(2)).await;
+
+        let state = handle.get_status().await;
+        assert!(matches!(state.phase, Phase::Night { .. }));
+
+        handle.send_action(Action::Scheme { killer: W(UserId(3)), mark: None }).await.unwrap();
+
+        let state = handle.get_status().await;
+        assert!(matches!(state.phase, Phase::Night { .. }));
+
+        tokio::time::sleep(Duration::from_secs(2)).await;
+
+        let state = handle.get_status().await;
+        assert!(matches!(state.phase, Phase::Day { .. }));
+
+        handle.send_action(Action::Vote { voter: W(UserId(1)), ballot: Some(None) }).await.unwrap();
+        handle.send_action(Action::Vote { voter: W(UserId(2)), ballot: Some(None) }).await.unwrap();
+        handle.send_action(Action::Vote { voter: W(UserId(1)), ballot: None }).await.unwrap();
+
+        tokio::time::sleep(Duration::from_secs(2)).await;
+
+        let state = handle.get_status().await;
+        assert!(matches!(state.phase, Phase::Day { .. }));
+
+        handle
+            .send_action(Action::Vote { voter: W(UserId(1)), ballot: Some(Some(W(UserId(3)))) })
+            .await
+            .unwrap();
+        handle
+            .send_action(Action::Vote { voter: W(UserId(2)), ballot: Some(Some(W(UserId(3)))) })
+            .await
+            .unwrap();
+
+        tokio::time::sleep(Duration::from_secs(2)).await;
+
+        let state = handle.get_status().await;
+        assert!(state.is_ended());
     }
 }
